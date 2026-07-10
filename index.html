@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0b0d18" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="A fast color-reaction proof of concept." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>SpeedyTapper Lab</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="hud" aria-label="Game status">
+        <div class="stat">
+          <span class="stat__label">Points</span>
+          <strong class="stat__value" id="points">0</strong>
+        </div>
+        <div class="stat">
+          <span class="stat__label">High score</span>
+          <strong class="stat__value" id="high-score">0</strong>
+        </div>
+        <div class="stat stat--color">
+          <span class="stat__label">Your color</span>
+          <strong class="stat__value color-value">
+            <span class="color-swatch" id="color-swatch" aria-hidden="true"></span>
+            <span id="color-name">—</span>
+          </strong>
+        </div>
+        <div class="stat">
+          <span class="stat__label">Lives</span>
+          <strong class="stat__value lives" id="lives" aria-label="3 lives">♥♥♥</strong>
+        </div>
+      </header>
+
+      <main class="game">
+        <div class="phase-row">
+          <span class="phase" id="phase">Warm-up</span>
+          <span class="instruction" id="instruction">Wait for your color</span>
+        </div>
+
+        <div class="board-shell">
+          <div class="board" id="board" role="group" aria-label="Reaction grid"></div>
+          <div class="feedback" id="feedback" aria-live="polite"></div>
+        </div>
+
+        <p class="hint" id="hint">The timer is hidden. React as soon as a cell lights up.</p>
+      </main>
+    </div>
+
+    <div class="overlay" id="overlay">
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <p class="eyebrow">Mechanics prototype</p>
+        <h1 id="dialog-title">SpeedyTapper Lab</h1>
+        <p class="dialog__lead" id="dialog-message">
+          Tap the cell matching <strong>Your color</strong>. Fast reactions score more. A wrong tap or a late response costs one life.
+        </p>
+        <ol class="rules">
+          <li>The board grows from 1 to 4 to 16 cells.</li>
+          <li>After 10 seconds, your color changes and decoys appear.</li>
+          <li>The response window shrinks as your score run continues.</li>
+        </ol>
+        <button class="primary-button" id="start-button" type="button">Start game</button>
+        <button class="secondary-button" id="install-button" type="button" hidden>Install app</button>
+        <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
+      </section>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
