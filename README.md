@@ -2,6 +2,8 @@
 
 An installable, offline-capable browser prototype for testing the core reaction loop before choosing a visual setting or production engine.
 
+Production: <https://speedytapper.vercel.app>
+
 ## Play locally
 
 Requirements: Node.js 20 or newer.
@@ -18,7 +20,17 @@ To test on an iPhone on the same Wi-Fi network:
 2. Keep `npm run dev` running.
 3. In iPhone Safari, open `http://MAC_IP:4173`.
 
-For a fully installable/offline iPhone version, serve the repository over HTTPS (for example with GitHub Pages), open it in Safari, use **Share**, and select **Add to Home Screen**. The app includes a web manifest, icons, safe-area support, standalone mode, and a service worker.
+For a fully installable/offline iPhone version, open the HTTPS production URL in Safari, use **Share**, and select **Add to Home Screen**. The app includes a web manifest, icons, safe-area support, standalone mode, and a service worker.
+
+## Deploy to Vercel
+
+The local directory is linked to the `speedytapper` project in Vercel. Deploy the committed version to production with:
+
+```bash
+vercel deploy --prod
+```
+
+The configuration in [`vercel.json`](./vercel.json) keeps the service worker and manifest revalidated so installed devices discover updates promptly.
 
 ## Current rules
 
