@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES } from "./config.js";
-import { GameEngine, GAME_STATES, ROUND_KINDS } from "./game-engine.js";
+import { COLORS, GAME_MODES } from "./config.js?v=20260710-2";
+import { GameEngine, GAME_STATES, ROUND_KINDS } from "./game-engine.js?v=20260710-2";
 
 const LEGACY_HIGH_SCORE_KEY = "speedytapper.highScore.v1";
 const HIGH_SCORE_KEYS = Object.freeze({
@@ -34,6 +34,8 @@ const elements = {
   playerName: document.querySelector("#player-name"),
   points: document.querySelector("#points"),
   rules: document.querySelector("#rules"),
+  resultDuration: document.querySelector("#result-duration"),
+  resultDurationValue: document.querySelector("#result-duration-value"),
   scoreForm: document.querySelector("#score-form"),
   scoreStatus: document.querySelector("#score-status"),
   scoreSubmit: document.querySelector("#score-submit"),
@@ -134,7 +136,7 @@ function startGame(mode) {
   engine.start(startedAt, mode);
   resetResultUi();
   elements.overlay.hidden = true;
-  elements.dialogTitle.textContent = "SpeedyTapper Lab";
+  elements.dialogTitle.textContent = "Ready to react?";
   render();
 
   clockTimer = window.setInterval(() => renderHud(engine.getSnapshot(now())), 100);
@@ -248,10 +250,11 @@ function finishGame(snapshot, currentSession) {
   const isZen = snapshot.mode === GAME_MODES.ZEN;
   elements.dialogTitle.textContent = isZen ? "Minute complete" : "Run complete";
   const completionReason = isZen ? "The one-minute timer ended." : "All three lives were used.";
-  const survivalCopy = isZen
-    ? ""
-    : ` You survived <strong>${formatDuration(snapshot.elapsedMs, true)}</strong>.`;
-  elements.dialogMessage.innerHTML = `${completionReason}${survivalCopy} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
+  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
+  elements.resultDuration.hidden = isZen;
+  if (!isZen) {
+    elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
+  }
   pendingResult = {
     mode: snapshot.mode,
     score: snapshot.points,
@@ -265,10 +268,11 @@ function finishGame(snapshot, currentSession) {
   elements.playerName.value = readPlayerName();
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
-  setScoreStatus("Enter your name to save this result in the Top 20.");
+  setScoreStatus("Enter your name to submit this run to the Top 20.");
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
       elements.overlay.hidden = false;
+      elements.scoreForm.scrollIntoView({ block: "nearest" });
       elements.playerName.focus({ preventScroll: true });
     }
   }, 400);
@@ -277,6 +281,7 @@ function finishGame(snapshot, currentSession) {
 function resetResultUi() {
   pendingResult = null;
   elements.rules.hidden = false;
+  elements.resultDuration.hidden = true;
   elements.scoreForm.hidden = true;
   elements.playerName.disabled = false;
   elements.scoreSubmit.disabled = false;
@@ -307,14 +312,17 @@ function selectLeaderboardMode(mode) {
 function openLeaderboard() {
   elements.leaderboardPanel.hidden = false;
   elements.leaderboardToggle.setAttribute("aria-expanded", "true");
-  elements.leaderboardToggle.textContent = "Hide Top 20";
+  elements.leaderboardToggle.textContent = "Close board";
+  window.requestAnimationFrame(() => {
+    elements.leaderboardPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
 }
 
 function closeLeaderboard() {
   leaderboardRequestId += 1;
   elements.leaderboardPanel.hidden = true;
   elements.leaderboardToggle.setAttribute("aria-expanded", "false");
-  elements.leaderboardToggle.textContent = "View Top 20";
+  elements.leaderboardToggle.textContent = "Leaderboard";
 }
 
 function renderLeaderboard(entries, mode) {
@@ -593,14 +601,6 @@ for (const tab of elements.leaderboardTabs) {
   tab.addEventListener("click", () => loadLeaderboard(tab.dataset.leaderboardMode));
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {
-      // Offline support is optional during local development.
-    });
-  });
-}
 
 engine.reset();
 render();

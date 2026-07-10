@@ -30,7 +30,7 @@ The local directory is linked to the `speedytapper` project in Vercel. The share
 vercel deploy --prod
 ```
 
-The configuration in [`vercel.json`](./vercel.json) keeps the service worker and manifest revalidated so installed devices discover updates promptly.
+The HTML, stylesheet, and JavaScript module graph share one release version. The service worker bypasses the browser HTTP cache, removes older app caches, and performs a one-time reload when an installed iPhone switches releases. [`vercel.json`](./vercel.json) also keeps the app shell revalidated.
 
 ## Current rules
 
@@ -44,8 +44,8 @@ The configuration in [`vercel.json`](./vercel.json) keeps the service worker and
 - 20–30 seconds: lifetime eases gradually from 1,000 ms to 750 ms.
 - 30–40 seconds: a second simultaneous color appears in only about 10% of rounds.
 - At 40 seconds the board becomes 4×4 and resets to 1,000 ms with no simultaneous decoys.
-- At 50 seconds rare decoys return; lifetime then falls by only 10 ms per correct tap, to a 200 ms floor.
-- After that, every fifteen successful taps adds another possible decoy, raises the chance of a mixed round, and gently reduces the quiet interval, up to six decoys.
+- At 50 seconds decoys return on 20% of rounds; lifetime then falls by only 10 ms per correct tap, to a 200 ms floor.
+- Mixed-round pressure rises by 1.5 percentage points per successful tap. Every ten successful taps adds another possible decoy and gently reduces the quiet interval, up to six decoys and an 80% mixed-round ceiling.
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
 - Normal and Zen high scores are stored separately in the browser.

@@ -37,13 +37,13 @@ export const GAME_CONFIG = Object.freeze({
     rarePhaseMixedDecoy: 0.1,
     fourByFourWrongColor: 0.25,
     fourByFourChallengeWrongColor: 0.2,
-    fourByFourChallengeMixedDecoy: 0.1
+    fourByFourChallengeMixedDecoy: 0.2
   }),
   endlessDifficulty: Object.freeze({
-    hitsPerTier: 15,
+    hitsPerTier: 10,
     maximumDecoys: 6,
-    mixedChanceIncreasePerTier: 0.1,
-    maximumMixedDecoyChance: 0.75,
+    mixedChanceIncreasePerHit: 0.015,
+    maximumMixedDecoyChance: 0.8,
     wrongColorDecreasePerTier: 0.02,
     minimumWrongColorChance: 0.06,
     spawnMinimumDecreasePerTierMs: 15,

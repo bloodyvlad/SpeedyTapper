@@ -9,12 +9,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
-    <meta name="description" content="A fast color-reaction proof of concept." />
-    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260710-2" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css" />
-    <title>SpeedyTapper Lab</title>
+    <link rel="stylesheet" href="./styles.css?v=20260710-2" />
+    <title>SpeedyTapper</title>
   </head>
   <body>
     <div id="app">
@@ -69,11 +69,18 @@
 
     <div class="overlay" id="overlay">
       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <p class="eyebrow">Mechanics prototype</p>
-        <h1 id="dialog-title">SpeedyTapper Lab</h1>
+        <div class="brand-logo" aria-label="SpeedyTapper">
+          <span class="brand-logo__speedy">Speedy</span><span class="brand-logo__tapper">Tapper</span>
+          <span class="brand-logo__pulse" aria-hidden="true"></span>
+        </div>
+        <h1 id="dialog-title">Ready to react?</h1>
         <p class="dialog__lead" id="dialog-message">
           Tap only the large <strong>Your color</strong> shown above the board. Fast reactions score more.
         </p>
+        <div class="result-duration" id="result-duration" hidden>
+          <span>Time survived</span>
+          <strong id="result-duration-value">0:00.0</strong>
+        </div>
         <ol class="rules" id="rules">
           <li>The board grows from 1 to 4 to 16 cells.</li>
           <li>Let lone wrong colors disappear without tapping.</li>
@@ -81,7 +88,7 @@
         </ol>
         <form class="score-form" id="score-form" hidden>
           <div class="section-heading">
-            <h2>Join the leaderboard</h2>
+            <h2>Save your run</h2>
             <span>Top 20</span>
           </div>
           <label for="player-name">Player name</label>
@@ -100,19 +107,19 @@
           </div>
           <p class="form-status" id="score-status" aria-live="polite"></p>
         </form>
-        <div class="mode-actions">
-          <button class="primary-button" id="normal-button" type="button">Normal Mode</button>
+        <div class="mode-actions" aria-label="Game and leaderboard actions">
+          <button class="primary-button" id="normal-button" type="button">Normal</button>
           <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
+          <button
+            class="secondary-button leaderboard-toggle"
+            id="leaderboard-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="leaderboard-panel"
+          >
+            Leaderboard
+          </button>
         </div>
-        <button
-          class="leaderboard-toggle"
-          id="leaderboard-toggle"
-          type="button"
-          aria-expanded="false"
-          aria-controls="leaderboard-panel"
-        >
-          View Top 20
-        </button>
         <section class="leaderboard-panel" id="leaderboard-panel" hidden>
           <div class="section-heading">
             <h2>Leaderboard</h2>
@@ -124,13 +131,45 @@
           </div>
           <p class="leaderboard-status" id="leaderboard-status" aria-live="polite">Loading scores…</p>
           <ol class="leaderboard-list" id="leaderboard-list"></ol>
-          <p class="leaderboard-note">Prototype board — scores are not anti-cheat verified.</p>
+          <p class="leaderboard-note">Scores are not anti-cheat verified yet.</p>
         </section>
         <button class="install-button" id="install-button" type="button" hidden>Install app</button>
         <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
       </section>
     </div>
 
-    <script type="module" src="./src/main.js"></script>
+    <script>
+      (() => {
+        const buildId = "20260710-2";
+        if (!("serviceWorker" in navigator)) return;
+
+        const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (!replaceExistingWorker || refreshing) return;
+          const reloadKey = `speedytapper-worker-reload-${buildId}`;
+          try {
+            if (sessionStorage.getItem(reloadKey) === "1") return;
+            sessionStorage.setItem(reloadKey, "1");
+          } catch {
+            // A reload is still safe when session storage is unavailable.
+          }
+          refreshing = true;
+          window.location.reload();
+        });
+
+        window.addEventListener("load", async () => {
+          try {
+            const registration = await navigator.serviceWorker.register(`./sw.js?v=${buildId}`, {
+              updateViaCache: "none"
+            });
+            await registration.update();
+          } catch {
+            // The online game remains playable if installation support is unavailable.
+          }
+        });
+      })();
+    </script>
+    <script type="module" src="./src/main.js?v=20260710-2"></script>
   </body>
 </html>

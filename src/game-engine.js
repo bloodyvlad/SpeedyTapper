@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260710-2";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -139,7 +139,7 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     mixedDecoyChance = Math.min(
       endless.maximumMixedDecoyChance,
       chances.fourByFourChallengeMixedDecoy +
-        challengeTier * endless.mixedChanceIncreasePerTier
+        challengeHits * endless.mixedChanceIncreasePerHit
     );
     decoyCount = Math.min(endless.maximumDecoys, 1 + challengeTier);
   }
@@ -256,9 +256,13 @@ export class GameEngine {
     const cells = Array.from({ length: cellCount }, () => ({ ...EMPTY_CELL }));
     let roundKind = ROUND_KINDS.TARGET;
 
-    if (difficulty.wrongOnlyChance > 0 && this.random() < difficulty.wrongOnlyChance) {
+    const roundKindRoll = this.random();
+    if (difficulty.wrongOnlyChance > 0 && roundKindRoll < difficulty.wrongOnlyChance) {
       roundKind = ROUND_KINDS.WRONG_ONLY;
-    } else if (difficulty.mixedDecoyChance > 0 && this.random() < difficulty.mixedDecoyChance) {
+    } else if (
+      difficulty.mixedDecoyChance > 0 &&
+      roundKindRoll < difficulty.wrongOnlyChance + difficulty.mixedDecoyChance
+    ) {
       roundKind = ROUND_KINDS.MIXED;
     }
 

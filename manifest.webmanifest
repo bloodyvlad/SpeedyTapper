@@ -1,7 +1,7 @@
 {
-  "name": "SpeedyTapper Lab",
+  "name": "SpeedyTapper",
   "short_name": "SpeedyTapper",
-  "description": "An installable proof of concept for a fast color-reaction game.",
+  "description": "A fast color-reaction game for short, increasingly intense runs.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

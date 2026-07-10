@@ -86,7 +86,7 @@ test("the gentle phase moves gradually from 1000 ms to 750 ms", () => {
 });
 
 test("a rare mixed round has only one adjacent decoy", () => {
-  const random = sequenceRandom([0.2, 0.9, 0.05, 0.5]);
+  const random = sequenceRandom([0.2, 0.3, 0.5]);
   const engine = makeEngine(random);
   engine.start(0);
   engine.hits = 4;
@@ -110,6 +110,19 @@ test("the switch to 16 cells resets lifetime to 1000 ms and removes mixed decoys
   assert.equal(difficulty.mixedDecoyChance, 0);
 });
 
+test("configured round chances are absolute rather than reduced by a second random roll", () => {
+  const activateWithRoll = (roundKindRoll) => {
+    const engine = makeEngine(sequenceRandom([0.2, roundKindRoll, 0.5]));
+    engine.start(0);
+    engine.hits = 4;
+    return engine.activateRound(35_000).snapshot.roundKind;
+  };
+
+  assert.equal(activateWithRoll(0.1), ROUND_KINDS.WRONG_ONLY);
+  assert.equal(activateWithRoll(0.3), ROUND_KINDS.MIXED);
+  assert.equal(activateWithRoll(0.9), ROUND_KINDS.TARGET);
+});
+
 test("the 16-cell challenge decreases lifetime by only 10 ms per successful tap", () => {
   assert.equal(resolveDifficulty(20, 50_000, 0).responseWindowMs, 1_000);
   assert.equal(resolveDifficulty(21, 50_000, 1).responseWindowMs, 990);
@@ -119,28 +132,36 @@ test("the 16-cell challenge decreases lifetime by only 10 ms per successful tap"
   assert.equal(resolveDifficulty(500, 90_000, 500).responseWindowMs, 200);
 });
 
-test("the endless challenge adds decoys and mixed-round pressure in gradual tiers", () => {
+test("the endless challenge adds visible decoy pressure after the gentle reset", () => {
   const start = resolveDifficulty(20, 50_000, 0);
-  const tierOne = resolveDifficulty(35, 55_000, 15);
-  const tierThree = resolveDifficulty(65, 70_000, 45);
-  const capped = resolveDifficulty(200, 150_000, 120);
+  const fiveHits = resolveDifficulty(25, 55_000, 5);
+  const tenHits = resolveDifficulty(30, 60_000, 10);
+  const twentyHits = resolveDifficulty(40, 70_000, 20);
+  const fortyHits = resolveDifficulty(60, 90_000, 40);
+  const capped = resolveDifficulty(70, 100_000, 50);
 
   assert.equal(start.decoyCount, 1);
-  assert.equal(start.mixedDecoyChance, 0.1);
-  assert.equal(tierOne.decoyCount, 2);
-  assert.equal(tierOne.mixedDecoyChance, 0.2);
-  assert.equal(tierThree.decoyCount, 4);
-  assert.equal(tierThree.mixedDecoyChance, 0.4);
+  assert.equal(start.mixedDecoyChance, 0.2);
+  assert.equal(fiveHits.responseWindowMs, 950);
+  assert.equal(fiveHits.mixedDecoyChance, 0.275);
+  assert.equal(tenHits.decoyCount, 2);
+  assert.equal(tenHits.responseWindowMs, 900);
+  assert.equal(tenHits.mixedDecoyChance, 0.35);
+  assert.equal(twentyHits.decoyCount, 3);
+  assert.equal(twentyHits.responseWindowMs, 800);
+  assert.equal(twentyHits.mixedDecoyChance, 0.5);
+  assert.equal(fortyHits.decoyCount, 5);
+  assert.equal(fortyHits.mixedDecoyChance, 0.8);
   assert.equal(capped.decoyCount, 6);
-  assert.equal(capped.mixedDecoyChance, 0.75);
+  assert.equal(capped.mixedDecoyChance, 0.8);
   assert.ok(capped.spawnDelayRangeMs[0] < start.spawnDelayRangeMs[0]);
 });
 
 test("higher challenge tiers can place several decoys around one correct target", () => {
-  const random = sequenceRandom([0.2, 0.9, 0, 0.5]);
+  const random = sequenceRandom([0.2, 0.2, 0.5]);
   const engine = makeEngine(random);
   engine.start(0);
-  engine.hits = 30;
+  engine.hits = 20;
   engine.challengeStartHits = 0;
 
   const active = engine.activateRound(60_000);
