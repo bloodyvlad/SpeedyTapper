@@ -34,16 +34,18 @@ The configuration in [`vercel.json`](./vercel.json) keeps the service worker and
 
 ## Current rules
 
-- Three lives; wrong taps and expired targets each cost one life.
-- A random quiet interval precedes every target.
+- **Normal Mode** has three lives. Wrong taps and expired correct targets each cost one life.
+- **1-min Zen** ends after sixty seconds; mistakes are counted but lives are never removed.
+- A random quiet interval precedes every colored cell.
 - Correct taps award 100–1,000 points based on reaction time.
-- The first four successful taps use one full-screen cell.
-- Hits 4–11 use a 2×2 grid.
-- Hit 12 onward uses a 4×4 grid.
-- For the first ten seconds, the player color remains fixed and no decoys appear.
-- After ten seconds, the player color changes after every correct tap and adjacent decoys appear.
-- Response windows progress through 1,000, 500, 300, 250, 200, 150, and 100 ms.
-- High score is kept locally in the browser.
+- The first four successful taps use one full-screen cell, then the board becomes 2×2.
+- 0–10 seconds: one fixed player color, no wrong colors, and a 1,000 ms lifetime.
+- 10–20 seconds: lone wrong colors appear and must be ignored for 1,000 ms.
+- 20–30 seconds: lifetime eases gradually from 1,000 ms to 750 ms.
+- 30–40 seconds: a second simultaneous color appears in only about 10% of rounds.
+- At 40 seconds the board becomes 4×4 and resets to 1,000 ms with no simultaneous decoys.
+- At 50 seconds rare decoys return; lifetime then falls by only 10 ms per correct tap, to a 400 ms floor.
+- Normal and Zen high scores are stored separately in the browser.
 - Moving the app into the background safely stops the current run.
 
 All balancing values are centralized in [`src/config.js`](./src/config.js).
@@ -54,7 +56,7 @@ All balancing values are centralized in [`src/config.js`](./src/config.js).
 npm run check
 ```
 
-The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, color changes, adjacent decoys, life loss, game over, and the minimum response window.
+The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, lone wrong colors, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing.
 
 ## Why a small PWA
 

@@ -1,117 +1,187 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { GAME_CONFIG } from "../src/config.js";
+import { GAME_CONFIG, GAME_MODES } from "../src/config.js";
 import {
   GameEngine,
   GAME_STATES,
+  ROUND_KINDS,
   orthogonalNeighbors,
   resolveDifficulty,
   scoreReaction
 } from "../src/game-engine.js";
 
-function makeEngine() {
-  return new GameEngine({ random: () => 0 });
+function makeEngine(random = () => 0.99) {
+  return new GameEngine({ random });
+}
+
+function sequenceRandom(values, fallback = 0.99) {
+  let index = 0;
+  return () => values[index++] ?? fallback;
 }
 
 function hitRound(engine, activeAt, reactionMs = 50) {
   const active = engine.activateRound(activeAt);
   assert.equal(active.type, "round-active");
+  assert.notEqual(active.snapshot.targetIndex, null);
   return engine.tap(active.snapshot.targetIndex, activeAt + reactionMs);
 }
 
-test("warm-up begins with one cell, no decoys, and a 1000 ms response window", () => {
+test("warm-up begins with one cell, one target, and a 1000 ms lifetime", () => {
   const engine = makeEngine();
   engine.start(0);
   const result = engine.activateRound(100);
 
   assert.equal(result.snapshot.difficulty.gridDimension, 1);
   assert.equal(result.snapshot.difficulty.responseWindowMs, 1_000);
+  assert.equal(result.snapshot.roundKind, ROUND_KINDS.TARGET);
   assert.equal(result.snapshot.cells.filter((cell) => cell.kind === "target").length, 1);
-  assert.equal(result.snapshot.cells.filter((cell) => cell.kind === "decoy").length, 0);
 });
 
-test("the board grows to 2x2 after four successful taps and 4x4 after twelve", () => {
+test("the board grows to 2x2 after four taps but keeps the 1000 ms lifetime", () => {
   const engine = makeEngine();
   engine.start(0);
 
-  for (let hit = 0; hit < 4; hit += 1) hitRound(engine, 100 + hit * 100);
-  assert.equal(engine.getSnapshot(900).difficulty.gridDimension, 2);
+  for (let hit = 0; hit < 4; hit += 1) hitRound(engine, 100 + hit * 200);
 
-  for (let hit = 4; hit < 12; hit += 1) hitRound(engine, 1_000 + hit * 100);
-  assert.equal(engine.getSnapshot(3_000).difficulty.gridDimension, 4);
+  assert.equal(engine.getSnapshot(9_000).difficulty.gridDimension, 2);
+  assert.equal(engine.getSnapshot(15_000).difficulty.responseWindowMs, 1_000);
 });
 
-test("color choice begins after ten seconds and a correct tap selects a new player color", () => {
-  const engine = makeEngine();
+test("a lone wrong color appears after ten seconds and expires harmlessly when ignored", () => {
+  const engine = makeEngine(() => 0);
   engine.start(0);
-  for (let hit = 0; hit < 4; hit += 1) hitRound(engine, 100 + hit * 100);
+  engine.hits = 4;
 
-  const oldColor = engine.playerColorIndex;
   const active = engine.activateRound(10_100);
-  assert.equal(active.snapshot.difficulty.usesColorChoice, true);
-  assert.equal(active.snapshot.difficulty.responseWindowMs, 500);
-  assert.equal(active.snapshot.cells.filter((cell) => cell.kind === "decoy").length, 1);
+  assert.equal(active.snapshot.roundKind, ROUND_KINDS.WRONG_ONLY);
+  assert.equal(active.snapshot.targetIndex, null);
+  assert.equal(active.snapshot.cells.filter((cell) => cell.kind === "wrong-only").length, 1);
+  assert.equal(active.snapshot.difficulty.responseWindowMs, 1_000);
 
-  const result = engine.tap(active.snapshot.targetIndex, 10_150);
+  const result = engine.expireRound(11_100);
+  assert.equal(result.type, "ignored-color");
+  assert.equal(result.snapshot.lives, 3);
+  assert.equal(result.snapshot.ignoredColors, 1);
+});
+
+test("the player color changes after a correct post-warm-up tap", () => {
+  const engine = makeEngine();
+  engine.start(0);
+  engine.hits = 4;
+  const oldColor = engine.playerColorIndex;
+
+  const active = engine.activateRound(10_100);
+  const result = engine.tap(active.snapshot.targetIndex, 10_200);
+
   assert.equal(result.type, "hit");
   assert.notEqual(result.snapshot.playerColorIndex, oldColor);
 });
 
-test("at least one decoy is orthogonally adjacent to the correct cell", () => {
-  const engine = makeEngine();
-  engine.start(0);
-  for (let hit = 0; hit < 12; hit += 1) hitRound(engine, 100 + hit * 100);
+test("the gentle phase moves gradually from 1000 ms to 750 ms", () => {
+  assert.equal(resolveDifficulty(4, 20_000).responseWindowMs, 1_000);
+  assert.equal(resolveDifficulty(4, 25_000).responseWindowMs, 875);
+  assert.equal(resolveDifficulty(4, 29_000).responseWindowMs, 775);
+  assert.equal(resolveDifficulty(4, 30_000).responseWindowMs, 750);
+});
 
-  const active = engine.activateRound(12_000);
+test("a rare mixed round has only one adjacent decoy", () => {
+  const random = sequenceRandom([0.2, 0.9, 0.05, 0.5]);
+  const engine = makeEngine(random);
+  engine.start(0);
+  engine.hits = 4;
+
+  const active = engine.activateRound(35_000);
   const target = active.snapshot.targetIndex;
-  const neighbors = orthogonalNeighbors(target, 4);
-  assert.equal(
-    neighbors.some((index) => active.snapshot.cells[index].kind === "decoy"),
-    true
-  );
+  const decoyIndexes = active.snapshot.cells
+    .map((cell, index) => (cell.kind === "decoy" ? index : null))
+    .filter((index) => index !== null);
+
+  assert.equal(active.snapshot.roundKind, ROUND_KINDS.MIXED);
+  assert.equal(decoyIndexes.length, 1);
+  assert.equal(orthogonalNeighbors(target, 2).includes(decoyIndexes[0]), true);
 });
 
-test("faster reactions award more points", () => {
-  assert.ok(scoreReaction(40, 500) > scoreReaction(250, 500));
-  assert.ok(scoreReaction(250, 500) > scoreReaction(450, 500));
-  assert.equal(scoreReaction(500, 500), GAME_CONFIG.scoreFloor);
+test("the switch to 16 cells resets lifetime to 1000 ms and removes mixed decoys", () => {
+  const difficulty = resolveDifficulty(20, 40_000);
+  assert.equal(difficulty.gridDimension, 4);
+  assert.equal(difficulty.phaseId, "four-by-four-reset");
+  assert.equal(difficulty.responseWindowMs, 1_000);
+  assert.equal(difficulty.mixedDecoyChance, 0);
 });
 
-test("wrong taps and expired rounds each cost exactly one life", () => {
-  const engine = makeEngine();
-  engine.start(0);
+test("the 16-cell challenge decreases lifetime by only 10 ms per successful tap", () => {
+  assert.equal(resolveDifficulty(20, 50_000, 0).responseWindowMs, 1_000);
+  assert.equal(resolveDifficulty(21, 50_000, 1).responseWindowMs, 990);
+  assert.equal(resolveDifficulty(30, 55_000, 10).responseWindowMs, 900);
+  assert.equal(resolveDifficulty(500, 90_000, 500).responseWindowMs, 400);
+});
 
-  let active = engine.activateRound(10_000);
-  const wrongIndex = active.snapshot.targetIndex === 0 ? 1 : 0;
-  let result = engine.tap(wrongIndex, 10_050);
+test("normal mode loses one life for tapping a lone wrong color", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.NORMAL);
+  engine.hits = 4;
+  const active = engine.activateRound(10_000);
+  const wrongIndex = active.snapshot.cells.findIndex((cell) => cell.kind === "wrong-only");
+
+  const result = engine.tap(wrongIndex, 10_100);
   assert.equal(result.type, "miss");
-  assert.equal(result.reason, "wrong");
+  assert.equal(result.lifeLost, true);
   assert.equal(result.snapshot.lives, 2);
-
-  active = engine.activateRound(11_000);
-  result = engine.expireRound(11_000 + active.snapshot.difficulty.responseWindowMs);
-  assert.equal(result.type, "miss");
-  assert.equal(result.reason, "late");
-  assert.equal(result.snapshot.lives, 1);
 });
 
-test("the third mistake ends the game", () => {
+test("Zen mode records mistakes but never removes lives", () => {
+  const wrongEngine = makeEngine(() => 0);
+  wrongEngine.start(0, GAME_MODES.ZEN);
+  wrongEngine.hits = 4;
+  const wrongRound = wrongEngine.activateRound(10_000);
+  const wrongIndex = wrongRound.snapshot.cells.findIndex((cell) => cell.kind === "wrong-only");
+  const wrongResult = wrongEngine.tap(wrongIndex, 10_100);
+
+  assert.equal(wrongResult.type, "miss");
+  assert.equal(wrongResult.lifeLost, false);
+  assert.equal(wrongResult.snapshot.lives, 3);
+
+  const lateEngine = makeEngine();
+  lateEngine.start(0, GAME_MODES.ZEN);
+  const targetRound = lateEngine.activateRound(100);
+  const lateResult = lateEngine.expireRound(
+    100 + targetRound.snapshot.difficulty.responseWindowMs
+  );
+  assert.equal(lateResult.type, "miss");
+  assert.equal(lateResult.lifeLost, false);
+  assert.equal(lateResult.snapshot.lives, 3);
+});
+
+test("Zen mode ends at exactly one minute", () => {
   const engine = makeEngine();
-  engine.start(0);
+  engine.start(0, GAME_MODES.ZEN);
+
+  assert.equal(engine.finishTimedRun(59_999).reason, "time-remaining");
+  const result = engine.finishTimedRun(60_000);
+  assert.equal(result.type, "time-up");
+  assert.equal(result.snapshot.state, GAME_STATES.GAME_OVER);
+  assert.equal(result.snapshot.remainingMs, 0);
+  assert.equal(result.snapshot.endReason, "time");
+});
+
+test("the third Normal-mode mistake ends the run", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.NORMAL);
+  engine.hits = 4;
 
   for (let miss = 0; miss < 3; miss += 1) {
-    const active = engine.activateRound(10_000 + miss * 1_000);
-    engine.expireRound(10_000 + miss * 1_000 + active.snapshot.difficulty.responseWindowMs);
+    const active = engine.activateRound(10_000 + miss * 2_000);
+    const wrongIndex = active.snapshot.cells.findIndex((cell) => cell.kind === "wrong-only");
+    engine.tap(wrongIndex, 10_100 + miss * 2_000);
   }
 
   assert.equal(engine.state, GAME_STATES.GAME_OVER);
   assert.equal(engine.lives, 0);
 });
 
-test("the aggressive phase bottoms out at a 100 ms response window", () => {
-  assert.equal(resolveDifficulty(12, 20_000).responseWindowMs, 300);
-  assert.equal(resolveDifficulty(28, 20_000).responseWindowMs, 200);
-  assert.equal(resolveDifficulty(44, 20_000).responseWindowMs, 100);
-  assert.equal(resolveDifficulty(500, 20_000).responseWindowMs, 100);
+test("faster reactions still award more points", () => {
+  assert.ok(scoreReaction(40, 1_000) > scoreReaction(500, 1_000));
+  assert.ok(scoreReaction(500, 1_000) > scoreReaction(900, 1_000));
+  assert.equal(scoreReaction(1_000, 1_000), GAME_CONFIG.scoreFloor);
 });

@@ -1,10 +1,16 @@
-import { COLORS } from "./config.js";
-import { GameEngine, GAME_STATES } from "./game-engine.js";
+import { COLORS, GAME_MODES } from "./config.js";
+import { GameEngine, GAME_STATES, ROUND_KINDS } from "./game-engine.js";
 
-const HIGH_SCORE_KEY = "speedytapper.highScore.v1";
+const LEGACY_HIGH_SCORE_KEY = "speedytapper.highScore.v1";
+const HIGH_SCORE_KEYS = Object.freeze({
+  [GAME_MODES.NORMAL]: "speedytapper.highScore.normal.v2",
+  [GAME_MODES.ZEN]: "speedytapper.highScore.zen.v2"
+});
 
 const elements = {
   board: document.querySelector("#board"),
+  colorHero: document.querySelector("#color-hero"),
+  colorGlyph: document.querySelector("#color-glyph"),
   colorName: document.querySelector("#color-name"),
   colorSwatch: document.querySelector("#color-swatch"),
   dialogMessage: document.querySelector("#dialog-message"),
@@ -14,17 +20,22 @@ const elements = {
   hint: document.querySelector("#hint"),
   installButton: document.querySelector("#install-button"),
   instruction: document.querySelector("#instruction"),
-  lives: document.querySelector("#lives"),
+  modeName: document.querySelector("#mode-name"),
+  normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
   phase: document.querySelector("#phase"),
   points: document.querySelector("#points"),
-  startButton: document.querySelector("#start-button")
+  statusLabel: document.querySelector("#status-label"),
+  statusValue: document.querySelector("#status-value"),
+  zenButton: document.querySelector("#zen-button")
 };
 
 const engine = new GameEngine();
-let highScore = readHighScore();
+const highScores = readHighScores();
 let spawnTimer = null;
 let deadlineTimer = null;
+let runEndTimer = null;
+let clockTimer = null;
 let feedbackTimer = null;
 let sessionId = 0;
 let deferredInstallPrompt = null;
@@ -33,20 +44,30 @@ function now() {
   return performance.now();
 }
 
-function readHighScore() {
+function readStoredScore(key) {
   try {
-    const storedValue = Number.parseInt(localStorage.getItem(HIGH_SCORE_KEY) ?? "0", 10);
+    const storedValue = Number.parseInt(localStorage.getItem(key) ?? "0", 10);
     return Number.isFinite(storedValue) && storedValue > 0 ? storedValue : 0;
   } catch {
     return 0;
   }
 }
 
-function saveHighScore(score) {
-  if (score <= highScore) return;
-  highScore = score;
+function readHighScores() {
+  return {
+    [GAME_MODES.NORMAL]: Math.max(
+      readStoredScore(HIGH_SCORE_KEYS[GAME_MODES.NORMAL]),
+      readStoredScore(LEGACY_HIGH_SCORE_KEY)
+    ),
+    [GAME_MODES.ZEN]: readStoredScore(HIGH_SCORE_KEYS[GAME_MODES.ZEN])
+  };
+}
+
+function saveHighScore(mode, score) {
+  if (score <= highScores[mode]) return;
+  highScores[mode] = score;
   try {
-    localStorage.setItem(HIGH_SCORE_KEY, String(score));
+    localStorage.setItem(HIGH_SCORE_KEYS[mode], String(score));
   } catch {
     // Private browsing or storage restrictions should not stop the game.
   }
@@ -55,18 +76,28 @@ function saveHighScore(score) {
 function clearTimers() {
   window.clearTimeout(spawnTimer);
   window.clearTimeout(deadlineTimer);
+  window.clearTimeout(runEndTimer);
+  window.clearInterval(clockTimer);
   spawnTimer = null;
   deadlineTimer = null;
+  runEndTimer = null;
+  clockTimer = null;
 }
 
-function startGame() {
+function startGame(mode) {
   clearTimers();
   sessionId += 1;
-  engine.start(now());
+  const startedAt = now();
+  engine.start(startedAt, mode);
   elements.overlay.hidden = true;
-  elements.startButton.textContent = "Play again";
   elements.dialogTitle.textContent = "SpeedyTapper Lab";
   render();
+
+  if (mode === GAME_MODES.ZEN) {
+    runEndTimer = window.setTimeout(() => finishZenRun(sessionId), engine.config.zenDurationMs);
+    clockTimer = window.setInterval(() => renderHud(engine.getSnapshot(now())), 100);
+  }
+
   scheduleRound(sessionId);
 }
 
@@ -74,12 +105,13 @@ function scheduleRound(currentSession) {
   if (engine.state === GAME_STATES.GAME_OVER || currentSession !== sessionId) return;
 
   const delayMs = engine.getNextDelayMs(now());
-  elements.instruction.textContent = "Wait for your color";
+  elements.instruction.textContent = "Get ready";
   spawnTimer = window.setTimeout(() => {
-    if (currentSession !== sessionId || document.hidden) return;
+    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
     const result = engine.activateRound(now());
     if (result.type !== "round-active") return;
-    elements.instruction.textContent = "Tap!";
+    elements.instruction.textContent =
+      result.snapshot.roundKind === ROUND_KINDS.WRONG_ONLY ? "Ignore it" : "Tap your color";
     render();
     scheduleDeadline(currentSession, result.snapshot.difficulty.responseWindowMs);
   }, delayMs);
@@ -87,14 +119,22 @@ function scheduleRound(currentSession) {
 
 function scheduleDeadline(currentSession, delayMs) {
   deadlineTimer = window.setTimeout(() => {
-    if (currentSession !== sessionId || document.hidden) return;
+    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
     const result = engine.expireRound(now());
     if (result.type === "ignored" && result.reason === "not-expired") {
       scheduleDeadline(currentSession, Math.ceil(result.remainingMs));
       return;
     }
-    if (result.type !== "miss") return;
-    handleMiss(result, currentSession);
+    if (result.type === "ignored-color") {
+      showFeedback("Good restraint", false);
+      elements.instruction.textContent = "Good — get ready";
+      render();
+      scheduleRound(currentSession);
+      return;
+    }
+    if (result.type === "miss") {
+      handleMiss(result, currentSession);
+    }
   }, delayMs);
 }
 
@@ -108,7 +148,7 @@ function handleTileTap(event) {
   deadlineTimer = null;
 
   if (result.type === "hit") {
-    saveHighScore(result.snapshot.points);
+    saveHighScore(result.snapshot.mode, result.snapshot.points);
     showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
     elements.instruction.textContent = "Good — get ready";
     render();
@@ -120,7 +160,10 @@ function handleTileTap(event) {
 }
 
 function handleMiss(result, currentSession) {
-  const message = result.reason === "wrong" ? "Wrong color · −1 life" : "Too slow · −1 life";
+  const wrong = result.reason === "wrong";
+  const message = result.lifeLost
+    ? `${wrong ? "Wrong color" : "Too slow"} · −1 life`
+    : `${wrong ? "Wrong color" : "Too slow"} · keep going`;
   showFeedback(message, true);
   elements.instruction.textContent = message;
   render();
@@ -132,15 +175,30 @@ function handleMiss(result, currentSession) {
   }
 }
 
+function finishZenRun(currentSession) {
+  if (currentSession !== sessionId) return;
+  const result = engine.finishTimedRun(now());
+  if (result.type === "ignored" && result.reason === "time-remaining") {
+    runEndTimer = window.setTimeout(
+      () => finishZenRun(currentSession),
+      Math.max(1, Math.ceil(result.remainingMs))
+    );
+    return;
+  }
+  if (result.type === "time-up") {
+    finishGame(result.snapshot);
+  }
+}
+
 function finishGame(snapshot) {
   clearTimers();
-  saveHighScore(snapshot.points);
-  elements.dialogTitle.textContent = "Run complete";
-  elements.dialogMessage.innerHTML = `You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your high score is <strong>${highScore.toLocaleString()}</strong>.`;
-  elements.startButton.textContent = "Play again";
+  saveHighScore(snapshot.mode, snapshot.points);
+  const isZen = snapshot.mode === GAME_MODES.ZEN;
+  elements.dialogTitle.textContent = isZen ? "Minute complete" : "Run complete";
+  elements.dialogMessage.innerHTML = `You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
   window.setTimeout(() => {
     elements.overlay.hidden = false;
-  }, 450);
+  }, 400);
 }
 
 function ensureBoard(dimension) {
@@ -161,21 +219,42 @@ function ensureBoard(dimension) {
   elements.board.replaceChildren(fragment);
 }
 
+function renderHud(snapshot) {
+  const best = Math.max(highScores[snapshot.mode], snapshot.points);
+  elements.points.textContent = snapshot.points.toLocaleString();
+  elements.highScore.textContent = best.toLocaleString();
+  elements.modeName.textContent = snapshot.mode === GAME_MODES.ZEN ? "Zen" : "Normal";
+  elements.phase.textContent = snapshot.difficulty.phaseName;
+  elements.colorName.textContent = snapshot.playerColor.name;
+  elements.colorGlyph.textContent = snapshot.playerColor.glyph;
+  elements.colorSwatch.style.background = snapshot.playerColor.value;
+  elements.colorSwatch.style.color = snapshot.playerColor.ink;
+  elements.colorHero.style.setProperty("--player-color", snapshot.playerColor.value);
+
+  elements.statusValue.className = "stat__value status-value";
+  if (snapshot.mode === GAME_MODES.ZEN) {
+    const secondsRemaining = Math.ceil((snapshot.remainingMs ?? engine.config.zenDurationMs) / 1_000);
+    elements.statusLabel.textContent = "Time";
+    elements.statusValue.textContent = `${secondsRemaining}s`;
+    elements.statusValue.setAttribute("aria-label", `${secondsRemaining} seconds remaining`);
+  } else {
+    elements.statusLabel.textContent = "Lives";
+    elements.statusValue.classList.add("lives");
+    elements.statusValue.innerHTML = Array.from(
+      { length: engine.config.startingLives },
+      (_, index) => `<span class="${index < snapshot.lives ? "" : "lost"}">♥</span>`
+    ).join("");
+    elements.statusValue.setAttribute(
+      "aria-label",
+      `${snapshot.lives} ${snapshot.lives === 1 ? "life" : "lives"}`
+    );
+  }
+}
+
 function render() {
   const snapshot = engine.getSnapshot(now());
   ensureBoard(snapshot.difficulty.gridDimension);
-
-  elements.points.textContent = snapshot.points.toLocaleString();
-  elements.highScore.textContent = Math.max(highScore, snapshot.points).toLocaleString();
-  elements.phase.textContent = snapshot.difficulty.phaseName;
-  elements.colorName.textContent = `${snapshot.playerColor.glyph} ${snapshot.playerColor.name}`;
-  elements.colorSwatch.style.background = snapshot.playerColor.value;
-  elements.colorSwatch.style.color = snapshot.playerColor.value;
-  elements.lives.innerHTML = Array.from(
-    { length: engine.config.startingLives },
-    (_, index) => `<span class="${index < snapshot.lives ? "" : "lost"}">♥</span>`
-  ).join("");
-  elements.lives.setAttribute("aria-label", `${snapshot.lives} ${snapshot.lives === 1 ? "life" : "lives"}`);
+  renderHud(snapshot);
 
   const tiles = [...elements.board.children];
   for (const [index, tile] of tiles.entries()) {
@@ -196,11 +275,26 @@ function render() {
     }
   }
 
-  if (snapshot.state === GAME_STATES.WAITING) {
-    elements.hint.textContent = snapshot.difficulty.usesColorChoice
-      ? "Match both the header color and symbol. Every other lit cell is a decoy."
-      : "The timer is hidden. React as soon as a cell lights up.";
+  elements.hint.textContent = hintFor(snapshot);
+}
+
+function hintFor(snapshot) {
+  if (snapshot.mode === GAME_MODES.ZEN) {
+    return "Zen lasts one minute. Mistakes never remove lives; collect the best score you can.";
   }
+  if (snapshot.roundKind === ROUND_KINDS.WRONG_ONLY) {
+    return "This is not your color. Wait for it to disappear without tapping.";
+  }
+  if (snapshot.roundKind === ROUND_KINDS.MIXED) {
+    return "A rare decoy is present. Tap only the large color shown in the header.";
+  }
+  if (snapshot.difficulty.phaseId === "warmup") {
+    return "The timer is hidden. React as soon as your color lights up.";
+  }
+  if (snapshot.difficulty.phaseId === "four-by-four-reset") {
+    return "A forgiving 16-cell reset: no simultaneous decoys for ten seconds.";
+  }
+  return "Tap your color. If a lone different color appears, ignore it.";
 }
 
 function showFeedback(message, isBad) {
@@ -217,8 +311,7 @@ function pauseForVisibilityChange() {
   clearTimers();
   sessionId += 1;
   elements.dialogTitle.textContent = "Run paused";
-  elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped without changing your high score.";
-  elements.startButton.textContent = "Restart run";
+  elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped. Choose a mode to restart.";
   elements.overlay.hidden = false;
 }
 
@@ -236,7 +329,8 @@ elements.installButton.addEventListener("click", async () => {
   elements.installButton.hidden = true;
 });
 
-elements.startButton.addEventListener("click", startGame);
+elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMAL));
+elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 
 if ("serviceWorker" in navigator) {
@@ -248,5 +342,4 @@ if ("serviceWorker" in navigator) {
 }
 
 engine.reset();
-elements.highScore.textContent = highScore.toLocaleString();
 render();

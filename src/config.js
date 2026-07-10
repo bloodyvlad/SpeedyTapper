@@ -7,31 +7,45 @@ export const COLORS = Object.freeze([
   Object.freeze({ id: "violet", name: "Violet", value: "#a987ff", ink: "#180c37", glyph: "★" })
 ]);
 
+export const GAME_MODES = Object.freeze({
+  NORMAL: "normal",
+  ZEN: "zen"
+});
+
 export const GAME_CONFIG = Object.freeze({
   startingLives: 3,
-  warmupDurationMs: 10_000,
-  gridThresholds: Object.freeze([
-    Object.freeze({ minHits: 12, dimension: 4 }),
-    Object.freeze({ minHits: 4, dimension: 2 }),
-    Object.freeze({ minHits: 0, dimension: 1 })
-  ]),
-  rapidGridStartsAtHits: 12,
-  hitsPerSpeedTier: 8,
-  responseWindowsMs: Object.freeze([300, 250, 200, 150, 100]),
-  warmupResponseWindowMs: 1_000,
-  colorResponseWindowMs: 500,
-  spawnDelayRangesMs: Object.freeze({
-    warmup: Object.freeze([500, 1_100]),
-    color: Object.freeze([350, 800]),
-    rapid: Object.freeze([
-      Object.freeze([300, 650]),
-      Object.freeze([260, 550]),
-      Object.freeze([220, 450]),
-      Object.freeze([180, 360]),
-      Object.freeze([140, 280])
-    ])
+  zenDurationMs: 60_000,
+  twoByTwoStartsAtHits: 4,
+  phases: Object.freeze({
+    colorPatienceStartsAtMs: 10_000,
+    gentleRampStartsAtMs: 20_000,
+    rareDecoysStartAtMs: 30_000,
+    fourByFourStartsAtMs: 40_000,
+    fourByFourChallengeStartsAtMs: 50_000
   }),
-  maximumDecoys: 6,
+  responseWindowsMs: Object.freeze({
+    comfortable: 1_000,
+    gentleMinimum: 750,
+    fourByFourStart: 1_000,
+    fourByFourMinimum: 400,
+    fourByFourDecreasePerHit: 10
+  }),
+  chances: Object.freeze({
+    soloWrongColor: 0.35,
+    rarePhaseWrongColor: 0.25,
+    rarePhaseMixedDecoy: 0.1,
+    fourByFourWrongColor: 0.25,
+    fourByFourChallengeWrongColor: 0.2,
+    fourByFourChallengeMixedDecoy: 0.1
+  }),
+  spawnDelayRangesMs: Object.freeze({
+    warmup: Object.freeze([550, 1_100]),
+    colorPatience: Object.freeze([550, 1_000]),
+    gentleRamp: Object.freeze([500, 950]),
+    rareDecoys: Object.freeze([475, 900]),
+    fourByFourReset: Object.freeze([525, 950]),
+    fourByFourChallenge: Object.freeze([425, 825])
+  }),
   scoreFloor: 100,
   scoreCeiling: 1_000
 });
