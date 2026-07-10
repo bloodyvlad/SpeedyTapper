@@ -2,6 +2,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 
+import leaderboardHandler from "../api/leaderboard.js";
+
 const root = resolve(process.cwd());
 const port = Number.parseInt(process.env.PORT ?? "4173", 10);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -16,8 +18,13 @@ const contentTypes = {
   ".webmanifest": "application/manifest+json; charset=utf-8"
 };
 
-const server = createServer((request, response) => {
+const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+  if (requestUrl.pathname === "/api/leaderboard") {
+    await leaderboardHandler(request, response);
+    return;
+  }
+
   const decodedPath = decodeURIComponent(requestUrl.pathname);
   const relativePath = decodedPath === "/" ? "index.html" : decodedPath.replace(/^\/+/, "");
   const filePath = normalize(join(root, relativePath));

@@ -42,7 +42,7 @@
 
         <div class="hud-side">
           <div class="stat">
-            <span class="stat__label">Mode</span>
+            <span class="stat__label" id="mode-label">Mode</span>
             <strong class="stat__value stat__value--small" id="mode-name">Normal</strong>
           </div>
           <div class="stat">
@@ -74,15 +74,58 @@
         <p class="dialog__lead" id="dialog-message">
           Tap only the large <strong>Your color</strong> shown above the board. Fast reactions score more.
         </p>
-        <ol class="rules">
+        <ol class="rules" id="rules">
           <li>The board grows from 1 to 4 to 16 cells.</li>
           <li>Let lone wrong colors disappear without tapping.</li>
           <li>Normal has 3 lives; Zen is a relaxed 1-minute score run.</li>
         </ol>
+        <form class="score-form" id="score-form" hidden>
+          <div class="section-heading">
+            <h2>Join the leaderboard</h2>
+            <span>Top 20</span>
+          </div>
+          <label for="player-name">Player name</label>
+          <div class="score-form__row">
+            <input
+              id="player-name"
+              name="playerName"
+              type="text"
+              maxlength="20"
+              autocomplete="nickname"
+              autocapitalize="words"
+              enterkeyhint="done"
+              required
+            />
+            <button class="primary-button score-submit" id="score-submit" type="submit">Save score</button>
+          </div>
+          <p class="form-status" id="score-status" aria-live="polite"></p>
+        </form>
         <div class="mode-actions">
           <button class="primary-button" id="normal-button" type="button">Normal Mode</button>
           <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
         </div>
+        <button
+          class="leaderboard-toggle"
+          id="leaderboard-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="leaderboard-panel"
+        >
+          View Top 20
+        </button>
+        <section class="leaderboard-panel" id="leaderboard-panel" hidden>
+          <div class="section-heading">
+            <h2>Leaderboard</h2>
+            <span>Best scores</span>
+          </div>
+          <div class="leaderboard-tabs" role="tablist" aria-label="Leaderboard mode">
+            <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" role="tab" aria-selected="true">Normal</button>
+            <button class="leaderboard-tab" type="button" data-leaderboard-mode="zen" role="tab" aria-selected="false">Zen</button>
+          </div>
+          <p class="leaderboard-status" id="leaderboard-status" aria-live="polite">Loading scores…</p>
+          <ol class="leaderboard-list" id="leaderboard-list"></ol>
+          <p class="leaderboard-note">Prototype board — scores are not anti-cheat verified.</p>
+        </section>
         <button class="install-button" id="install-button" type="button" hidden>Install app</button>
         <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
       </section>

@@ -1,4 +1,4 @@
-const CACHE_NAME = "speedytapper-poc-v3";
+const CACHE_NAME = "speedytapper-poc-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -29,6 +29,7 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  if (new URL(event.request.url).pathname.startsWith("/api/")) return;
 
   event.respondWith(
     fetch(event.request)

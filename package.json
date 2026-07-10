@@ -7,9 +7,12 @@
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "test": "node --test",
-    "check": "node --check src/config.js && node --check src/game-engine.js && node --check src/main.js && node --check scripts/dev-server.mjs && node --test"
+    "check": "node --check src/config.js && node --check src/game-engine.js && node --check src/main.js && node --check lib/leaderboard-model.js && node --check api/leaderboard.js && node --check scripts/dev-server.mjs && node --test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.6.1"
   }
 }

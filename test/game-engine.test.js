@@ -114,7 +114,9 @@ test("the 16-cell challenge decreases lifetime by only 10 ms per successful tap"
   assert.equal(resolveDifficulty(20, 50_000, 0).responseWindowMs, 1_000);
   assert.equal(resolveDifficulty(21, 50_000, 1).responseWindowMs, 990);
   assert.equal(resolveDifficulty(30, 55_000, 10).responseWindowMs, 900);
-  assert.equal(resolveDifficulty(500, 90_000, 500).responseWindowMs, 400);
+  assert.equal(resolveDifficulty(99, 90_000, 79).responseWindowMs, 210);
+  assert.equal(resolveDifficulty(100, 90_000, 80).responseWindowMs, 200);
+  assert.equal(resolveDifficulty(500, 90_000, 500).responseWindowMs, 200);
 });
 
 test("the endless challenge adds decoys and mixed-round pressure in gradual tiers", () => {
@@ -220,15 +222,18 @@ test("the third Normal-mode mistake ends the run", () => {
   engine.start(0, GAME_MODES.NORMAL);
   engine.hits = 4;
 
+  let finalResult = null;
   for (let miss = 0; miss < 3; miss += 1) {
     const active = engine.activateRound(10_000 + miss * 2_000);
     const wrongIndex = active.snapshot.cells.findIndex((cell) => cell.kind === "wrong-only");
-    engine.tap(wrongIndex, 10_100 + miss * 2_000);
+    finalResult = engine.tap(wrongIndex, 10_100 + miss * 2_000);
   }
 
   assert.equal(engine.state, GAME_STATES.GAME_OVER);
   assert.equal(engine.lives, 0);
   assert.equal(engine.isRunComplete(), true);
+  assert.equal(finalResult.snapshot.elapsedMs, 14_100);
+  assert.equal(engine.getSnapshot(999_999).elapsedMs, 14_100);
 });
 
 test("faster reactions still award more points", () => {

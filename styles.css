@@ -417,6 +417,102 @@ h1 {
   margin-top: 5px;
 }
 
+.score-form,
+.leaderboard-panel {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(7, 9, 19, 0.42);
+}
+
+.score-form[hidden],
+.leaderboard-panel[hidden] {
+  display: none;
+}
+
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: -0.015em;
+}
+
+.section-heading span {
+  color: #858da8;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.score-form label {
+  display: block;
+  margin-bottom: 6px;
+  color: #b9bfd4;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.score-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.score-form input {
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 13px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.07);
+  color: white;
+  font: inherit;
+  font-size: 16px;
+  user-select: text;
+}
+
+.score-form input:focus {
+  border-color: #9ba5ff;
+  box-shadow: 0 0 0 3px rgba(142, 154, 255, 0.16);
+}
+
+.score-submit {
+  width: auto;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 13px;
+}
+
+.score-submit:disabled,
+.leaderboard-tab:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.form-status,
+.leaderboard-status {
+  min-height: 1.25em;
+  margin: 8px 0 0;
+  color: #9da5bf;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.form-status.is-error,
+.leaderboard-status.is-error {
+  color: #ff94a6;
+}
+
 .mode-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -425,7 +521,8 @@ h1 {
 
 .primary-button,
 .secondary-button,
-.install-button {
+.install-button,
+.leaderboard-toggle {
   width: 100%;
   min-height: 51px;
   border-radius: 15px;
@@ -454,9 +551,114 @@ h1 {
   color: #c5cadb;
 }
 
+.leaderboard-toggle {
+  margin-top: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.035);
+  color: #cbd0e2;
+}
+
+.leaderboard-panel {
+  margin-top: 9px;
+  margin-bottom: 0;
+}
+
+.leaderboard-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.leaderboard-tab {
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #aeb5cb;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.leaderboard-tab.is-active {
+  border-color: rgba(155, 165, 255, 0.58);
+  background: rgba(137, 148, 255, 0.17);
+  color: white;
+}
+
+.leaderboard-list {
+  max-height: min(320px, 42dvh);
+  margin: 10px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.leaderboard-entry {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 42px;
+  padding: 6px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.leaderboard-entry__rank {
+  color: #858da8;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.leaderboard-entry__player {
+  min-width: 0;
+}
+
+.leaderboard-entry__name {
+  overflow: hidden;
+  color: #e8eaff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-entry__meta {
+  margin-top: 2px;
+  color: #777f99;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-entry__score {
+  color: #f4f5ff;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.leaderboard-empty {
+  padding: 18px 4px 6px;
+  color: #858da8;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.leaderboard-note {
+  margin: 10px 0 0;
+  color: #707890;
+  font-size: 0.64rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .primary-button:active,
 .secondary-button:active,
-.install-button:active {
+.install-button:active,
+.leaderboard-toggle:active {
   transform: translateY(1px);
 }
 

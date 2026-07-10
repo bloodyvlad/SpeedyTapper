@@ -28,7 +28,7 @@ export const GAME_CONFIG = Object.freeze({
     comfortable: 1_000,
     gentleMinimum: 750,
     fourByFourStart: 1_000,
-    fourByFourMinimum: 400,
+    fourByFourMinimum: 200,
     fourByFourDecreasePerHit: 10
   }),
   chances: Object.freeze({

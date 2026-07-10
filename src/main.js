@@ -6,6 +6,7 @@ const HIGH_SCORE_KEYS = Object.freeze({
   [GAME_MODES.NORMAL]: "speedytapper.highScore.normal.v2",
   [GAME_MODES.ZEN]: "speedytapper.highScore.zen.v2"
 });
+const PLAYER_NAME_KEY = "speedytapper.playerName.v1";
 
 const elements = {
   board: document.querySelector("#board"),
@@ -20,11 +21,22 @@ const elements = {
   hint: document.querySelector("#hint"),
   installButton: document.querySelector("#install-button"),
   instruction: document.querySelector("#instruction"),
+  leaderboardList: document.querySelector("#leaderboard-list"),
+  leaderboardPanel: document.querySelector("#leaderboard-panel"),
+  leaderboardStatus: document.querySelector("#leaderboard-status"),
+  leaderboardTabs: [...document.querySelectorAll("[data-leaderboard-mode]")],
+  leaderboardToggle: document.querySelector("#leaderboard-toggle"),
+  modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
   normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
   phase: document.querySelector("#phase"),
+  playerName: document.querySelector("#player-name"),
   points: document.querySelector("#points"),
+  rules: document.querySelector("#rules"),
+  scoreForm: document.querySelector("#score-form"),
+  scoreStatus: document.querySelector("#score-status"),
+  scoreSubmit: document.querySelector("#score-submit"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
   zenButton: document.querySelector("#zen-button")
@@ -40,9 +52,36 @@ let feedbackTimer = null;
 let completionTimer = null;
 let sessionId = 0;
 let deferredInstallPrompt = null;
+let pendingResult = null;
+let leaderboardMode = GAME_MODES.NORMAL;
+let leaderboardRequestId = 0;
 
 function now() {
   return performance.now();
+}
+
+function formatDuration(milliseconds, showTenths = false) {
+  const totalTenths = Math.max(0, Math.floor(milliseconds / 100));
+  const minutes = Math.floor(totalTenths / 600);
+  const seconds = Math.floor((totalTenths % 600) / 10);
+  const tenths = totalTenths % 10;
+  return `${minutes}:${String(seconds).padStart(2, "0")}${showTenths ? `.${tenths}` : ""}`;
+}
+
+function readPlayerName() {
+  try {
+    return localStorage.getItem(PLAYER_NAME_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function savePlayerName(name) {
+  try {
+    localStorage.setItem(PLAYER_NAME_KEY, name);
+  } catch {
+    // The leaderboard still works when local storage is unavailable.
+  }
 }
 
 function readStoredScore(key) {
@@ -93,16 +132,18 @@ function startGame(mode) {
   sessionId = currentSession;
   const startedAt = now();
   engine.start(startedAt, mode);
+  resetResultUi();
   elements.overlay.hidden = true;
   elements.dialogTitle.textContent = "SpeedyTapper Lab";
   render();
+
+  clockTimer = window.setInterval(() => renderHud(engine.getSnapshot(now())), 100);
 
   if (mode === GAME_MODES.ZEN) {
     runEndTimer = window.setTimeout(
       () => finishZenRun(currentSession),
       engine.config.zenDurationMs
     );
-    clockTimer = window.setInterval(() => renderHud(engine.getSnapshot(now())), 100);
   }
 
   scheduleRound(currentSession);
@@ -207,12 +248,199 @@ function finishGame(snapshot, currentSession) {
   const isZen = snapshot.mode === GAME_MODES.ZEN;
   elements.dialogTitle.textContent = isZen ? "Minute complete" : "Run complete";
   const completionReason = isZen ? "The one-minute timer ended." : "All three lives were used.";
-  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
+  const survivalCopy = isZen
+    ? ""
+    : ` You survived <strong>${formatDuration(snapshot.elapsedMs, true)}</strong>.`;
+  elements.dialogMessage.innerHTML = `${completionReason}${survivalCopy} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
+  pendingResult = {
+    mode: snapshot.mode,
+    score: snapshot.points,
+    hits: snapshot.hits,
+    survivalMs: Math.round(snapshot.elapsedMs),
+    submitted: false
+  };
+  elements.rules.hidden = true;
+  elements.scoreForm.hidden = false;
+  elements.playerName.disabled = false;
+  elements.playerName.value = readPlayerName();
+  elements.scoreSubmit.disabled = false;
+  elements.scoreSubmit.textContent = "Save score";
+  setScoreStatus("Enter your name to save this result in the Top 20.");
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
       elements.overlay.hidden = false;
+      elements.playerName.focus({ preventScroll: true });
     }
   }, 400);
+}
+
+function resetResultUi() {
+  pendingResult = null;
+  elements.rules.hidden = false;
+  elements.scoreForm.hidden = true;
+  elements.playerName.disabled = false;
+  elements.scoreSubmit.disabled = false;
+  elements.scoreSubmit.textContent = "Save score";
+  setScoreStatus("");
+  closeLeaderboard();
+}
+
+function setScoreStatus(message, isError = false) {
+  elements.scoreStatus.textContent = message;
+  elements.scoreStatus.classList.toggle("is-error", isError);
+}
+
+function setLeaderboardStatus(message, isError = false) {
+  elements.leaderboardStatus.textContent = message;
+  elements.leaderboardStatus.classList.toggle("is-error", isError);
+}
+
+function selectLeaderboardMode(mode) {
+  leaderboardMode = mode;
+  for (const tab of elements.leaderboardTabs) {
+    const selected = tab.dataset.leaderboardMode === mode;
+    tab.classList.toggle("is-active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  }
+}
+
+function openLeaderboard() {
+  elements.leaderboardPanel.hidden = false;
+  elements.leaderboardToggle.setAttribute("aria-expanded", "true");
+  elements.leaderboardToggle.textContent = "Hide Top 20";
+}
+
+function closeLeaderboard() {
+  leaderboardRequestId += 1;
+  elements.leaderboardPanel.hidden = true;
+  elements.leaderboardToggle.setAttribute("aria-expanded", "false");
+  elements.leaderboardToggle.textContent = "View Top 20";
+}
+
+function renderLeaderboard(entries, mode) {
+  elements.leaderboardList.replaceChildren();
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "leaderboard-empty";
+    empty.textContent = "No scores yet — the first place is waiting.";
+    elements.leaderboardList.append(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const [index, entry] of entries.slice(0, 20).entries()) {
+    const row = document.createElement("li");
+    row.className = "leaderboard-entry";
+
+    const rank = document.createElement("span");
+    rank.className = "leaderboard-entry__rank";
+    rank.textContent = String(index + 1);
+
+    const player = document.createElement("div");
+    player.className = "leaderboard-entry__player";
+    const name = document.createElement("div");
+    name.className = "leaderboard-entry__name";
+    name.textContent = entry.name;
+    const meta = document.createElement("div");
+    meta.className = "leaderboard-entry__meta";
+    meta.textContent =
+      mode === GAME_MODES.NORMAL
+        ? `${formatDuration(entry.survivalMs, true)} survived · ${entry.hits.toLocaleString()} taps`
+        : `${entry.hits.toLocaleString()} correct taps`;
+    player.append(name, meta);
+
+    const score = document.createElement("strong");
+    score.className = "leaderboard-entry__score";
+    score.textContent = entry.score.toLocaleString();
+
+    row.append(rank, player, score);
+    fragment.append(row);
+  }
+  elements.leaderboardList.append(fragment);
+}
+
+async function readApiResponse(response) {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || "Leaderboard is temporarily unavailable.");
+  }
+  return body;
+}
+
+async function loadLeaderboard(mode = leaderboardMode) {
+  selectLeaderboardMode(mode);
+  openLeaderboard();
+  const requestId = leaderboardRequestId + 1;
+  leaderboardRequestId = requestId;
+  setLeaderboardStatus("Loading scores…");
+  elements.leaderboardList.replaceChildren();
+
+  try {
+    const response = await fetch(`/api/leaderboard?mode=${encodeURIComponent(mode)}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    });
+    const body = await readApiResponse(response);
+    if (requestId !== leaderboardRequestId) return;
+    renderLeaderboard(body.entries, mode);
+    setLeaderboardStatus(`${body.entries.length} of 20 places filled.`);
+  } catch (error) {
+    if (requestId !== leaderboardRequestId) return;
+    renderLeaderboard([], mode);
+    setLeaderboardStatus(error.message, true);
+  }
+}
+
+async function submitScore(event) {
+  event.preventDefault();
+  if (!pendingResult || pendingResult.submitted) return;
+
+  const name = elements.playerName.value.trim();
+  if (!name) {
+    setScoreStatus("Enter a player name.", true);
+    elements.playerName.focus();
+    return;
+  }
+
+  elements.scoreSubmit.disabled = true;
+  elements.playerName.disabled = true;
+  setScoreStatus("Saving score…");
+
+  try {
+    const response = await fetch("/api/leaderboard", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name,
+        mode: pendingResult.mode,
+        score: pendingResult.score,
+        hits: pendingResult.hits,
+        survivalMs: pendingResult.survivalMs
+      })
+    });
+    const body = await readApiResponse(response);
+    pendingResult.submitted = true;
+    savePlayerName(name);
+    elements.scoreSubmit.textContent = body.rank === null ? "Not ranked" : "Saved";
+    setScoreStatus(
+      body.rank === null
+        ? "This result did not reach the current Top 20."
+        : `Score saved at #${body.rank}.`
+    );
+    leaderboardRequestId += 1;
+    selectLeaderboardMode(body.mode);
+    renderLeaderboard(body.entries, body.mode);
+    setLeaderboardStatus(`${body.entries.length} of 20 places filled.`);
+    openLeaderboard();
+  } catch (error) {
+    elements.scoreSubmit.disabled = false;
+    elements.playerName.disabled = false;
+    setScoreStatus(error.message, true);
+  }
 }
 
 function ensureBoard(dimension) {
@@ -237,7 +465,13 @@ function renderHud(snapshot) {
   const best = Math.max(highScores[snapshot.mode], snapshot.points);
   elements.points.textContent = snapshot.points.toLocaleString();
   elements.highScore.textContent = best.toLocaleString();
-  elements.modeName.textContent = snapshot.mode === GAME_MODES.ZEN ? "Zen" : "Normal";
+  if (snapshot.mode === GAME_MODES.ZEN) {
+    elements.modeLabel.textContent = "Mode";
+    elements.modeName.textContent = "Zen";
+  } else {
+    elements.modeLabel.textContent = "Survived";
+    elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
+  }
   elements.phase.textContent = snapshot.difficulty.phaseName;
   elements.colorName.textContent = snapshot.playerColor.name;
   elements.colorGlyph.textContent = snapshot.playerColor.glyph;
@@ -325,6 +559,7 @@ function pauseForVisibilityChange() {
   if (!document.hidden || engine.state === GAME_STATES.IDLE || engine.state === GAME_STATES.GAME_OVER) return;
   clearTimers();
   sessionId += 1;
+  resetResultUi();
   elements.dialogTitle.textContent = "Run paused";
   elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped. Choose a mode to restart.";
   elements.overlay.hidden = false;
@@ -346,6 +581,17 @@ elements.installButton.addEventListener("click", async () => {
 
 elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMAL));
 elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
+elements.scoreForm.addEventListener("submit", submitScore);
+elements.leaderboardToggle.addEventListener("click", () => {
+  if (elements.leaderboardPanel.hidden) {
+    loadLeaderboard(leaderboardMode);
+  } else {
+    closeLeaderboard();
+  }
+});
+for (const tab of elements.leaderboardTabs) {
+  tab.addEventListener("click", () => loadLeaderboard(tab.dataset.leaderboardMode));
+}
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 
 if ("serviceWorker" in navigator) {
