@@ -60,6 +60,8 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
   let spawnDelayRangeMs = spawnDelayRangesMs.warmup;
   let wrongOnlyChance = 0;
   let mixedDecoyChance = 0;
+  let decoyCount = 0;
+  let challengeTier = 0;
 
   if (elapsedMs >= phases.colorPatienceStartsAtMs) {
     phaseId = "color-patience";
@@ -87,6 +89,7 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     spawnDelayRangeMs = spawnDelayRangesMs.rareDecoys;
     wrongOnlyChance = chances.rarePhaseWrongColor;
     mixedDecoyChance = chances.rarePhaseMixedDecoy;
+    decoyCount = 1;
   }
 
   if (elapsedMs >= phases.fourByFourStartsAtMs) {
@@ -96,19 +99,49 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     spawnDelayRangeMs = spawnDelayRangesMs.fourByFourReset;
     wrongOnlyChance = chances.fourByFourWrongColor;
     mixedDecoyChance = 0;
+    decoyCount = 0;
   }
 
   if (elapsedMs >= phases.fourByFourChallengeStartsAtMs) {
+    const endless = config.endlessDifficulty;
+    challengeTier = Math.floor(challengeHits / endless.hitsPerTier);
     phaseId = "four-by-four-challenge";
-    phaseName = "16-cell focus";
+    phaseName = [
+      "16-cell focus",
+      "Twin decoys",
+      "Triple threat",
+      "Pressure",
+      "Overdrive",
+      "Endurance"
+    ][Math.min(challengeTier, 5)];
     responseWindowMs = Math.max(
       responseWindowsMs.fourByFourMinimum,
       responseWindowsMs.fourByFourStart -
         challengeHits * responseWindowsMs.fourByFourDecreasePerHit
     );
-    spawnDelayRangeMs = spawnDelayRangesMs.fourByFourChallenge;
-    wrongOnlyChance = chances.fourByFourChallengeWrongColor;
-    mixedDecoyChance = chances.fourByFourChallengeMixedDecoy;
+    spawnDelayRangeMs = [
+      Math.max(
+        endless.minimumSpawnDelayMs,
+        spawnDelayRangesMs.fourByFourChallenge[0] -
+          challengeTier * endless.spawnMinimumDecreasePerTierMs
+      ),
+      Math.max(
+        endless.maximumSpawnDelayFloorMs,
+        spawnDelayRangesMs.fourByFourChallenge[1] -
+          challengeTier * endless.spawnMaximumDecreasePerTierMs
+      )
+    ];
+    wrongOnlyChance = Math.max(
+      endless.minimumWrongColorChance,
+      chances.fourByFourChallengeWrongColor -
+        challengeTier * endless.wrongColorDecreasePerTier
+    );
+    mixedDecoyChance = Math.min(
+      endless.maximumMixedDecoyChance,
+      chances.fourByFourChallengeMixedDecoy +
+        challengeTier * endless.mixedChanceIncreasePerTier
+    );
+    decoyCount = Math.min(endless.maximumDecoys, 1 + challengeTier);
   }
 
   return Object.freeze({
@@ -118,7 +151,9 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     responseWindowMs,
     spawnDelayRangeMs,
     wrongOnlyChance,
-    mixedDecoyChance
+    mixedDecoyChance,
+    decoyCount,
+    challengeTier
   });
 }
 
@@ -248,8 +283,11 @@ export class GameEngine {
         ),
         this.random
       );
-      const decoyIndex = [...adjacent, ...fallback][0];
-      if (decoyIndex !== undefined) {
+      const decoyIndexes = [...adjacent, ...fallback].slice(
+        0,
+        Math.min(difficulty.decoyCount, cellCount - 1)
+      );
+      for (const decoyIndex of decoyIndexes) {
         cells[decoyIndex] = { kind: "decoy", colorIndex: this.#differentColorIndex() };
       }
     }
@@ -353,6 +391,14 @@ export class GameEngine {
     this.roundKind = null;
     this.roundDifficulty = null;
     return Object.freeze({ type: "time-up", snapshot: this.getSnapshot(now) });
+  }
+
+  isRunComplete() {
+    if (this.state !== GAME_STATES.GAME_OVER) return false;
+    if (this.mode === GAME_MODES.NORMAL) {
+      return this.lives === 0 && this.endReason === "lives";
+    }
+    return this.getRemainingMs(this.endedAt ?? this.startedAt) === 0 && this.endReason === "time";
   }
 
   getSnapshot(now = this.startedAt ?? 0) {

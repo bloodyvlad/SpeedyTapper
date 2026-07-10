@@ -1,4 +1,4 @@
-const CACHE_NAME = "speedytapper-poc-v2";
+const CACHE_NAME = "speedytapper-poc-v3";
 const APP_SHELL = [
   "./",
   "./index.html",

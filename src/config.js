@@ -15,6 +15,7 @@ export const GAME_MODES = Object.freeze({
 export const GAME_CONFIG = Object.freeze({
   startingLives: 3,
   zenDurationMs: 60_000,
+  lifeLossRecoveryMs: 1_500,
   twoByTwoStartsAtHits: 4,
   phases: Object.freeze({
     colorPatienceStartsAtMs: 10_000,
@@ -37,6 +38,18 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourWrongColor: 0.25,
     fourByFourChallengeWrongColor: 0.2,
     fourByFourChallengeMixedDecoy: 0.1
+  }),
+  endlessDifficulty: Object.freeze({
+    hitsPerTier: 15,
+    maximumDecoys: 6,
+    mixedChanceIncreasePerTier: 0.1,
+    maximumMixedDecoyChance: 0.75,
+    wrongColorDecreasePerTier: 0.02,
+    minimumWrongColorChance: 0.06,
+    spawnMinimumDecreasePerTierMs: 15,
+    spawnMaximumDecreasePerTierMs: 25,
+    minimumSpawnDelayMs: 250,
+    maximumSpawnDelayFloorMs: 500
   }),
   spawnDelayRangesMs: Object.freeze({
     warmup: Object.freeze([550, 1_100]),

@@ -37,6 +37,7 @@ let deadlineTimer = null;
 let runEndTimer = null;
 let clockTimer = null;
 let feedbackTimer = null;
+let completionTimer = null;
 let sessionId = 0;
 let deferredInstallPrompt = null;
 
@@ -78,15 +79,18 @@ function clearTimers() {
   window.clearTimeout(deadlineTimer);
   window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
+  window.clearTimeout(completionTimer);
   spawnTimer = null;
   deadlineTimer = null;
   runEndTimer = null;
   clockTimer = null;
+  completionTimer = null;
 }
 
 function startGame(mode) {
   clearTimers();
-  sessionId += 1;
+  const currentSession = sessionId + 1;
+  sessionId = currentSession;
   const startedAt = now();
   engine.start(startedAt, mode);
   elements.overlay.hidden = true;
@@ -94,18 +98,23 @@ function startGame(mode) {
   render();
 
   if (mode === GAME_MODES.ZEN) {
-    runEndTimer = window.setTimeout(() => finishZenRun(sessionId), engine.config.zenDurationMs);
+    runEndTimer = window.setTimeout(
+      () => finishZenRun(currentSession),
+      engine.config.zenDurationMs
+    );
     clockTimer = window.setInterval(() => renderHud(engine.getSnapshot(now())), 100);
   }
 
-  scheduleRound(sessionId);
+  scheduleRound(currentSession);
 }
 
-function scheduleRound(currentSession) {
+function scheduleRound(currentSession, additionalDelayMs = 0) {
   if (engine.state === GAME_STATES.GAME_OVER || currentSession !== sessionId) return;
 
   const delayMs = engine.getNextDelayMs(now());
-  elements.instruction.textContent = "Get ready";
+  if (additionalDelayMs === 0) {
+    elements.instruction.textContent = "Get ready";
+  }
   spawnTimer = window.setTimeout(() => {
     if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
     const result = engine.activateRound(now());
@@ -114,7 +123,7 @@ function scheduleRound(currentSession) {
       result.snapshot.roundKind === ROUND_KINDS.WRONG_ONLY ? "Ignore it" : "Tap your color";
     render();
     scheduleDeadline(currentSession, result.snapshot.difficulty.responseWindowMs);
-  }, delayMs);
+  }, delayMs + additionalDelayMs);
 }
 
 function scheduleDeadline(currentSession, delayMs) {
@@ -162,16 +171,17 @@ function handleTileTap(event) {
 function handleMiss(result, currentSession) {
   const wrong = result.reason === "wrong";
   const message = result.lifeLost
-    ? `${wrong ? "Wrong color" : "Too slow"} · −1 life`
+    ? `${wrong ? "Wrong color" : "Too slow"} · ${result.snapshot.lives} ${result.snapshot.lives === 1 ? "life" : "lives"} left`
     : `${wrong ? "Wrong color" : "Too slow"} · keep going`;
   showFeedback(message, true);
   elements.instruction.textContent = message;
   render();
 
-  if (result.snapshot.state === GAME_STATES.GAME_OVER) {
-    finishGame(result.snapshot);
+  if (engine.isRunComplete()) {
+    finishGame(result.snapshot, currentSession);
   } else {
-    scheduleRound(currentSession);
+    const recoveryMs = result.lifeLost ? engine.config.lifeLossRecoveryMs : 0;
+    scheduleRound(currentSession, recoveryMs);
   }
 }
 
@@ -186,18 +196,22 @@ function finishZenRun(currentSession) {
     return;
   }
   if (result.type === "time-up") {
-    finishGame(result.snapshot);
+    finishGame(result.snapshot, currentSession);
   }
 }
 
-function finishGame(snapshot) {
+function finishGame(snapshot, currentSession) {
+  if (currentSession !== sessionId || !engine.isRunComplete()) return;
   clearTimers();
   saveHighScore(snapshot.mode, snapshot.points);
   const isZen = snapshot.mode === GAME_MODES.ZEN;
   elements.dialogTitle.textContent = isZen ? "Minute complete" : "Run complete";
-  elements.dialogMessage.innerHTML = `You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
-  window.setTimeout(() => {
-    elements.overlay.hidden = false;
+  const completionReason = isZen ? "The one-minute timer ended." : "All three lives were used.";
+  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
+  completionTimer = window.setTimeout(() => {
+    if (currentSession === sessionId && engine.isRunComplete()) {
+      elements.overlay.hidden = false;
+    }
   }, 400);
 }
 
@@ -286,7 +300,8 @@ function hintFor(snapshot) {
     return "This is not your color. Wait for it to disappear without tapping.";
   }
   if (snapshot.roundKind === ROUND_KINDS.MIXED) {
-    return "A rare decoy is present. Tap only the large color shown in the header.";
+    const decoyCount = snapshot.difficulty.decoyCount;
+    return `${decoyCount} ${decoyCount === 1 ? "decoy is" : "decoys are"} present. Tap only the large color shown in the header.`;
   }
   if (snapshot.difficulty.phaseId === "warmup") {
     return "The timer is hidden. React as soon as your color lights up.";

@@ -45,6 +45,8 @@ The configuration in [`vercel.json`](./vercel.json) keeps the service worker and
 - 30–40 seconds: a second simultaneous color appears in only about 10% of rounds.
 - At 40 seconds the board becomes 4×4 and resets to 1,000 ms with no simultaneous decoys.
 - At 50 seconds rare decoys return; lifetime then falls by only 10 ms per correct tap, to a 400 ms floor.
+- After that, every fifteen successful taps adds another possible decoy, raises the chance of a mixed round, and gently reduces the quiet interval, up to six decoys.
+- Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal and Zen high scores are stored separately in the browser.
 - Moving the app into the background safely stops the current run.
 

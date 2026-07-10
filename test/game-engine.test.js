@@ -117,6 +117,37 @@ test("the 16-cell challenge decreases lifetime by only 10 ms per successful tap"
   assert.equal(resolveDifficulty(500, 90_000, 500).responseWindowMs, 400);
 });
 
+test("the endless challenge adds decoys and mixed-round pressure in gradual tiers", () => {
+  const start = resolveDifficulty(20, 50_000, 0);
+  const tierOne = resolveDifficulty(35, 55_000, 15);
+  const tierThree = resolveDifficulty(65, 70_000, 45);
+  const capped = resolveDifficulty(200, 150_000, 120);
+
+  assert.equal(start.decoyCount, 1);
+  assert.equal(start.mixedDecoyChance, 0.1);
+  assert.equal(tierOne.decoyCount, 2);
+  assert.equal(tierOne.mixedDecoyChance, 0.2);
+  assert.equal(tierThree.decoyCount, 4);
+  assert.equal(tierThree.mixedDecoyChance, 0.4);
+  assert.equal(capped.decoyCount, 6);
+  assert.equal(capped.mixedDecoyChance, 0.75);
+  assert.ok(capped.spawnDelayRangeMs[0] < start.spawnDelayRangeMs[0]);
+});
+
+test("higher challenge tiers can place several decoys around one correct target", () => {
+  const random = sequenceRandom([0.2, 0.9, 0, 0.5]);
+  const engine = makeEngine(random);
+  engine.start(0);
+  engine.hits = 30;
+  engine.challengeStartHits = 0;
+
+  const active = engine.activateRound(60_000);
+  assert.equal(active.snapshot.roundKind, ROUND_KINDS.MIXED);
+  assert.equal(active.snapshot.difficulty.decoyCount, 3);
+  assert.equal(active.snapshot.cells.filter((cell) => cell.kind === "decoy").length, 3);
+  assert.equal(active.snapshot.cells.filter((cell) => cell.kind === "target").length, 1);
+});
+
 test("normal mode loses one life for tapping a lone wrong color", () => {
   const engine = makeEngine(() => 0);
   engine.start(0, GAME_MODES.NORMAL);
@@ -128,6 +159,24 @@ test("normal mode loses one life for tapping a lone wrong color", () => {
   assert.equal(result.type, "miss");
   assert.equal(result.lifeLost, true);
   assert.equal(result.snapshot.lives, 2);
+  assert.equal(result.snapshot.state, GAME_STATES.WAITING);
+  assert.equal(engine.isRunComplete(), false);
+});
+
+test("Normal mode cannot be completed by time while lives remain", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.NORMAL);
+  engine.hits = 4;
+  const active = engine.activateRound(10_000);
+  const wrongIndex = active.snapshot.cells.findIndex((cell) => cell.kind === "wrong-only");
+  engine.tap(wrongIndex, 10_100);
+
+  const timedAttempt = engine.finishTimedRun(10_000_000);
+  assert.equal(timedAttempt.type, "ignored");
+  assert.equal(timedAttempt.reason, "not-timed");
+  assert.equal(engine.lives, 2);
+  assert.equal(engine.state, GAME_STATES.WAITING);
+  assert.equal(engine.isRunComplete(), false);
 });
 
 test("Zen mode records mistakes but never removes lives", () => {
@@ -163,6 +212,7 @@ test("Zen mode ends at exactly one minute", () => {
   assert.equal(result.snapshot.state, GAME_STATES.GAME_OVER);
   assert.equal(result.snapshot.remainingMs, 0);
   assert.equal(result.snapshot.endReason, "time");
+  assert.equal(engine.isRunComplete(), true);
 });
 
 test("the third Normal-mode mistake ends the run", () => {
@@ -178,6 +228,7 @@ test("the third Normal-mode mistake ends the run", () => {
 
   assert.equal(engine.state, GAME_STATES.GAME_OVER);
   assert.equal(engine.lives, 0);
+  assert.equal(engine.isRunComplete(), true);
 });
 
 test("faster reactions still award more points", () => {
