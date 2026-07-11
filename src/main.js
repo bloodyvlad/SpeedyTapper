@@ -1,11 +1,13 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-4";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-4";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-4";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-5";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-5";
+import { createSoundController } from "./sound-controller.js?v=20260711-5";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-5";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
+const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
 
 const elements = {
   board: document.querySelector("#board"),
@@ -33,8 +35,8 @@ const elements = {
   overlay: document.querySelector("#overlay"),
   playerName: document.querySelector("#player-name"),
   points: document.querySelector("#points"),
-  responseRails: document.querySelector("#response-rails"),
-  responseRailFills: [...document.querySelectorAll(".response-rail__fill")],
+  responseProgress: document.querySelector("#response-progress"),
+  responseProgressFill: document.querySelector("#response-progress-fill"),
   resultAverageValue: document.querySelector("#result-average-value"),
   resultContent: document.querySelector("#result-content"),
   resultDodgesValue: document.querySelector("#result-dodges-value"),
@@ -48,13 +50,11 @@ const elements = {
   settingsCurrent: document.querySelector("#settings-current"),
   settingsPanel: document.querySelector("#settings-panel"),
   settingsToggle: document.querySelector("#settings-toggle"),
+  soundFxToggle: document.querySelector("#sound-fx-toggle"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
-  themeCurrent: document.querySelector("#theme-current"),
   themeInputs: [...document.querySelectorAll('input[name="theme"]')],
   themeColorMeta: document.querySelector('meta[name="theme-color"]'),
-  themesPanel: document.querySelector("#themes-panel"),
-  themesToggle: document.querySelector("#themes-toggle"),
   zenButton: document.querySelector("#zen-button")
 };
 
@@ -81,52 +81,9 @@ let leaderboardMode = GAME_MODES.NORMAL;
 let leaderboardRequestId = 0;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
+let soundFxEnabled = true;
 
-const sound = (() => {
-  const oops = new Audio("./assets/audio/oops.mp3");
-  const hum = new Audio("./assets/audio/fluorescent-hum.mp3");
-  const sounds = [oops, hum];
-  hum.loop = true;
-  hum.volume = 0.42;
-  oops.volume = 0.8;
-  for (const audio of sounds) {
-    audio.preload = "auto";
-    audio.load();
-  }
-
-  function play(audio) {
-    if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
-  }
-
-  return {
-    unlock() {
-      for (const audio of sounds) {
-        audio.muted = true;
-        audio.play().then(() => {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.muted = false;
-        }).catch(() => {
-          audio.muted = false;
-        });
-      }
-    },
-    tileOn() {
-      if (hum.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
-      hum.currentTime = 0;
-      hum.play().catch(() => {});
-    },
-    tileOff() {
-      hum.pause();
-      hum.currentTime = 0;
-    },
-    lifeLost() {
-      play(oops);
-    }
-  };
-})();
+const sound = createSoundController();
 
 function now() {
   return performance.now();
@@ -173,9 +130,10 @@ function getDisplayColor(colorIndex) {
 function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
-  elements.themeCurrent.textContent = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  elements.settingsCurrent.textContent = colorBlindMode ? "Shapes on" : "Shapes off";
+  const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
+  elements.settingsCurrent.textContent = `${themeName} · Sound ${soundFxEnabled ? "on" : "off"}`;
   elements.colorBlindToggle.checked = colorBlindMode;
+  elements.soundFxToggle.checked = soundFxEnabled;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
     input.checked = input.value === activeTheme;
@@ -187,6 +145,9 @@ function initializeDisplaySettings() {
   activeTheme = isTheme(storedTheme) ? storedTheme : THEMES.CLASSIC;
   const storedColorBlindMode = readStoredPreference(COLOR_BLIND_STORAGE_KEY);
   colorBlindMode = storedColorBlindMode !== "off";
+  const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
+  soundFxEnabled = storedSoundFx !== "off";
+  sound.setEnabled(soundFxEnabled);
   renderDisplaySettings();
 }
 
@@ -205,29 +166,32 @@ function applyColorBlindMode(enabled) {
   render();
 }
 
-function stopResponseRails() {
-  window.cancelAnimationFrame(progressFrame);
-  progressFrame = null;
-  elements.responseRails.hidden = true;
-  for (const fill of elements.responseRailFills) {
-    fill.style.transform = "scaleY(0)";
-  }
+function applySoundFx(enabled) {
+  soundFxEnabled = Boolean(enabled);
+  sound.setEnabled(soundFxEnabled);
+  renderDisplaySettings();
+  writeStoredPreference(SOUND_FX_STORAGE_KEY, soundFxEnabled ? "on" : "off");
 }
 
-function renderResponseRails(snapshot) {
+function stopResponseProgress() {
+  window.cancelAnimationFrame(progressFrame);
+  progressFrame = null;
+  elements.responseProgress.hidden = true;
+  elements.responseProgressFill.style.transform = "scaleX(0)";
+}
+
+function renderResponseProgress(snapshot) {
   if (snapshot.state !== GAME_STATES.ACTIVE || snapshot.reactionProgress === null) {
-    stopResponseRails();
+    stopResponseProgress();
     return;
   }
 
-  elements.responseRails.hidden = false;
+  elements.responseProgress.hidden = false;
   const progress = Math.max(0, Math.min(1, snapshot.reactionProgress));
-  for (const fill of elements.responseRailFills) {
-    fill.style.transform = `scaleY(${progress})`;
-  }
+  elements.responseProgressFill.style.transform = `scaleX(${progress})`;
 }
 
-function startResponseRails(currentSession) {
+function startResponseProgress(currentSession) {
   window.cancelAnimationFrame(progressFrame);
   const tick = () => {
     if (
@@ -235,10 +199,10 @@ function startResponseRails(currentSession) {
       document.hidden ||
       engine.state !== GAME_STATES.ACTIVE
     ) {
-      stopResponseRails();
+      stopResponseProgress();
       return;
     }
-    renderResponseRails(engine.getSnapshot(now()));
+    renderResponseProgress(engine.getSnapshot(now()));
     progressFrame = window.requestAnimationFrame(tick);
   };
   tick();
@@ -250,7 +214,7 @@ function clearTimers() {
   window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
   window.clearTimeout(completionTimer);
-  stopResponseRails();
+  stopResponseProgress();
   spawnTimer = null;
   deadlineTimer = null;
   runEndTimer = null;
@@ -260,8 +224,8 @@ function clearTimers() {
 }
 
 function startGame(mode) {
-  sound.unlock();
   clearTimers();
+  sound.unlock();
   void refreshTopScore(mode);
   const currentSession = sessionId + 1;
   sessionId = currentSession;
@@ -294,7 +258,7 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
     if (result.type !== "round-active") return;
     sound.tileOn();
     render();
-    startResponseRails(currentSession);
+    startResponseProgress(currentSession);
     scheduleDeadline(currentSession, result.snapshot.difficulty.responseWindowMs);
   }, delayMs + additionalDelayMs);
 }
@@ -308,7 +272,7 @@ function scheduleDeadline(currentSession, delayMs) {
       return;
     }
     sound.tileOff();
-    stopResponseRails();
+    stopResponseProgress();
     if (result.type === "ignored-color") {
       showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
       render();
@@ -332,7 +296,7 @@ function handleTileTap(event) {
   spawnTimer = null;
   window.clearTimeout(deadlineTimer);
   deadlineTimer = null;
-  stopResponseRails();
+  stopResponseProgress();
 
   if (result.type === "hit") {
     showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
@@ -448,7 +412,6 @@ function resetResultUi() {
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("");
-  closeThemes();
   closeSettings();
   closeLeaderboard();
 }
@@ -499,23 +462,7 @@ function selectLeaderboardMode(mode) {
   }
 }
 
-function openThemes() {
-  closeSettings();
-  closeLeaderboard();
-  elements.themesPanel.hidden = false;
-  elements.themesToggle.setAttribute("aria-expanded", "true");
-  window.requestAnimationFrame(() => {
-    elements.themesPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
-}
-
-function closeThemes() {
-  elements.themesPanel.hidden = true;
-  elements.themesToggle.setAttribute("aria-expanded", "false");
-}
-
 function openSettings() {
-  closeThemes();
   closeLeaderboard();
   elements.settingsPanel.hidden = false;
   elements.settingsToggle.setAttribute("aria-expanded", "true");
@@ -530,7 +477,6 @@ function closeSettings() {
 }
 
 function openLeaderboard() {
-  closeThemes();
   closeSettings();
   elements.leaderboardPanel.hidden = false;
   elements.leaderboardToggle.setAttribute("aria-expanded", "true");
@@ -839,13 +785,6 @@ elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMA
 elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
 elements.mainMenuButton.addEventListener("click", showMainMenu);
 elements.scoreForm.addEventListener("submit", submitScore);
-elements.themesToggle.addEventListener("click", () => {
-  if (elements.themesPanel.hidden) {
-    openThemes();
-  } else {
-    closeThemes();
-  }
-});
 elements.settingsToggle.addEventListener("click", () => {
   if (elements.settingsPanel.hidden) {
     openSettings();
@@ -860,6 +799,9 @@ for (const input of elements.themeInputs) {
 }
 elements.colorBlindToggle.addEventListener("change", () => {
   applyColorBlindMode(elements.colorBlindToggle.checked);
+});
+elements.soundFxToggle.addEventListener("change", () => {
+  applySoundFx(elements.soundFxToggle.checked);
 });
 elements.leaderboardToggle.addEventListener("click", () => {
   if (elements.leaderboardPanel.hidden) {

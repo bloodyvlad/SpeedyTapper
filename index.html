@@ -29,17 +29,13 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260711-4" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260711-5" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260711-4" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-5" />
     <title>SpeedyTapper</title>
   </head>
   <body>
-    <div class="response-rails" id="response-rails" hidden aria-hidden="true">
-      <span class="response-rail response-rail--left"><span class="response-rail__fill"></span></span>
-      <span class="response-rail response-rail--right"><span class="response-rail__fill"></span></span>
-    </div>
     <div id="app">
       <header class="hud" aria-label="Game status">
         <div class="hud-side">
@@ -61,6 +57,9 @@
             </span>
             <span id="color-name">Cyan</span>
           </strong>
+          <span class="response-progress" id="response-progress" hidden aria-hidden="true">
+            <span class="response-progress__fill" id="response-progress-fill"></span>
+          </span>
         </div>
 
         <div class="hud-side">
@@ -145,49 +144,6 @@
               </div>
             </fieldset>
             <button
-              class="secondary-button themes-toggle"
-              id="themes-toggle"
-              type="button"
-              aria-expanded="false"
-              aria-controls="themes-panel"
-            >
-              <span>Themes</span>
-              <span class="themes-toggle__value" id="theme-current">Classic</span>
-            </button>
-            <fieldset class="themes-panel" id="themes-panel" hidden>
-              <legend class="visually-hidden">Choose a theme</legend>
-              <div class="theme-options">
-                <label class="theme-choice">
-                  <input class="theme-choice__input" type="radio" name="theme" value="classic" checked />
-                  <span class="theme-choice__surface">
-                    <span class="theme-preview" data-theme-preview="classic" aria-hidden="true">
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
-                    </span>
-                    <strong>Classic</strong>
-                  </span>
-                </label>
-                <label class="theme-choice">
-                  <input class="theme-choice__input" type="radio" name="theme" value="disco" />
-                  <span class="theme-choice__surface">
-                    <span class="theme-preview" data-theme-preview="disco" aria-hidden="true">
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
-                    </span>
-                    <strong>Disco</strong>
-                  </span>
-                </label>
-              </div>
-            </fieldset>
-            <button
               class="secondary-button settings-toggle"
               id="settings-toggle"
               type="button"
@@ -195,17 +151,59 @@
               aria-controls="settings-panel"
             >
               <span>Settings</span>
-              <span class="settings-toggle__value" id="settings-current">Shapes on</span>
+              <span class="settings-toggle__value" id="settings-current">Classic · Sound on</span>
             </button>
             <fieldset class="settings-panel" id="settings-panel" hidden>
-              <legend class="visually-hidden">Display settings</legend>
-              <label class="color-blind-setting" for="color-blind-toggle">
-                <span class="color-blind-setting__copy">
-                  <strong>Color-blind mode</strong>
-                  <small>Show shapes on tiles</small>
-                </span>
-                <input id="color-blind-toggle" type="checkbox" role="switch" checked />
-              </label>
+              <legend class="visually-hidden">Settings</legend>
+              <div class="settings-section" role="radiogroup" aria-labelledby="theme-setting-label">
+                <span class="settings-section__label" id="theme-setting-label">Theme</span>
+                <div class="theme-options">
+                  <label class="theme-choice">
+                    <input class="theme-choice__input" type="radio" name="theme" value="classic" checked />
+                    <span class="theme-choice__surface">
+                      <span class="theme-preview" data-theme-preview="classic" aria-hidden="true">
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
+                      </span>
+                      <strong>Classic</strong>
+                    </span>
+                  </label>
+                  <label class="theme-choice">
+                    <input class="theme-choice__input" type="radio" name="theme" value="disco" />
+                    <span class="theme-choice__surface">
+                      <span class="theme-preview" data-theme-preview="disco" aria-hidden="true">
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
+                        <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
+                      </span>
+                      <strong>Disco</strong>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-switches">
+                <label class="setting-row" for="color-blind-toggle">
+                  <span class="setting-row__copy">
+                    <strong>Color-blind mode</strong>
+                    <small>Show shapes on tiles</small>
+                  </span>
+                  <input class="setting-toggle" id="color-blind-toggle" type="checkbox" role="switch" checked />
+                </label>
+                <label class="setting-row" for="sound-fx-toggle">
+                  <span class="setting-row__copy">
+                    <strong>Sound FX</strong>
+                    <small>Load and play game sounds</small>
+                  </span>
+                  <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" checked />
+                </label>
+              </div>
             </fieldset>
             <button
               class="secondary-button leaderboard-toggle"
@@ -238,7 +236,7 @@
 
     <script>
       (() => {
-        const buildId = "20260711-4";
+        const buildId = "20260711-5";
         if (!("serviceWorker" in navigator)) return;
 
         const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
@@ -268,6 +266,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260711-4"></script>
+    <script type="module" src="./src/main.js?v=20260711-5"></script>
   </body>
 </html>

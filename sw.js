@@ -1,4 +1,4 @@
-const BUILD_ID = "20260711-4";
+const BUILD_ID = "20260711-5";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [
@@ -8,15 +8,14 @@ const APP_SHELL = [
   `./src/config.js?v=${BUILD_ID}`,
   `./src/game-engine.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
+  `./src/sound-controller.js?v=${BUILD_ID}`,
   `./lib/leaderboard-model.js?v=${BUILD_ID}`,
   "./assets/icon.svg",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
   "./assets/apple-touch-icon.png",
   "./assets/disco-concrete.png",
-  "./assets/disco-tile-overlay.png",
-  "./assets/audio/oops.mp3",
-  "./assets/audio/fluorescent-hum.mp3"
+  "./assets/disco-tile-overlay.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -64,6 +63,10 @@ self.addEventListener("fetch", (event) => {
 
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin || requestUrl.pathname.startsWith("/api/")) return;
+  if (requestUrl.pathname.startsWith("/assets/audio/")) {
+    event.respondWith(fetch(event.request, { cache: "no-store" }));
+    return;
+  }
 
   event.respondWith(networkFirst(event.request));
 });

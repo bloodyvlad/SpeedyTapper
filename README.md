@@ -49,10 +49,11 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - Mixed-round pressure rises by 1.5 percentage points per successful tap. Every ten successful taps adds another possible decoy and gently reduces the quiet interval, up to six decoys and an 80% mixed-round ceiling.
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
-- Two full-height neutral-grey side rails drain during every active decision to show the current response window. Their 60%-white fill stays independent of the player's current color.
-- The main menu offers Classic and Disco themes. Disco uses paler white-backlit colors, clearly visible repeating black concrete, and lightly scratched plastic tile surfaces in both idle and lit states.
-- Color-blind mode lives under **Settings**. It is on by default and shows a unique shape on each color; turning it off removes the glyphs from the HUD, game tiles, and theme previews. Theme and display preferences are stored on that device.
-- Gameplay keeps the continuous active-target hum and life-loss cue, but deliberately has no delayed tap or switch-off sound in the high-speed reaction loop.
+- A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.
+- **Settings** contains the Classic and Disco theme selector. Disco uses paler white-backlit colors, clearly visible repeating black concrete, and lightly scratched plastic tile surfaces in both idle and lit states.
+- Settings also contains Color-blind mode and Sound FX. Color-blind mode is on by default and shows a unique shape on each color; turning it off removes glyphs from the HUD, game tiles, and theme previews.
+- Sound FX is on by default and enables the active-target hum and life-loss cue; there is deliberately no delayed tap or switch-off sound in the high-speed reaction loop. Turning Sound FX off releases any loaded media, and future sound hooks do not create, load, request, or play audio files until the player turns it back on and starts a game.
+- Theme, accessibility, and sound preferences are stored on that device.
 - The HUD and result screen show the current global top score for the selected mode; no player profile or local result history is stored.
 - Each completed run asks for a name and can be submitted to the shared, mode-specific Top 20 leaderboard. Names are not remembered between runs. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
 - Leaderboard submissions are validated and throttled, but gameplay still runs in the browser; this prototype board is not suitable for competitive play without server-authoritative anti-cheat.
@@ -66,7 +67,7 @@ All balancing values are centralized in [`src/config.js`](./src/config.js).
 npm run check
 ```
 
-The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
+The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. The sound controller is tested to ensure disabled audio never creates, loads, requests, or plays media and that disabling it releases anything already loaded. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
 
 ## Why a small PWA
 
