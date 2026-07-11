@@ -1,7 +1,7 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-5";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-5";
-import { createSoundController } from "./sound-controller.js?v=20260711-5";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-5";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-6";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-6";
+import { createSoundController } from "./sound-controller.js?v=20260711-6";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-6";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -20,6 +20,9 @@ const elements = {
   dialogMessage: document.querySelector("#dialog-message"),
   dialogTitle: document.querySelector("#dialog-title"),
   feedback: document.querySelector("#feedback"),
+  gameMenuButton: document.querySelector("#game-menu-button"),
+  gameRestartButton: document.querySelector("#game-restart-button"),
+  gameUtility: document.querySelector("#game-utility"),
   highScore: document.querySelector("#high-score"),
   installButton: document.querySelector("#install-button"),
   leaderboardList: document.querySelector("#leaderboard-list"),
@@ -37,6 +40,7 @@ const elements = {
   points: document.querySelector("#points"),
   responseProgress: document.querySelector("#response-progress"),
   responseProgressFill: document.querySelector("#response-progress-fill"),
+  resultRestartButton: document.querySelector("#result-restart-button"),
   resultAverageValue: document.querySelector("#result-average-value"),
   resultContent: document.querySelector("#result-content"),
   resultDodgesValue: document.querySelector("#result-dodges-value"),
@@ -232,6 +236,7 @@ function startGame(mode) {
   const startedAt = now();
   engine.start(startedAt, mode);
   resetResultUi();
+  elements.gameUtility.hidden = false;
   elements.overlay.hidden = true;
   elements.dialogTitle.textContent = "Ready to react?";
   render();
@@ -355,6 +360,10 @@ function finishGame(snapshot, currentSession) {
   elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
   elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
   elements.resultDodgesValue.textContent = snapshot.dodges.toLocaleString();
+  elements.resultRestartButton.setAttribute(
+    "aria-label",
+    `Restart ${isZen ? "Zen" : "Normal"} mode`
+  );
   pendingResult = {
     mode: snapshot.mode,
     score: snapshot.points,
@@ -381,6 +390,7 @@ function finishGame(snapshot, currentSession) {
   setScoreStatus("Enter your name to submit this run to the Top 20.");
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
+      elements.gameUtility.hidden = true;
       elements.overlay.hidden = false;
       elements.dialog.scrollTop = 0;
       elements.playerName.focus({ preventScroll: true });
@@ -402,6 +412,7 @@ function finishGame(snapshot, currentSession) {
 
 function resetResultUi() {
   pendingResult = null;
+  elements.gameUtility.hidden = true;
   elements.resultContent.hidden = true;
   elements.resultStats.hidden = true;
   elements.scoreForm.hidden = true;
@@ -441,6 +452,11 @@ function showMainMenu() {
   for (const mode of Object.values(GAME_MODES)) {
     void refreshTopScore(mode);
   }
+}
+
+function restartCurrentMode() {
+  const mode = pendingResult?.mode ?? engine.mode;
+  startGame(mode);
 }
 
 function setScoreStatus(message, isError = false) {
@@ -783,6 +799,9 @@ elements.installButton.addEventListener("click", async () => {
 
 elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMAL));
 elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
+elements.gameRestartButton.addEventListener("click", restartCurrentMode);
+elements.gameMenuButton.addEventListener("click", showMainMenu);
+elements.resultRestartButton.addEventListener("click", restartCurrentMode);
 elements.mainMenuButton.addEventListener("click", showMainMenu);
 elements.scoreForm.addEventListener("submit", submitScore);
 elements.settingsToggle.addEventListener("click", () => {

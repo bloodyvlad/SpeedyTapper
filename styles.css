@@ -79,6 +79,68 @@ button {
   flex-direction: column;
 }
 
+.game-header {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.game-utility {
+  min-width: 0;
+  min-height: 44px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.game-utility[hidden] {
+  display: none;
+}
+
+.game-utility__actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
+.game-utility__button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.06),
+    0 6px 18px rgba(0, 0, 0, 0.22);
+  color: #f2f4ff;
+  cursor: pointer;
+  touch-action: manipulation;
+  backdrop-filter: blur(16px);
+  display: grid;
+  place-items: center;
+}
+
+.game-utility__button svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.game-utility__button:active {
+  transform: translateY(1px);
+}
+
+.game-utility__button:focus-visible {
+  outline: 3px solid white;
+  outline-offset: 2px;
+}
+
 .hud {
   display: grid;
   grid-template-columns: minmax(64px, 0.78fr) minmax(140px, 1.65fr) minmax(64px, 0.78fr);
@@ -257,7 +319,7 @@ button {
 
 .board-shell {
   position: relative;
-  width: min(calc(100vw - 24px), calc(100dvh - 148px), 680px);
+  width: min(calc(100vw - 24px), calc(100dvh - 200px), 680px);
   aspect-ratio: 1;
   flex: 0 0 auto;
   padding: clamp(7px, 2vw, 11px);
@@ -272,10 +334,12 @@ button {
 :root[data-theme="disco"] .board-shell {
   border-color: rgba(181, 205, 210, 0.2);
   background-color: #070808;
-  background-image: url("./assets/disco-concrete.png");
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.13)),
+    url("./assets/disco-concrete.png");
   background-position: center;
   background-repeat: repeat;
-  background-size: 480px 480px;
+  background-size: auto, 340px 340px;
   box-shadow:
     0 24px 78px rgba(0, 0, 0, 0.68),
     inset 0 1px rgba(255, 255, 255, 0.08),
@@ -314,7 +378,6 @@ button {
   line-height: 1;
   touch-action: manipulation;
   transition:
-    background-color 65ms linear,
     border-color 65ms linear,
     box-shadow 65ms linear,
     transform 65ms ease-out;
@@ -369,12 +432,10 @@ button {
 
 .tile--lit {
   border-color: color-mix(in srgb, var(--tile-color) 78%, white 22%);
-  background:
-    radial-gradient(circle at 36% 26%, rgba(255, 255, 255, 0.42), transparent 28%),
-    var(--tile-color);
+  background: var(--tile-color);
   box-shadow:
     0 0 25px color-mix(in srgb, var(--tile-color) 62%, transparent),
-    inset 0 1px rgba(255, 255, 255, 0.48),
+    inset 0 1px rgba(255, 255, 255, 0.4),
     inset 0 -18px 35px rgba(0, 0, 0, 0.14);
   color: var(--tile-ink);
   text-shadow: 0 1px rgba(255, 255, 255, 0.2);
@@ -384,6 +445,7 @@ button {
 :root[data-theme="disco"] .tile--lit {
   border-color: color-mix(in srgb, var(--tile-color) 62%, white 38%);
   background:
+    radial-gradient(circle at 50% 48%, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.11) 34%, transparent 64%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.23), transparent 35%, rgba(0, 0, 0, 0.18)),
     var(--tile-color);
   box-shadow:
@@ -406,11 +468,9 @@ button {
 
 @keyframes cell-on {
   from {
-    filter: brightness(1.7);
     transform: scale(0.93);
   }
   to {
-    filter: brightness(1);
     transform: scale(1);
   }
 }
@@ -488,11 +548,11 @@ button {
 :root[data-theme="disco"] .overlay {
   background-color: rgba(0, 0, 0, 0.18);
   background-image:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.38)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.24)),
     url("./assets/disco-concrete.png");
   background-position: center, center top;
   background-repeat: no-repeat, repeat;
-  background-size: auto, 600px 600px;
+  background-size: auto, 480px 480px;
   backdrop-filter: blur(0.5px);
 }
 
@@ -515,10 +575,10 @@ button {
   border-color: rgba(185, 211, 217, 0.22);
   background-color: rgba(5, 7, 11, 0.9);
   background-image:
-    linear-gradient(155deg, rgba(15, 20, 31, 0.87), rgba(5, 7, 11, 0.93)),
+    linear-gradient(155deg, rgba(15, 20, 31, 0.76), rgba(5, 7, 11, 0.86)),
     url("./assets/disco-concrete.png");
   background-position: center;
-  background-size: auto, 560px 560px;
+  background-size: auto, 460px 460px;
   box-shadow:
     0 30px 95px rgba(0, 0, 0, 0.76),
     0 0 30px rgba(63, 232, 241, 0.055);
@@ -570,6 +630,22 @@ button {
   box-shadow:
     0 0 0 4px rgba(99, 255, 242, 0.13),
     0 0 14px #63fff2;
+}
+
+.brand-logo--game {
+  margin: 0;
+  font-size: clamp(1.1rem, 5vw, 1.45rem);
+  filter: drop-shadow(0 0 11px rgba(67, 244, 255, 0.24));
+}
+
+.brand-logo--game .brand-logo__pulse {
+  width: 7px;
+  height: 7px;
+  margin: -12px 0 0 5px;
+  border-width: 1.5px;
+  box-shadow:
+    0 0 0 3px rgba(99, 255, 242, 0.11),
+    0 0 10px #63fff2;
 }
 
 h1 {
@@ -710,6 +786,11 @@ h1 {
   min-height: 48px;
   padding: 0 14px;
   border-radius: 13px;
+}
+
+.result-restart-button {
+  min-height: 48px;
+  margin-top: 8px;
 }
 
 .score-submit:disabled,
@@ -1229,7 +1310,7 @@ h1 {
 
 @media (max-height: 650px) {
   .board-shell {
-    width: min(calc(100vw - 24px), calc(100dvh - 124px), 680px);
+    width: min(calc(100vw - 24px), calc(100dvh - 176px), 680px);
   }
 }
 

@@ -50,7 +50,8 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
 - A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.
-- **Settings** contains the Classic and Disco theme selector. Disco uses paler white-backlit colors, clearly visible repeating black concrete, and lightly scratched plastic tile surfaces in both idle and lit states.
+- Active gameplay has a compact SpeedyTapper logo plus 44px Restart and Main menu shortcuts above the HUD. The Game Over name form also offers a full-width Restart button that immediately starts the same mode again.
+- **Settings** contains the Classic and Disco theme selector. Classic targets show the vivid palette immediately with no dark color-transition frame. Disco uses paler center-lit colors, clearly visible repeating black concrete, and lightly scratched plastic tile surfaces in both idle and lit states.
 - Settings also contains Color-blind mode and Sound FX. Color-blind mode is on by default and shows a unique shape on each color; turning it off removes glyphs from the HUD, game tiles, and theme previews.
 - Sound FX is on by default and enables the active-target hum and life-loss cue; there is deliberately no delayed tap or switch-off sound in the high-speed reaction loop. Turning Sound FX off releases any loaded media, and future sound hooks do not create, load, request, or play audio files until the player turns it back on and starts a game.
 - Theme, accessibility, and sound preferences are stored on that device.
@@ -67,7 +68,7 @@ All balancing values are centralized in [`src/config.js`](./src/config.js).
 npm run check
 ```
 
-The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. The sound controller is tested to ensure disabled audio never creates, loads, requests, or plays media and that disabling it releases anything already loaded. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
+The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. Static UI tests cover the gameplay shortcuts, same-mode restart flow, distinct Classic/Disco material treatments, and release wiring. The sound controller is tested to ensure disabled audio never creates, loads, requests, or plays media and that disabling it releases anything already loaded. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
 
 ## Why a small PWA
 

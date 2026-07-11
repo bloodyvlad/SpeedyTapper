@@ -4,7 +4,8 @@
 - Latest production Settings screenshot: `/tmp/speedytapper-20260711-5-settings.png`
 - Latest production gameplay screenshot: `/tmp/speedytapper-20260711-5-timer.png`
 - Viewport: 390 × 844
-- Implementation release: `20260711-5`
+- Production release: `20260711-5`
+- Local candidate: `20260711-6` (not deployed)
 - Last visually verified production release: `20260711-5`
 - Target state: main menu with Settings expanded, Disco selected, and Sound FX disabled; Normal gameplay with the relocated response timer active
 
@@ -25,6 +26,17 @@
 - Sound-controller coverage confirms disabled audio creates, loads, and plays nothing; enabled audio stays lazy until unlock; disabling sound releases existing media before all hooks become no-ops; and a pending Safari-style unlock cannot revive audio after opt-out.
 - Production at `https://speedytapper.vercel.app` was verified at 390 × 844. The consolidated Settings panel fits without clipping, its `Disco · Sound off` summary persisted after reload, no side rails exist, and the neutral response timer drains inside the color field without obscuring its swatch or label.
 - Fresh evidence is saved at `/tmp/speedytapper-20260711-5-settings.png` and `/tmp/speedytapper-20260711-5-timer.png`.
+
+## Local Candidate 20260711-6
+
+- Added a compact SpeedyTapper identity row above the HUD with accessible 44px Restart and Main menu controls. The utility row stays hidden on menus and result screens.
+- Added a full-width Restart button directly below the Game Over name entry; both restart controls preserve the current Normal or Zen mode.
+- Removed the 65ms dark-to-color transition so Classic targets display their vivid palette on the first reaction frame. Classic keeps a clear solid-plastic treatment without Disco wear or pale center lighting.
+- Disco retains its separate pale palette, adds an explicit bright center, keeps the scratched-plastic overlay, and exposes more of the black concrete texture on the menu, dialog, page, and board frame.
+- `npm run check`: 40 tests passed. `git diff --check` passed.
+- Browser verification passed at 390 × 844 and 320 × 568. Both restart paths, the in-game menu shortcut, Classic targets, Disco targets, narrow toolbar fit, and concrete visibility were exercised locally.
+- Local evidence: `/tmp/speedytapper-local-menu-20260711-6.png`, `/tmp/speedytapper-local-classic-20260711-6.png`, `/tmp/speedytapper-local-disco-20260711-6.png`, and `/tmp/speedytapper-local-compact-20260711-6.png`.
+- Vercel production was intentionally left on `20260711-5`.
 
 ## Comparison History
 

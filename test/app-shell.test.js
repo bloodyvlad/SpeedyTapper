@@ -122,3 +122,100 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(stylesSource, /data-glyphs="off"[^}]+theme-preview__glyph/s);
   assert.doesNotMatch(mainSource, /PLAYER_NAME_KEY|PROFILE_SCORE_PREFIX|Profile best|My best/);
 });
+
+test("in-game and result controls provide restart and menu shortcuts", () => {
+  assert.match(indexHtml, /class="game-header"/);
+  assert.match(indexHtml, /class="game-utility" id="game-utility" hidden/);
+  assert.match(
+    indexHtml,
+    /id="game-utility"[\s\S]*brand-logo[\s\S]*id="game-restart-button"[\s\S]*id="game-menu-button"[\s\S]*<header class="hud"/
+  );
+  assert.match(indexHtml, /id="game-restart-button"[\s\S]*aria-label="Restart current game"/);
+  assert.match(indexHtml, /id="game-menu-button"[\s\S]*aria-label="Return to main menu"/);
+  assert.match(
+    indexHtml,
+    /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="main-menu-button"/
+  );
+
+  assert.match(mainSource, /gameRestartButton:\s*document\.querySelector\("#game-restart-button"\)/);
+  assert.match(mainSource, /gameMenuButton:\s*document\.querySelector\("#game-menu-button"\)/);
+  assert.match(mainSource, /resultRestartButton:\s*document\.querySelector\("#result-restart-button"\)/);
+  const restartBody = mainSource.match(/function restartCurrentMode\(\)\s*\{([^}]*)\}/s)?.[1] ?? "";
+  assert.match(restartBody, /pendingResult\?\.mode\s*\?\?\s*engine\.mode/);
+  assert.match(restartBody, /startGame\([^)]+\);/);
+  assert.match(mainSource, /function startGame\(mode\)[\s\S]*elements\.gameUtility\.hidden = false;/);
+  assert.match(mainSource, /function resetResultUi\(\)[\s\S]*elements\.gameUtility\.hidden = true;/);
+
+  function assertClickHandler(elementName, handlerName) {
+    assert.match(
+      mainSource,
+      new RegExp(
+        `elements\\.${elementName}\\.addEventListener\\("click",\\s*(?:${handlerName}|\\(\\) => ${handlerName}\\(\\))\\);`
+      )
+    );
+  }
+
+  assertClickHandler("gameRestartButton", "restartCurrentMode");
+  assertClickHandler("resultRestartButton", "restartCurrentMode");
+  assertClickHandler("gameMenuButton", "showMainMenu");
+  assertClickHandler("mainMenuButton", "showMainMenu");
+});
+
+test("Classic and Disco gameplay tiles keep distinct material treatments", () => {
+  function ruleFor(selector) {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return stylesSource.match(new RegExp(`(?:^|\\n)${escapedSelector}\\s*\\{([^}]*)\\}`, "s"))?.[1] ?? "";
+  }
+
+  const classicIdle = ruleFor(".tile");
+  const classicLit = ruleFor(".tile--lit");
+  const discoIdle = ruleFor(':root[data-theme="disco"] .tile');
+  const discoWear = ruleFor(':root[data-theme="disco"] .tile::before');
+  const discoLit = ruleFor(':root[data-theme="disco"] .tile--lit');
+  const discoLitWear = ruleFor(':root[data-theme="disco"] .tile--lit::before');
+  const discoConcreteRules = [
+    ruleFor(':root[data-theme="disco"] body'),
+    ruleFor(':root[data-theme="disco"] .board-shell'),
+    ruleFor(':root[data-theme="disco"] .overlay'),
+    ruleFor(':root[data-theme="disco"] .dialog')
+  ];
+
+  for (const [name, rule] of Object.entries({
+    classicIdle,
+    classicLit,
+    discoIdle,
+    discoWear,
+    discoLit,
+    discoLitWear
+  })) {
+    assert.ok(rule, `${name} must have an explicit CSS rule.`);
+  }
+
+  assert.match(classicIdle, /background:\s*[\s\S]*linear-gradient/);
+  assert.doesNotMatch(classicIdle, /disco-tile-overlay|mix-blend-mode/);
+  assert.match(classicLit, /background:\s*var\(--tile-color\);/);
+  assert.doesNotMatch(classicLit, /radial-gradient|linear-gradient|filter:/);
+  assert.match(classicLit, /animation:\s*cell-on\b/);
+  const classicAnimationStart = stylesSource.indexOf("@keyframes cell-on");
+  const discoAnimationStart = stylesSource.indexOf("@keyframes disco-cell-on");
+  assert.ok(classicAnimationStart >= 0 && discoAnimationStart > classicAnimationStart);
+  assert.doesNotMatch(
+    stylesSource.slice(classicAnimationStart, discoAnimationStart),
+    /filter:/,
+    "Classic's activation animation must not bleach its palette with brightness filtering."
+  );
+
+  assert.match(discoIdle, /isolation:\s*isolate/);
+  assert.notEqual(discoIdle.match(/background:\s*([\s\S]*?);/)?.[1], classicIdle.match(/background:\s*([\s\S]*?);/)?.[1]);
+  assert.match(discoWear, /disco-tile-overlay\.png/);
+  assert.match(discoWear, /mix-blend-mode:\s*screen/);
+  assert.match(discoLit, /radial-gradient/);
+  assert.match(discoLit, /linear-gradient/);
+  assert.match(discoLit, /animation-name:\s*disco-cell-on/);
+  assert.match(discoLitWear, /opacity:/);
+  assert.doesNotMatch(classicLit, /disco-cell-on|disco-tile-overlay/);
+  assert.ok(
+    discoConcreteRules.every((rule) => /disco-concrete\.png/.test(rule)),
+    "Disco concrete must remain on the page, board, overlay, and dialog surfaces."
+  );
+});
