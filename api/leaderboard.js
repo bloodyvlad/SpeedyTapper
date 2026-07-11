@@ -35,6 +35,10 @@ function isVercelRuntime() {
   return process.env.VERCEL === "1";
 }
 
+export function normalizeBlobEtag(etag) {
+  return typeof etag === "string" ? etag.replace(/^W\//, "") : etag;
+}
+
 async function readRequestBody(request) {
   if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body)) {
     return request.body;
@@ -78,7 +82,7 @@ async function readRemoteDocument() {
   const raw = await new Response(result.stream).json();
   return {
     document: normalizeLeaderboardDocument(raw),
-    etag: result.blob.etag
+    etag: normalizeBlobEtag(result.blob.etag)
   };
 }
 

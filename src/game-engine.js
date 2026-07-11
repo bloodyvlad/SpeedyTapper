@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260710-2";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260711-1";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -182,7 +182,9 @@ export class GameEngine {
     this.lives = this.config.startingLives;
     this.hits = 0;
     this.misses = 0;
-    this.ignoredColors = 0;
+    this.dodges = 0;
+    this.reactionTotalMs = 0;
+    this.fastestReactionMs = null;
     this.startedAt = null;
     this.endedAt = null;
     this.endReason = null;
@@ -307,6 +309,10 @@ export class GameEngine {
   }
 
   tap(cellIndex, now) {
+    if (this.state === GAME_STATES.WAITING) {
+      return this.#miss("empty", now, null);
+    }
+
     if (this.state !== GAME_STATES.ACTIVE) {
       return Object.freeze({ type: "ignored", reason: "not-active", snapshot: this.getSnapshot(now) });
     }
@@ -327,6 +333,11 @@ export class GameEngine {
     );
     this.points += pointsAwarded;
     this.hits += 1;
+    this.reactionTotalMs += reactionMs;
+    this.fastestReactionMs =
+      this.fastestReactionMs === null
+        ? reactionMs
+        : Math.min(this.fastestReactionMs, reactionMs);
     this.#finishRound();
 
     const shouldChangeColor =
@@ -360,10 +371,13 @@ export class GameEngine {
     }
 
     if (this.roundKind === ROUND_KINDS.WRONG_ONLY) {
-      this.ignoredColors += 1;
+      const pointsAwarded = this.config.dodgePoints;
+      this.points += pointsAwarded;
+      this.dodges += 1;
       this.#finishRound();
       return Object.freeze({
         type: "ignored-color",
+        pointsAwarded,
         reactionMs,
         snapshot: this.getSnapshot(now)
       });
@@ -421,6 +435,10 @@ export class GameEngine {
       this.state === GAME_STATES.ACTIVE && this.cells.length === expectedCellCount
         ? this.cells.map((cell) => ({ ...cell }))
         : Array.from({ length: expectedCellCount }, () => ({ ...EMPTY_CELL }));
+    const reactionProgress =
+      this.state === GAME_STATES.ACTIVE && this.activeAt !== null
+        ? clamp(1 - (now - this.activeAt) / difficulty.responseWindowMs, 0, 1)
+        : null;
 
     return Object.freeze({
       state: this.state,
@@ -429,7 +447,10 @@ export class GameEngine {
       lives: this.lives,
       hits: this.hits,
       misses: this.misses,
-      ignoredColors: this.ignoredColors,
+      dodges: this.dodges,
+      fastestReactionMs: this.fastestReactionMs,
+      averageReactionMs: this.hits > 0 ? this.reactionTotalMs / this.hits : null,
+      reactionProgress,
       elapsedMs,
       remainingMs: this.getRemainingMs(now),
       endReason: this.endReason,

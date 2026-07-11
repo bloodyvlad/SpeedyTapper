@@ -1,12 +1,15 @@
-import { COLORS, GAME_MODES } from "./config.js?v=20260710-2";
-import { GameEngine, GAME_STATES, ROUND_KINDS } from "./game-engine.js?v=20260710-2";
+import { COLORS, GAME_MODES } from "./config.js?v=20260711-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-1";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-1";
 
 const LEGACY_HIGH_SCORE_KEY = "speedytapper.highScore.v1";
-const HIGH_SCORE_KEYS = Object.freeze({
+const LEGACY_MODE_SCORE_KEYS = Object.freeze({
   [GAME_MODES.NORMAL]: "speedytapper.highScore.normal.v2",
   [GAME_MODES.ZEN]: "speedytapper.highScore.zen.v2"
 });
 const PLAYER_NAME_KEY = "speedytapper.playerName.v1";
+const PROFILE_SCORE_PREFIX = "speedytapper.highScore.profile.v3";
+const PROFILE_SCORE_MIGRATION_KEY = "speedytapper.highScore.profileMigration.v3";
 
 const elements = {
   board: document.querySelector("#board"),
@@ -14,13 +17,13 @@ const elements = {
   colorGlyph: document.querySelector("#color-glyph"),
   colorName: document.querySelector("#color-name"),
   colorSwatch: document.querySelector("#color-swatch"),
+  dialog: document.querySelector(".dialog"),
   dialogMessage: document.querySelector("#dialog-message"),
   dialogTitle: document.querySelector("#dialog-title"),
   feedback: document.querySelector("#feedback"),
   highScore: document.querySelector("#high-score"),
-  hint: document.querySelector("#hint"),
+  highScoreLabel: document.querySelector("#high-score-label"),
   installButton: document.querySelector("#install-button"),
-  instruction: document.querySelector("#instruction"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardPanel: document.querySelector("#leaderboard-panel"),
   leaderboardStatus: document.querySelector("#leaderboard-status"),
@@ -30,12 +33,17 @@ const elements = {
   modeName: document.querySelector("#mode-name"),
   normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
-  phase: document.querySelector("#phase"),
   playerName: document.querySelector("#player-name"),
+  playerProfileName: document.querySelector("#player-profile-name"),
   points: document.querySelector("#points"),
-  rules: document.querySelector("#rules"),
-  resultDuration: document.querySelector("#result-duration"),
+  responseRails: document.querySelector("#response-rails"),
+  responseRailFills: [...document.querySelectorAll(".response-rail__fill")],
+  resultAverageValue: document.querySelector("#result-average-value"),
+  resultDodgesValue: document.querySelector("#result-dodges-value"),
+  resultDurationLabel: document.querySelector("#result-duration-label"),
   resultDurationValue: document.querySelector("#result-duration-value"),
+  resultFastestValue: document.querySelector("#result-fastest-value"),
+  resultStats: document.querySelector("#result-stats"),
   scoreForm: document.querySelector("#score-form"),
   scoreStatus: document.querySelector("#score-status"),
   scoreSubmit: document.querySelector("#score-submit"),
@@ -45,18 +53,67 @@ const elements = {
 };
 
 const engine = new GameEngine();
-const highScores = readHighScores();
+migrateLegacyHighScores();
+let highScores = readHighScores();
 let spawnTimer = null;
 let deadlineTimer = null;
 let runEndTimer = null;
 let clockTimer = null;
 let feedbackTimer = null;
 let completionTimer = null;
+let progressFrame = null;
 let sessionId = 0;
 let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
 let leaderboardRequestId = 0;
+
+const sound = (() => {
+  const relayOn = new Audio("./assets/audio/relay-on.mp3");
+  const relayOff = new Audio("./assets/audio/relay-off.mp3");
+  const oops = new Audio("./assets/audio/oops.mp3");
+  const hum = new Audio("./assets/audio/fluorescent-hum.mp3");
+  const sounds = [relayOn, relayOff, oops, hum];
+  hum.loop = true;
+  hum.volume = 0.42;
+  relayOn.volume = 0.7;
+  relayOff.volume = 0.72;
+  oops.volume = 0.8;
+  for (const audio of sounds) audio.preload = "auto";
+
+  function play(audio) {
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }
+
+  return {
+    unlock() {
+      for (const audio of sounds) {
+        audio.muted = true;
+        audio.play().then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.muted = false;
+        }).catch(() => {
+          audio.muted = false;
+        });
+      }
+    },
+    tileOn() {
+      play(relayOn);
+      hum.currentTime = 0;
+      hum.play().catch(() => {});
+    },
+    tileOff(withRelay = true) {
+      hum.pause();
+      hum.currentTime = 0;
+      if (withRelay) play(relayOff);
+    },
+    lifeLost() {
+      play(oops);
+    }
+  };
+})();
 
 function now() {
   return performance.now();
@@ -70,9 +127,26 @@ function formatDuration(milliseconds, showTenths = false) {
   return `${minutes}:${String(seconds).padStart(2, "0")}${showTenths ? `.${tenths}` : ""}`;
 }
 
+function formatReaction(milliseconds) {
+  return milliseconds === null || milliseconds === undefined
+    ? "—"
+    : `${Math.round(milliseconds)} ms`;
+}
+
 function readPlayerName() {
   try {
-    return localStorage.getItem(PLAYER_NAME_KEY) ?? "";
+    const storedName = localStorage.getItem(PLAYER_NAME_KEY) ?? "";
+    if (!storedName) return "";
+    try {
+      const normalizedName = sanitizePlayerName(storedName);
+      if (normalizedName !== storedName) {
+        localStorage.setItem(PLAYER_NAME_KEY, normalizedName);
+      }
+      return normalizedName;
+    } catch {
+      localStorage.removeItem(PLAYER_NAME_KEY);
+      return "";
+    }
   } catch {
     return "";
   }
@@ -86,6 +160,15 @@ function savePlayerName(name) {
   }
 }
 
+function updatePlayerProfile(name = readPlayerName()) {
+  const profileName = name || "Guest on this device";
+  elements.playerProfileName.textContent = profileName;
+  elements.highScoreLabel.textContent = "Profile best";
+  elements.highScoreLabel.title = name
+    ? `Best score stored for ${name} on this device`
+    : "Best score stored in this browser on this device";
+}
+
 function readStoredScore(key) {
   try {
     const storedValue = Number.parseInt(localStorage.getItem(key) ?? "0", 10);
@@ -95,24 +178,135 @@ function readStoredScore(key) {
   }
 }
 
-function readHighScores() {
+function profileIdForName(name) {
+  const normalizedName = name.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  return encodeURIComponent(normalizedName || "guest");
+}
+
+function profileScoreKey(mode, name = readPlayerName()) {
+  return `${PROFILE_SCORE_PREFIX}.${profileIdForName(name)}.${mode}`;
+}
+
+function writeProfileScore(name, mode, score) {
+  try {
+    localStorage.setItem(profileScoreKey(mode, name), String(score));
+  } catch {
+    // Private browsing or storage restrictions should not stop the game.
+  }
+}
+
+function clearProfileScores(name) {
+  try {
+    for (const mode of Object.values(GAME_MODES)) {
+      localStorage.removeItem(profileScoreKey(mode, name));
+    }
+  } catch {
+    // Private browsing or storage restrictions should not stop the game.
+  }
+}
+
+function migrateLegacyHighScores() {
+  try {
+    if (localStorage.getItem(PROFILE_SCORE_MIGRATION_KEY) === "1") return;
+
+    const profileName = readPlayerName();
+    const legacyScores = {
+      [GAME_MODES.NORMAL]: Math.max(
+        readStoredScore(LEGACY_MODE_SCORE_KEYS[GAME_MODES.NORMAL]),
+        readStoredScore(LEGACY_HIGH_SCORE_KEY)
+      ),
+      [GAME_MODES.ZEN]: readStoredScore(LEGACY_MODE_SCORE_KEYS[GAME_MODES.ZEN])
+    };
+
+    for (const mode of Object.values(GAME_MODES)) {
+      const existingScore = readStoredScore(profileScoreKey(mode, profileName));
+      if (legacyScores[mode] > existingScore) {
+        writeProfileScore(profileName, mode, legacyScores[mode]);
+      }
+    }
+    localStorage.setItem(PROFILE_SCORE_MIGRATION_KEY, "1");
+  } catch {
+    // A failed migration only means the browser cannot retain local best scores.
+  }
+}
+
+function readHighScores(name = readPlayerName()) {
   return {
-    [GAME_MODES.NORMAL]: Math.max(
-      readStoredScore(HIGH_SCORE_KEYS[GAME_MODES.NORMAL]),
-      readStoredScore(LEGACY_HIGH_SCORE_KEY)
-    ),
-    [GAME_MODES.ZEN]: readStoredScore(HIGH_SCORE_KEYS[GAME_MODES.ZEN])
+    [GAME_MODES.NORMAL]: readStoredScore(profileScoreKey(GAME_MODES.NORMAL, name)),
+    [GAME_MODES.ZEN]: readStoredScore(profileScoreKey(GAME_MODES.ZEN, name))
   };
 }
 
 function saveHighScore(mode, score) {
   if (score <= highScores[mode]) return;
   highScores[mode] = score;
-  try {
-    localStorage.setItem(HIGH_SCORE_KEYS[mode], String(score));
-  } catch {
-    // Private browsing or storage restrictions should not stop the game.
+  writeProfileScore(readPlayerName(), mode, score);
+}
+
+function activatePlayerProfile(name, result) {
+  const previousName = readPlayerName();
+
+  if (previousName) {
+    highScores = readHighScores(previousName);
+    updatePlayerProfile(previousName);
+    return;
   }
+
+  const nextScores = readHighScores(name);
+  const guestScores = readHighScores("");
+  for (const mode of Object.values(GAME_MODES)) {
+    nextScores[mode] = Math.max(nextScores[mode], guestScores[mode]);
+  }
+
+  nextScores[result.mode] = Math.max(nextScores[result.mode], result.score);
+  for (const mode of Object.values(GAME_MODES)) {
+    writeProfileScore(name, mode, nextScores[mode]);
+  }
+
+  clearProfileScores("");
+  savePlayerName(name);
+  highScores = readHighScores(name);
+  updatePlayerProfile(name);
+}
+
+function stopResponseRails() {
+  window.cancelAnimationFrame(progressFrame);
+  progressFrame = null;
+  elements.responseRails.hidden = true;
+  for (const fill of elements.responseRailFills) {
+    fill.style.transform = "scaleY(0)";
+  }
+}
+
+function renderResponseRails(snapshot) {
+  if (snapshot.state !== GAME_STATES.ACTIVE || snapshot.reactionProgress === null) {
+    stopResponseRails();
+    return;
+  }
+
+  elements.responseRails.hidden = false;
+  elements.responseRails.style.setProperty("--player-color", snapshot.playerColor.value);
+  const progress = Math.max(0, Math.min(1, snapshot.reactionProgress));
+  for (const fill of elements.responseRailFills) {
+    fill.style.transform = `scaleY(${progress})`;
+  }
+}
+
+function startResponseRails(currentSession) {
+  window.cancelAnimationFrame(progressFrame);
+  const tick = () => {
+    if (
+      currentSession !== sessionId ||
+      document.hidden ||
+      engine.state !== GAME_STATES.ACTIVE
+    ) {
+      stopResponseRails();
+      return;
+    }
+    renderResponseRails(engine.getSnapshot(now()));
+    progressFrame = window.requestAnimationFrame(tick);
+  };
+  tick();
 }
 
 function clearTimers() {
@@ -121,15 +315,20 @@ function clearTimers() {
   window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
   window.clearTimeout(completionTimer);
+  stopResponseRails();
   spawnTimer = null;
   deadlineTimer = null;
   runEndTimer = null;
   clockTimer = null;
   completionTimer = null;
+  sound.tileOff(false);
 }
 
 function startGame(mode) {
+  sound.unlock();
   clearTimers();
+  highScores = readHighScores();
+  updatePlayerProfile();
   const currentSession = sessionId + 1;
   sessionId = currentSession;
   const startedAt = now();
@@ -155,16 +354,13 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
   if (engine.state === GAME_STATES.GAME_OVER || currentSession !== sessionId) return;
 
   const delayMs = engine.getNextDelayMs(now());
-  if (additionalDelayMs === 0) {
-    elements.instruction.textContent = "Get ready";
-  }
   spawnTimer = window.setTimeout(() => {
     if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
     const result = engine.activateRound(now());
     if (result.type !== "round-active") return;
-    elements.instruction.textContent =
-      result.snapshot.roundKind === ROUND_KINDS.WRONG_ONLY ? "Ignore it" : "Tap your color";
+    sound.tileOn();
     render();
+    startResponseRails(currentSession);
     scheduleDeadline(currentSession, result.snapshot.difficulty.responseWindowMs);
   }, delayMs + additionalDelayMs);
 }
@@ -177,9 +373,11 @@ function scheduleDeadline(currentSession, delayMs) {
       scheduleDeadline(currentSession, Math.ceil(result.remainingMs));
       return;
     }
+    sound.tileOff();
+    stopResponseRails();
     if (result.type === "ignored-color") {
-      showFeedback("Good restraint", false);
-      elements.instruction.textContent = "Good — get ready";
+      saveHighScore(result.snapshot.mode, result.snapshot.points);
+      showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
       render();
       scheduleRound(currentSession);
       return;
@@ -196,13 +394,16 @@ function handleTileTap(event) {
   const result = engine.tap(cellIndex, now());
   if (result.type === "ignored") return;
 
+  sound.tileOff();
+  window.clearTimeout(spawnTimer);
+  spawnTimer = null;
   window.clearTimeout(deadlineTimer);
   deadlineTimer = null;
+  stopResponseRails();
 
   if (result.type === "hit") {
     saveHighScore(result.snapshot.mode, result.snapshot.points);
     showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
-    elements.instruction.textContent = "Good — get ready";
     render();
     scheduleRound(sessionId);
     return;
@@ -212,12 +413,16 @@ function handleTileTap(event) {
 }
 
 function handleMiss(result, currentSession) {
-  const wrong = result.reason === "wrong";
+  if (result.lifeLost) sound.lifeLost();
+  const reasonLabel = {
+    empty: "Empty square",
+    late: "Too slow",
+    wrong: "Wrong color"
+  }[result.reason] ?? "Miss";
   const message = result.lifeLost
-    ? `${wrong ? "Wrong color" : "Too slow"} · ${result.snapshot.lives} ${result.snapshot.lives === 1 ? "life" : "lives"} left`
-    : `${wrong ? "Wrong color" : "Too slow"} · keep going`;
+    ? `${reasonLabel} · ${result.snapshot.lives} ${result.snapshot.lives === 1 ? "life" : "lives"} left`
+    : `${reasonLabel} · keep going`;
   showFeedback(message, true);
-  elements.instruction.textContent = message;
   render();
 
   if (engine.isRunComplete()) {
@@ -248,42 +453,63 @@ function finishGame(snapshot, currentSession) {
   clearTimers();
   saveHighScore(snapshot.mode, snapshot.points);
   const isZen = snapshot.mode === GAME_MODES.ZEN;
-  elements.dialogTitle.textContent = isZen ? "Minute complete" : "Run complete";
-  const completionReason = isZen ? "The one-minute timer ended." : "All three lives were used.";
-  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your ${isZen ? "Zen" : "Normal"} best is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
-  elements.resultDuration.hidden = isZen;
-  if (!isZen) {
-    elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
-  }
+  const modeName = isZen ? "Zen" : "Normal";
+  elements.dialogTitle.textContent = isZen ? "Minute complete" : "Game Over";
+  const completionReason = isZen ? "The one-minute timer ended." : "You are out of lives.";
+  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your best score for ${modeName} mode is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
+  elements.resultStats.hidden = false;
+  elements.resultDurationLabel.textContent = isZen ? "Duration" : "Survived";
+  elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
+  elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
+  elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
+  elements.resultDodgesValue.textContent = snapshot.dodges.toLocaleString();
   pendingResult = {
     mode: snapshot.mode,
     score: snapshot.points,
     hits: snapshot.hits,
+    dodges: snapshot.dodges,
+    fastestReactionMs:
+      snapshot.fastestReactionMs === null ? null : Math.round(snapshot.fastestReactionMs),
+    averageReactionMs:
+      snapshot.averageReactionMs === null ? null : Math.round(snapshot.averageReactionMs),
     survivalMs: Math.round(snapshot.elapsedMs),
     submitted: false
   };
-  elements.rules.hidden = true;
   elements.scoreForm.hidden = false;
   elements.playerName.disabled = false;
-  elements.playerName.value = readPlayerName();
+  const savedPlayerName = readPlayerName();
+  elements.playerName.value = savedPlayerName;
+  elements.playerName.readOnly = Boolean(savedPlayerName);
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("Enter your name to submit this run to the Top 20.");
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
       elements.overlay.hidden = false;
-      elements.scoreForm.scrollIntoView({ block: "nearest" });
+      elements.dialog.scrollTop = 0;
       elements.playerName.focus({ preventScroll: true });
+      const keepPromptVisible = () => {
+        if (elements.scoreForm.hidden || elements.overlay.hidden) return;
+        const viewportTop = window.visualViewport?.offsetTop ?? 0;
+        const viewportBottom =
+          viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+        const formBounds = elements.scoreForm.getBoundingClientRect();
+        if (formBounds.top < viewportTop + 8 || formBounds.bottom > viewportBottom - 8) {
+          elements.scoreForm.scrollIntoView({ behavior: "smooth", block: "end" });
+        }
+      };
+      window.visualViewport?.addEventListener("resize", keepPromptVisible, { once: true });
+      window.setTimeout(keepPromptVisible, 250);
     }
   }, 400);
 }
 
 function resetResultUi() {
   pendingResult = null;
-  elements.rules.hidden = false;
-  elements.resultDuration.hidden = true;
+  elements.resultStats.hidden = true;
   elements.scoreForm.hidden = true;
   elements.playerName.disabled = false;
+  elements.playerName.readOnly = false;
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("");
@@ -352,10 +578,13 @@ function renderLeaderboard(entries, mode) {
     name.textContent = entry.name;
     const meta = document.createElement("div");
     meta.className = "leaderboard-entry__meta";
-    meta.textContent =
-      mode === GAME_MODES.NORMAL
-        ? `${formatDuration(entry.survivalMs, true)} survived · ${entry.hits.toLocaleString()} taps`
-        : `${entry.hits.toLocaleString()} correct taps`;
+    const runMeta = document.createElement("span");
+    runMeta.textContent = `${formatDuration(entry.survivalMs, true)} ${
+      mode === GAME_MODES.NORMAL ? "survived" : "played"
+    } · ${entry.hits.toLocaleString()} taps · ${(entry.dodges ?? 0).toLocaleString()} dodged`;
+    const reactionMeta = document.createElement("span");
+    reactionMeta.textContent = `Fastest ${formatReaction(entry.fastestReactionMs)} · Average ${formatReaction(entry.averageReactionMs)}`;
+    meta.append(runMeta, reactionMeta);
     player.append(name, meta);
 
     const score = document.createElement("strong");
@@ -404,12 +633,22 @@ async function submitScore(event) {
   event.preventDefault();
   if (!pendingResult || pendingResult.submitted) return;
 
-  const name = elements.playerName.value.trim();
-  if (!name) {
-    setScoreStatus("Enter a player name.", true);
+  let name;
+  try {
+    name = sanitizePlayerName(elements.playerName.value);
+  } catch (error) {
+    setScoreStatus(error.message, true);
     elements.playerName.focus();
     return;
   }
+
+  const savedPlayerName = readPlayerName();
+  if (savedPlayerName && name !== savedPlayerName) {
+    setScoreStatus(`This run belongs to the ${savedPlayerName} profile.`, true);
+    elements.playerName.value = savedPlayerName;
+    return;
+  }
+  elements.playerName.value = name;
 
   elements.scoreSubmit.disabled = true;
   elements.playerName.disabled = true;
@@ -427,12 +666,16 @@ async function submitScore(event) {
         mode: pendingResult.mode,
         score: pendingResult.score,
         hits: pendingResult.hits,
+        dodges: pendingResult.dodges,
+        fastestReactionMs: pendingResult.fastestReactionMs,
+        averageReactionMs: pendingResult.averageReactionMs,
         survivalMs: pendingResult.survivalMs
       })
     });
     const body = await readApiResponse(response);
     pendingResult.submitted = true;
-    savePlayerName(name);
+    activatePlayerProfile(name, pendingResult);
+    renderHud(engine.getSnapshot(now()));
     elements.scoreSubmit.textContent = body.rank === null ? "Not ranked" : "Saved";
     setScoreStatus(
       body.rank === null
@@ -480,7 +723,6 @@ function renderHud(snapshot) {
     elements.modeLabel.textContent = "Survived";
     elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
   }
-  elements.phase.textContent = snapshot.difficulty.phaseName;
   elements.colorName.textContent = snapshot.playerColor.name;
   elements.colorGlyph.textContent = snapshot.playerColor.glyph;
   elements.colorSwatch.style.background = snapshot.playerColor.value;
@@ -531,27 +773,6 @@ function render() {
     }
   }
 
-  elements.hint.textContent = hintFor(snapshot);
-}
-
-function hintFor(snapshot) {
-  if (snapshot.mode === GAME_MODES.ZEN) {
-    return "Zen lasts one minute. Mistakes never remove lives; collect the best score you can.";
-  }
-  if (snapshot.roundKind === ROUND_KINDS.WRONG_ONLY) {
-    return "This is not your color. Wait for it to disappear without tapping.";
-  }
-  if (snapshot.roundKind === ROUND_KINDS.MIXED) {
-    const decoyCount = snapshot.difficulty.decoyCount;
-    return `${decoyCount} ${decoyCount === 1 ? "decoy is" : "decoys are"} present. Tap only the large color shown in the header.`;
-  }
-  if (snapshot.difficulty.phaseId === "warmup") {
-    return "The timer is hidden. React as soon as your color lights up.";
-  }
-  if (snapshot.difficulty.phaseId === "four-by-four-reset") {
-    return "A forgiving 16-cell reset: no simultaneous decoys for ten seconds.";
-  }
-  return "Tap your color. If a lone different color appears, ignore it.";
 }
 
 function showFeedback(message, isBad) {
@@ -602,5 +823,6 @@ for (const tab of elements.leaderboardTabs) {
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 
+updatePlayerProfile();
 engine.reset();
 render();

@@ -10,13 +10,17 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <link rel="manifest" href="./manifest.webmanifest?v=20260710-2" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260711-1" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260710-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-1" />
     <title>SpeedyTapper</title>
   </head>
   <body>
+    <div class="response-rails" id="response-rails" hidden aria-hidden="true">
+      <span class="response-rail response-rail--left"><span class="response-rail__fill"></span></span>
+      <span class="response-rail response-rail--right"><span class="response-rail__fill"></span></span>
+    </div>
     <div id="app">
       <header class="hud" aria-label="Game status">
         <div class="hud-side">
@@ -25,7 +29,7 @@
             <strong class="stat__value" id="points">0</strong>
           </div>
           <div class="stat">
-            <span class="stat__label">Best</span>
+            <span class="stat__label" id="high-score-label">My best</span>
             <strong class="stat__value" id="high-score">0</strong>
           </div>
         </div>
@@ -53,17 +57,10 @@
       </header>
 
       <main class="game">
-        <div class="phase-row">
-          <span class="phase" id="phase">Warm-up</span>
-          <span class="instruction" id="instruction">Wait for your color</span>
-        </div>
-
         <div class="board-shell">
           <div class="board" id="board" role="group" aria-label="Reaction grid"></div>
           <div class="feedback" id="feedback" aria-live="polite"></div>
         </div>
-
-        <p class="hint" id="hint">The timer is hidden. React as soon as a cell lights up.</p>
       </main>
     </div>
 
@@ -75,23 +72,36 @@
         </div>
         <h1 id="dialog-title">Ready to react?</h1>
         <p class="dialog__lead" id="dialog-message">
-          Tap only the large <strong>Your color</strong> shown above the board. Fast reactions score more.
+          Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
         </p>
-        <div class="result-duration" id="result-duration" hidden>
-          <span>Time survived</span>
-          <strong id="result-duration-value">0:00.0</strong>
+        <p class="player-profile">
+          <span>Player profile</span>
+          <strong id="player-profile-name">Guest on this device</strong>
+        </p>
+        <div class="result-stats" id="result-stats" hidden>
+          <div class="result-stat">
+            <span id="result-duration-label">Survived</span>
+            <strong id="result-duration-value">0:00.0</strong>
+          </div>
+          <div class="result-stat">
+            <span>Fastest</span>
+            <strong id="result-fastest-value">—</strong>
+          </div>
+          <div class="result-stat">
+            <span>Average</span>
+            <strong id="result-average-value">—</strong>
+          </div>
+          <div class="result-stat">
+            <span>Dodged</span>
+            <strong id="result-dodges-value">0</strong>
+          </div>
         </div>
-        <ol class="rules" id="rules">
-          <li>The board grows from 1 to 4 to 16 cells.</li>
-          <li>Let lone wrong colors disappear without tapping.</li>
-          <li>Normal has 3 lives; Zen is a relaxed 1-minute score run.</li>
-        </ol>
         <form class="score-form" id="score-form" hidden>
           <div class="section-heading">
             <h2>Save your run</h2>
             <span>Top 20</span>
           </div>
-          <label for="player-name">Player name</label>
+          <label for="player-name">Player name for this device</label>
           <div class="score-form__row">
             <input
               id="player-name"
@@ -107,9 +117,14 @@
           </div>
           <p class="form-status" id="score-status" aria-live="polite"></p>
         </form>
-        <div class="mode-actions" aria-label="Game and leaderboard actions">
-          <button class="primary-button" id="normal-button" type="button">Normal</button>
-          <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
+        <div class="action-stack">
+          <fieldset class="mode-group">
+            <legend>Game mode</legend>
+            <div class="mode-actions">
+              <button class="primary-button" id="normal-button" type="button">Normal</button>
+              <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
+            </div>
+          </fieldset>
           <button
             class="secondary-button leaderboard-toggle"
             id="leaderboard-toggle"
@@ -140,7 +155,7 @@
 
     <script>
       (() => {
-        const buildId = "20260710-2";
+        const buildId = "20260711-1";
         if (!("serviceWorker" in navigator)) return;
 
         const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
@@ -170,6 +185,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260710-2"></script>
+    <script type="module" src="./src/main.js?v=20260711-1"></script>
   </body>
 </html>

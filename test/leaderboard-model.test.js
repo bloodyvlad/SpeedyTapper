@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DODGE_POINTS,
   LeaderboardValidationError,
   addEntryToLeaderboard,
   emptyLeaderboardDocument,
@@ -45,6 +46,44 @@ test("score submissions reject invalid modes and numeric values", () => {
   );
   assert.throws(
     () => normalizeScoreSubmission(makeEntry({ score: 10_001, hits: 10 })),
+    LeaderboardValidationError
+  );
+  assert.throws(
+    () => normalizeScoreSubmission(makeEntry({ fastestReactionMs: 80 })),
+    LeaderboardValidationError
+  );
+  assert.throws(
+    () =>
+      normalizeScoreSubmission(
+        makeEntry({ fastestReactionMs: 300, averageReactionMs: 200 })
+      ),
+    LeaderboardValidationError
+  );
+});
+
+test("legacy rows gain safe defaults for dodge and reaction statistics", () => {
+  const normalized = normalizeScoreSubmission(makeEntry());
+  assert.equal(normalized.dodges, 0);
+  assert.equal(normalized.fastestReactionMs, null);
+  assert.equal(normalized.averageReactionMs, null);
+});
+
+test("dodge points and reaction statistics pass score validation", () => {
+  const normalized = normalizeScoreSubmission(
+    makeEntry({
+      score: 10 * 100 + 2 * DODGE_POINTS,
+      hits: 10,
+      dodges: 2,
+      fastestReactionMs: 80,
+      averageReactionMs: 250
+    })
+  );
+
+  assert.equal(normalized.dodges, 2);
+  assert.equal(normalized.fastestReactionMs, 80);
+  assert.equal(normalized.averageReactionMs, 250);
+  assert.throws(
+    () => normalizeScoreSubmission({ ...normalized, score: normalized.score - 1 }),
     LeaderboardValidationError
   );
 });

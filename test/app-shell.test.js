@@ -18,13 +18,20 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(indexHtml, new RegExp(`sw\\.js\\?v=\\$\\{buildId\\}`));
   assert.match(mainSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`game-engine\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`leaderboard-model\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
+  assert.match(workerSource, new RegExp(`leaderboard-model\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
 });
 
-test("the result dialog contains the leaderboard prompt and visible survival field", () => {
+test("the streamlined dialog contains player, leaderboard, and reaction statistics", () => {
   assert.doesNotMatch(indexHtml, /Mechanics prototype/i);
-  assert.match(indexHtml, /id="result-duration"/);
+  assert.doesNotMatch(indexHtml, /id="phase"|id="hint"|id="rules"/);
+  assert.match(indexHtml, /id="result-stats"/);
+  assert.match(indexHtml, /id="result-fastest-value"/);
+  assert.match(indexHtml, /id="result-average-value"/);
+  assert.match(indexHtml, /id="player-profile-name"/);
+  assert.match(indexHtml, /id="response-rails"/);
   assert.match(indexHtml, /id="score-form"/);
   assert.match(indexHtml, /id="player-name"/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);

@@ -59,6 +59,7 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourReset: Object.freeze([525, 950]),
     fourByFourChallenge: Object.freeze([425, 825])
   }),
+  dodgePoints: 550,
   scoreFloor: 100,
   scoreCeiling: 1_000
 });

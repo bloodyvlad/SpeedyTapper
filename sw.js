@@ -1,4 +1,4 @@
-const BUILD_ID = "20260710-2";
+const BUILD_ID = "20260711-1";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [
@@ -8,10 +8,15 @@ const APP_SHELL = [
   `./src/config.js?v=${BUILD_ID}`,
   `./src/game-engine.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
+  `./lib/leaderboard-model.js?v=${BUILD_ID}`,
   "./assets/icon.svg",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
-  "./assets/apple-touch-icon.png"
+  "./assets/apple-touch-icon.png",
+  "./assets/audio/relay-on.mp3",
+  "./assets/audio/relay-off.mp3",
+  "./assets/audio/oops.mp3",
+  "./assets/audio/fluorescent-hum.mp3"
 ];
 
 self.addEventListener("install", (event) => {

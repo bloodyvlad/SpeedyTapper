@@ -48,10 +48,9 @@ test("the board grows to 2x2 after four taps but keeps the 1000 ms lifetime", ()
   assert.equal(engine.getSnapshot(15_000).difficulty.responseWindowMs, 1_000);
 });
 
-test("a lone wrong color appears after ten seconds and expires harmlessly when ignored", () => {
+test("a lone wrong color awards average points when dodged", () => {
   const engine = makeEngine(() => 0);
   engine.start(0);
-  engine.hits = 4;
 
   const active = engine.activateRound(10_100);
   assert.equal(active.snapshot.roundKind, ROUND_KINDS.WRONG_ONLY);
@@ -61,8 +60,13 @@ test("a lone wrong color appears after ten seconds and expires harmlessly when i
 
   const result = engine.expireRound(11_100);
   assert.equal(result.type, "ignored-color");
+  assert.equal(result.pointsAwarded, GAME_CONFIG.dodgePoints);
+  assert.equal(result.snapshot.points, GAME_CONFIG.dodgePoints);
   assert.equal(result.snapshot.lives, 3);
-  assert.equal(result.snapshot.ignoredColors, 1);
+  assert.equal(result.snapshot.dodges, 1);
+  assert.equal(result.snapshot.hits, 0);
+  assert.equal(result.snapshot.fastestReactionMs, null);
+  assert.equal(result.snapshot.averageReactionMs, null);
 });
 
 test("the player color changes after a correct post-warm-up tap", () => {
@@ -186,6 +190,31 @@ test("normal mode loses one life for tapping a lone wrong color", () => {
   assert.equal(engine.isRunComplete(), false);
 });
 
+test("tapping the empty board while waiting loses a Normal life", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+
+  const result = engine.tap(0, 100);
+  assert.equal(result.type, "miss");
+  assert.equal(result.reason, "empty");
+  assert.equal(result.lifeLost, true);
+  assert.equal(result.snapshot.lives, 2);
+  assert.equal(result.snapshot.state, GAME_STATES.WAITING);
+});
+
+test("an inactive cell during a target round remains a life-losing mistake", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+  engine.hits = 4;
+  const active = engine.activateRound(5_000);
+  const idleIndex = active.snapshot.cells.findIndex((cell) => cell.kind === "idle");
+
+  const result = engine.tap(idleIndex, 5_100);
+  assert.equal(result.type, "miss");
+  assert.equal(result.reason, "wrong");
+  assert.equal(result.snapshot.lives, 2);
+});
+
 test("Normal mode cannot be completed by time while lives remain", () => {
   const engine = makeEngine(() => 0);
   engine.start(0, GAME_MODES.NORMAL);
@@ -223,6 +252,13 @@ test("Zen mode records mistakes but never removes lives", () => {
   assert.equal(lateResult.type, "miss");
   assert.equal(lateResult.lifeLost, false);
   assert.equal(lateResult.snapshot.lives, 3);
+
+  const emptyEngine = makeEngine();
+  emptyEngine.start(0, GAME_MODES.ZEN);
+  const emptyResult = emptyEngine.tap(0, 100);
+  assert.equal(emptyResult.reason, "empty");
+  assert.equal(emptyResult.lifeLost, false);
+  assert.equal(emptyResult.snapshot.lives, 3);
 });
 
 test("Zen mode ends at exactly one minute", () => {
@@ -255,6 +291,43 @@ test("the third Normal-mode mistake ends the run", () => {
   assert.equal(engine.isRunComplete(), true);
   assert.equal(finalResult.snapshot.elapsedMs, 14_100);
   assert.equal(engine.getSnapshot(999_999).elapsedMs, 14_100);
+});
+
+test("correct taps track fastest and average reaction times", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+
+  hitRound(engine, 100, 80);
+  hitRound(engine, 500, 200);
+  const finalHit = hitRound(engine, 1_000, 350);
+
+  assert.equal(finalHit.snapshot.fastestReactionMs, 80);
+  assert.equal(finalHit.snapshot.averageReactionMs, 210);
+  assert.equal(finalHit.snapshot.hits, 3);
+});
+
+test("the active-round snapshot exposes a smooth remaining-time ratio", () => {
+  const engine = makeEngine();
+  engine.start(0);
+  const active = engine.activateRound(100);
+
+  assert.equal(active.snapshot.reactionProgress, 1);
+  assert.equal(engine.getSnapshot(350).reactionProgress, 0.75);
+  assert.equal(engine.getSnapshot(1_100).reactionProgress, 0);
+  engine.tap(active.snapshot.targetIndex, 200);
+  assert.equal(engine.getSnapshot(200).reactionProgress, null);
+});
+
+test("reset clears dodge and reaction statistics", () => {
+  const engine = makeEngine();
+  engine.start(0);
+  hitRound(engine, 100, 80);
+  engine.reset();
+
+  const snapshot = engine.getSnapshot(0);
+  assert.equal(snapshot.dodges, 0);
+  assert.equal(snapshot.fastestReactionMs, null);
+  assert.equal(snapshot.averageReactionMs, null);
 });
 
 test("faster reactions still award more points", () => {

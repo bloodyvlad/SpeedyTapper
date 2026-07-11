@@ -34,10 +34,11 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 
 ## Current rules
 
-- **Normal Mode** has three lives. Wrong taps and expired correct targets each cost one life.
+- **Normal Mode** has three lives. Wrong colors, empty-board taps, inactive cells, and expired correct targets each cost one life.
 - **1-min Zen** ends after sixty seconds; mistakes are counted but lives are never removed.
 - A random quiet interval precedes every colored cell.
 - Correct taps award 100–1,000 points based on reaction time.
+- Successfully leaving a lone wrong color untouched is a dodge worth 550 points.
 - The first four successful taps use one full-screen cell, then the board becomes 2×2.
 - 0–10 seconds: one fixed player color, no wrong colors, and a 1,000 ms lifetime.
 - 10–20 seconds: lone wrong colors appear and must be ignored for 1,000 ms.
@@ -48,8 +49,9 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - Mixed-round pressure rises by 1.5 percentage points per successful tap. Every ten successful taps adds another possible decoy and gently reduces the quiet interval, up to six decoys and an 80% mixed-round ceiling.
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
-- Normal and Zen high scores are stored separately in the browser.
-- Each completed run can be submitted under a player name to a shared, mode-specific Top 20 leaderboard. Normal entries also show survival time.
+- Two full-height side rails drain during every active decision to show the current response window.
+- Normal and Zen high scores are stored separately for each named local player profile in that browser; this is device-local identity, not a global authenticated account.
+- Each completed run can be submitted under that player name to a shared, mode-specific Top 20 leaderboard. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
 - Leaderboard submissions are validated and throttled, but gameplay still runs in the browser; this prototype board is not suitable for competitive play without server-authoritative anti-cheat.
 - Moving the app into the background safely stops the current run.
 
@@ -61,7 +63,7 @@ All balancing values are centralized in [`src/config.js`](./src/config.js).
 npm run check
 ```
 
-The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, lone wrong colors, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. The leaderboard model is tested for validation, deterministic ranking, mode separation, and the 20-entry cap.
+The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
 
 ## Why a small PWA
 
