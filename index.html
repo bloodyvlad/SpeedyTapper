@@ -10,10 +10,10 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <link rel="manifest" href="./manifest.webmanifest?v=20260711-1" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260711-2" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260711-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-2" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -29,8 +29,8 @@
             <strong class="stat__value" id="points">0</strong>
           </div>
           <div class="stat">
-            <span class="stat__label" id="high-score-label">My best</span>
-            <strong class="stat__value" id="high-score">0</strong>
+            <span class="stat__label">Top score</span>
+            <strong class="stat__value" id="high-score">—</strong>
           </div>
         </div>
 
@@ -74,88 +74,89 @@
         <p class="dialog__lead" id="dialog-message">
           Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
         </p>
-        <p class="player-profile">
-          <span>Player profile</span>
-          <strong id="player-profile-name">Guest on this device</strong>
-        </p>
-        <div class="result-stats" id="result-stats" hidden>
-          <div class="result-stat">
-            <span id="result-duration-label">Survived</span>
-            <strong id="result-duration-value">0:00.0</strong>
-          </div>
-          <div class="result-stat">
-            <span>Fastest</span>
-            <strong id="result-fastest-value">—</strong>
-          </div>
-          <div class="result-stat">
-            <span>Average</span>
-            <strong id="result-average-value">—</strong>
-          </div>
-          <div class="result-stat">
-            <span>Dodged</span>
-            <strong id="result-dodges-value">0</strong>
-          </div>
-        </div>
-        <form class="score-form" id="score-form" hidden>
-          <div class="section-heading">
-            <h2>Save your run</h2>
-            <span>Top 20</span>
-          </div>
-          <label for="player-name">Player name for this device</label>
-          <div class="score-form__row">
-            <input
-              id="player-name"
-              name="playerName"
-              type="text"
-              maxlength="20"
-              autocomplete="nickname"
-              autocapitalize="words"
-              enterkeyhint="done"
-              required
-            />
-            <button class="primary-button score-submit" id="score-submit" type="submit">Save score</button>
-          </div>
-          <p class="form-status" id="score-status" aria-live="polite"></p>
-        </form>
-        <div class="action-stack">
-          <fieldset class="mode-group">
-            <legend>Game mode</legend>
-            <div class="mode-actions">
-              <button class="primary-button" id="normal-button" type="button">Normal</button>
-              <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
+        <div class="result-content" id="result-content" hidden>
+          <div class="result-stats" id="result-stats" hidden>
+            <div class="result-stat">
+              <span id="result-duration-label">Survived</span>
+              <strong id="result-duration-value">0:00.0</strong>
             </div>
-          </fieldset>
-          <button
-            class="secondary-button leaderboard-toggle"
-            id="leaderboard-toggle"
-            type="button"
-            aria-expanded="false"
-            aria-controls="leaderboard-panel"
-          >
-            Leaderboard
-          </button>
+            <div class="result-stat">
+              <span>Fastest</span>
+              <strong id="result-fastest-value">—</strong>
+            </div>
+            <div class="result-stat">
+              <span>Average</span>
+              <strong id="result-average-value">—</strong>
+            </div>
+            <div class="result-stat">
+              <span>Dodged</span>
+              <strong id="result-dodges-value">0</strong>
+            </div>
+          </div>
+          <form class="score-form" id="score-form" hidden>
+            <div class="section-heading">
+              <h2>Save your run</h2>
+              <span>Top 20</span>
+            </div>
+            <label for="player-name">Player name</label>
+            <div class="score-form__row">
+              <input
+                id="player-name"
+                name="playerName"
+                type="text"
+                maxlength="20"
+                autocomplete="off"
+                autocapitalize="words"
+                enterkeyhint="done"
+                required
+              />
+              <button class="primary-button score-submit" id="score-submit" type="submit">Save score</button>
+            </div>
+            <p class="form-status" id="score-status" aria-live="polite"></p>
+          </form>
+          <button class="secondary-button main-menu-button" id="main-menu-button" type="button">Main menu</button>
         </div>
-        <section class="leaderboard-panel" id="leaderboard-panel" hidden>
-          <div class="section-heading">
-            <h2>Leaderboard</h2>
-            <span>Best scores</span>
+        <div class="main-menu-content" id="main-menu-content">
+          <div class="action-stack">
+            <fieldset class="mode-group">
+              <legend>Game mode</legend>
+              <div class="mode-actions">
+                <button class="primary-button" id="normal-button" type="button">Normal</button>
+                <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
+              </div>
+            </fieldset>
+            <button
+              class="secondary-button leaderboard-toggle"
+              id="leaderboard-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="leaderboard-panel"
+            >
+              Leaderboard
+            </button>
           </div>
-          <div class="leaderboard-tabs" role="tablist" aria-label="Leaderboard mode">
-            <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" role="tab" aria-selected="true">Normal</button>
-            <button class="leaderboard-tab" type="button" data-leaderboard-mode="zen" role="tab" aria-selected="false">Zen</button>
-          </div>
-          <p class="leaderboard-status" id="leaderboard-status" aria-live="polite">Loading scores…</p>
-          <ol class="leaderboard-list" id="leaderboard-list"></ol>
-          <p class="leaderboard-note">Scores are not anti-cheat verified yet.</p>
-        </section>
-        <button class="install-button" id="install-button" type="button" hidden>Install app</button>
-        <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
+          <section class="leaderboard-panel" id="leaderboard-panel" hidden>
+            <div class="section-heading">
+              <h2>Leaderboard</h2>
+              <span>Best scores</span>
+            </div>
+            <div class="leaderboard-tabs" role="tablist" aria-label="Leaderboard mode">
+              <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" role="tab" aria-selected="true">Normal</button>
+              <button class="leaderboard-tab" type="button" data-leaderboard-mode="zen" role="tab" aria-selected="false">Zen</button>
+            </div>
+            <p class="leaderboard-status" id="leaderboard-status" aria-live="polite">Loading scores…</p>
+            <ol class="leaderboard-list" id="leaderboard-list"></ol>
+            <p class="leaderboard-note">Scores are not anti-cheat verified yet.</p>
+          </section>
+          <button class="install-button" id="install-button" type="button" hidden>Install app</button>
+          <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
+        </div>
       </section>
     </div>
 
     <script>
       (() => {
-        const buildId = "20260711-1";
+        const buildId = "20260711-2";
         if (!("serviceWorker" in navigator)) return;
 
         const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
@@ -185,6 +186,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260711-1"></script>
+    <script type="module" src="./src/main.js?v=20260711-2"></script>
   </body>
 </html>

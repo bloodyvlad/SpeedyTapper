@@ -1,15 +1,9 @@
-import { COLORS, GAME_MODES } from "./config.js?v=20260711-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-1";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-1";
+import { COLORS, GAME_MODES } from "./config.js?v=20260711-2";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-2";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-2";
 
-const LEGACY_HIGH_SCORE_KEY = "speedytapper.highScore.v1";
-const LEGACY_MODE_SCORE_KEYS = Object.freeze({
-  [GAME_MODES.NORMAL]: "speedytapper.highScore.normal.v2",
-  [GAME_MODES.ZEN]: "speedytapper.highScore.zen.v2"
-});
-const PLAYER_NAME_KEY = "speedytapper.playerName.v1";
-const PROFILE_SCORE_PREFIX = "speedytapper.highScore.profile.v3";
-const PROFILE_SCORE_MIGRATION_KEY = "speedytapper.highScore.profileMigration.v3";
+const INTRO_COPY_HTML =
+  "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 
 const elements = {
   board: document.querySelector("#board"),
@@ -22,23 +16,24 @@ const elements = {
   dialogTitle: document.querySelector("#dialog-title"),
   feedback: document.querySelector("#feedback"),
   highScore: document.querySelector("#high-score"),
-  highScoreLabel: document.querySelector("#high-score-label"),
   installButton: document.querySelector("#install-button"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardPanel: document.querySelector("#leaderboard-panel"),
   leaderboardStatus: document.querySelector("#leaderboard-status"),
   leaderboardTabs: [...document.querySelectorAll("[data-leaderboard-mode]")],
   leaderboardToggle: document.querySelector("#leaderboard-toggle"),
+  mainMenuButton: document.querySelector("#main-menu-button"),
+  mainMenuContent: document.querySelector("#main-menu-content"),
   modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
   normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
   playerName: document.querySelector("#player-name"),
-  playerProfileName: document.querySelector("#player-profile-name"),
   points: document.querySelector("#points"),
   responseRails: document.querySelector("#response-rails"),
   responseRailFills: [...document.querySelectorAll(".response-rail__fill")],
   resultAverageValue: document.querySelector("#result-average-value"),
+  resultContent: document.querySelector("#result-content"),
   resultDodgesValue: document.querySelector("#result-dodges-value"),
   resultDurationLabel: document.querySelector("#result-duration-label"),
   resultDurationValue: document.querySelector("#result-duration-value"),
@@ -53,8 +48,14 @@ const elements = {
 };
 
 const engine = new GameEngine();
-migrateLegacyHighScores();
-let highScores = readHighScores();
+const topScores = {
+  [GAME_MODES.NORMAL]: null,
+  [GAME_MODES.ZEN]: null
+};
+const topScoreRevisions = {
+  [GAME_MODES.NORMAL]: 0,
+  [GAME_MODES.ZEN]: 0
+};
 let spawnTimer = null;
 let deadlineTimer = null;
 let runEndTimer = null;
@@ -133,142 +134,6 @@ function formatReaction(milliseconds) {
     : `${Math.round(milliseconds)} ms`;
 }
 
-function readPlayerName() {
-  try {
-    const storedName = localStorage.getItem(PLAYER_NAME_KEY) ?? "";
-    if (!storedName) return "";
-    try {
-      const normalizedName = sanitizePlayerName(storedName);
-      if (normalizedName !== storedName) {
-        localStorage.setItem(PLAYER_NAME_KEY, normalizedName);
-      }
-      return normalizedName;
-    } catch {
-      localStorage.removeItem(PLAYER_NAME_KEY);
-      return "";
-    }
-  } catch {
-    return "";
-  }
-}
-
-function savePlayerName(name) {
-  try {
-    localStorage.setItem(PLAYER_NAME_KEY, name);
-  } catch {
-    // The leaderboard still works when local storage is unavailable.
-  }
-}
-
-function updatePlayerProfile(name = readPlayerName()) {
-  const profileName = name || "Guest on this device";
-  elements.playerProfileName.textContent = profileName;
-  elements.highScoreLabel.textContent = "Profile best";
-  elements.highScoreLabel.title = name
-    ? `Best score stored for ${name} on this device`
-    : "Best score stored in this browser on this device";
-}
-
-function readStoredScore(key) {
-  try {
-    const storedValue = Number.parseInt(localStorage.getItem(key) ?? "0", 10);
-    return Number.isFinite(storedValue) && storedValue > 0 ? storedValue : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function profileIdForName(name) {
-  const normalizedName = name.normalize("NFKC").trim().toLocaleLowerCase("en-US");
-  return encodeURIComponent(normalizedName || "guest");
-}
-
-function profileScoreKey(mode, name = readPlayerName()) {
-  return `${PROFILE_SCORE_PREFIX}.${profileIdForName(name)}.${mode}`;
-}
-
-function writeProfileScore(name, mode, score) {
-  try {
-    localStorage.setItem(profileScoreKey(mode, name), String(score));
-  } catch {
-    // Private browsing or storage restrictions should not stop the game.
-  }
-}
-
-function clearProfileScores(name) {
-  try {
-    for (const mode of Object.values(GAME_MODES)) {
-      localStorage.removeItem(profileScoreKey(mode, name));
-    }
-  } catch {
-    // Private browsing or storage restrictions should not stop the game.
-  }
-}
-
-function migrateLegacyHighScores() {
-  try {
-    if (localStorage.getItem(PROFILE_SCORE_MIGRATION_KEY) === "1") return;
-
-    const profileName = readPlayerName();
-    const legacyScores = {
-      [GAME_MODES.NORMAL]: Math.max(
-        readStoredScore(LEGACY_MODE_SCORE_KEYS[GAME_MODES.NORMAL]),
-        readStoredScore(LEGACY_HIGH_SCORE_KEY)
-      ),
-      [GAME_MODES.ZEN]: readStoredScore(LEGACY_MODE_SCORE_KEYS[GAME_MODES.ZEN])
-    };
-
-    for (const mode of Object.values(GAME_MODES)) {
-      const existingScore = readStoredScore(profileScoreKey(mode, profileName));
-      if (legacyScores[mode] > existingScore) {
-        writeProfileScore(profileName, mode, legacyScores[mode]);
-      }
-    }
-    localStorage.setItem(PROFILE_SCORE_MIGRATION_KEY, "1");
-  } catch {
-    // A failed migration only means the browser cannot retain local best scores.
-  }
-}
-
-function readHighScores(name = readPlayerName()) {
-  return {
-    [GAME_MODES.NORMAL]: readStoredScore(profileScoreKey(GAME_MODES.NORMAL, name)),
-    [GAME_MODES.ZEN]: readStoredScore(profileScoreKey(GAME_MODES.ZEN, name))
-  };
-}
-
-function saveHighScore(mode, score) {
-  if (score <= highScores[mode]) return;
-  highScores[mode] = score;
-  writeProfileScore(readPlayerName(), mode, score);
-}
-
-function activatePlayerProfile(name, result) {
-  const previousName = readPlayerName();
-
-  if (previousName) {
-    highScores = readHighScores(previousName);
-    updatePlayerProfile(previousName);
-    return;
-  }
-
-  const nextScores = readHighScores(name);
-  const guestScores = readHighScores("");
-  for (const mode of Object.values(GAME_MODES)) {
-    nextScores[mode] = Math.max(nextScores[mode], guestScores[mode]);
-  }
-
-  nextScores[result.mode] = Math.max(nextScores[result.mode], result.score);
-  for (const mode of Object.values(GAME_MODES)) {
-    writeProfileScore(name, mode, nextScores[mode]);
-  }
-
-  clearProfileScores("");
-  savePlayerName(name);
-  highScores = readHighScores(name);
-  updatePlayerProfile(name);
-}
-
 function stopResponseRails() {
   window.cancelAnimationFrame(progressFrame);
   progressFrame = null;
@@ -327,8 +192,7 @@ function clearTimers() {
 function startGame(mode) {
   sound.unlock();
   clearTimers();
-  highScores = readHighScores();
-  updatePlayerProfile();
+  void refreshTopScore(mode);
   const currentSession = sessionId + 1;
   sessionId = currentSession;
   const startedAt = now();
@@ -376,7 +240,6 @@ function scheduleDeadline(currentSession, delayMs) {
     sound.tileOff();
     stopResponseRails();
     if (result.type === "ignored-color") {
-      saveHighScore(result.snapshot.mode, result.snapshot.points);
       showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
       render();
       scheduleRound(currentSession);
@@ -402,7 +265,6 @@ function handleTileTap(event) {
   stopResponseRails();
 
   if (result.type === "hit") {
-    saveHighScore(result.snapshot.mode, result.snapshot.points);
     showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
     render();
     scheduleRound(sessionId);
@@ -451,12 +313,8 @@ function finishZenRun(currentSession) {
 function finishGame(snapshot, currentSession) {
   if (currentSession !== sessionId || !engine.isRunComplete()) return;
   clearTimers();
-  saveHighScore(snapshot.mode, snapshot.points);
   const isZen = snapshot.mode === GAME_MODES.ZEN;
-  const modeName = isZen ? "Zen" : "Normal";
   elements.dialogTitle.textContent = isZen ? "Minute complete" : "Game Over";
-  const completionReason = isZen ? "The one-minute timer ended." : "You are out of lives.";
-  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${snapshot.points.toLocaleString()}</strong> points with <strong>${snapshot.hits}</strong> correct taps. Your best score for ${modeName} mode is <strong>${highScores[snapshot.mode].toLocaleString()}</strong>.`;
   elements.resultStats.hidden = false;
   elements.resultDurationLabel.textContent = isZen ? "Duration" : "Survived";
   elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
@@ -475,11 +333,15 @@ function finishGame(snapshot, currentSession) {
     survivalMs: Math.round(snapshot.elapsedMs),
     submitted: false
   };
+  renderResultMessage(pendingResult);
+  void refreshTopScore(snapshot.mode);
+  closeLeaderboard();
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = false;
   elements.scoreForm.hidden = false;
   elements.playerName.disabled = false;
-  const savedPlayerName = readPlayerName();
-  elements.playerName.value = savedPlayerName;
-  elements.playerName.readOnly = Boolean(savedPlayerName);
+  elements.playerName.value = "";
+  elements.playerName.readOnly = false;
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("Enter your name to submit this run to the Top 20.");
@@ -506,14 +368,44 @@ function finishGame(snapshot, currentSession) {
 
 function resetResultUi() {
   pendingResult = null;
+  elements.resultContent.hidden = true;
   elements.resultStats.hidden = true;
   elements.scoreForm.hidden = true;
+  elements.mainMenuContent.hidden = false;
   elements.playerName.disabled = false;
   elements.playerName.readOnly = false;
+  elements.playerName.value = "";
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("");
   closeLeaderboard();
+}
+
+function renderResultMessage(result) {
+  if (!result) return;
+  const isZen = result.mode === GAME_MODES.ZEN;
+  const modeName = isZen ? "Zen" : "Normal";
+  const completionReason = isZen ? "The one-minute timer ended." : "You are out of lives.";
+  const topScore = topScores[result.mode];
+  const bestScore = topScore === null
+    ? "<strong>unavailable right now</strong>"
+    : `<strong>${topScore.toLocaleString()}</strong>`;
+  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${result.score.toLocaleString()}</strong> points with <strong>${result.hits}</strong> correct taps. The best score for ${modeName} mode is ${bestScore}.`;
+}
+
+function showMainMenu() {
+  clearTimers();
+  sessionId += 1;
+  engine.reset();
+  resetResultUi();
+  elements.dialogTitle.textContent = "Ready to react?";
+  elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
+  elements.overlay.hidden = false;
+  elements.dialog.scrollTop = 0;
+  render();
+  for (const mode of Object.values(GAME_MODES)) {
+    void refreshTopScore(mode);
+  }
 }
 
 function setScoreStatus(message, isError = false) {
@@ -605,11 +497,40 @@ async function readApiResponse(response) {
   return body;
 }
 
+function updateTopScore(mode, entries, revision = null) {
+  if (revision !== null && revision !== topScoreRevisions[mode]) return;
+  const receivedTopScore = Array.isArray(entries) && entries.length > 0 ? entries[0].score : 0;
+  topScores[mode] = topScores[mode] === null
+    ? receivedTopScore
+    : Math.max(topScores[mode], receivedTopScore);
+  renderHud(engine.getSnapshot(now()));
+  if (pendingResult?.mode === mode) {
+    renderResultMessage(pendingResult);
+  }
+}
+
+async function refreshTopScore(mode) {
+  const revision = topScoreRevisions[mode] + 1;
+  topScoreRevisions[mode] = revision;
+  try {
+    const response = await fetch(`/api/leaderboard?mode=${encodeURIComponent(mode)}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    });
+    const body = await readApiResponse(response);
+    updateTopScore(mode, body.entries, revision);
+  } catch {
+    // Gameplay stays available if the shared leaderboard is temporarily offline.
+  }
+}
+
 async function loadLeaderboard(mode = leaderboardMode) {
   selectLeaderboardMode(mode);
   openLeaderboard();
   const requestId = leaderboardRequestId + 1;
   leaderboardRequestId = requestId;
+  const topScoreRevision = topScoreRevisions[mode] + 1;
+  topScoreRevisions[mode] = topScoreRevision;
   setLeaderboardStatus("Loading scores…");
   elements.leaderboardList.replaceChildren();
 
@@ -619,6 +540,7 @@ async function loadLeaderboard(mode = leaderboardMode) {
       headers: { Accept: "application/json" }
     });
     const body = await readApiResponse(response);
+    updateTopScore(mode, body.entries, topScoreRevision);
     if (requestId !== leaderboardRequestId) return;
     renderLeaderboard(body.entries, mode);
     setLeaderboardStatus(`${body.entries.length} of 20 places filled.`);
@@ -632,6 +554,7 @@ async function loadLeaderboard(mode = leaderboardMode) {
 async function submitScore(event) {
   event.preventDefault();
   if (!pendingResult || pendingResult.submitted) return;
+  const submittedResult = pendingResult;
 
   let name;
   try {
@@ -642,12 +565,6 @@ async function submitScore(event) {
     return;
   }
 
-  const savedPlayerName = readPlayerName();
-  if (savedPlayerName && name !== savedPlayerName) {
-    setScoreStatus(`This run belongs to the ${savedPlayerName} profile.`, true);
-    elements.playerName.value = savedPlayerName;
-    return;
-  }
   elements.playerName.value = name;
 
   elements.scoreSubmit.disabled = true;
@@ -663,34 +580,33 @@ async function submitScore(event) {
       },
       body: JSON.stringify({
         name,
-        mode: pendingResult.mode,
-        score: pendingResult.score,
-        hits: pendingResult.hits,
-        dodges: pendingResult.dodges,
-        fastestReactionMs: pendingResult.fastestReactionMs,
-        averageReactionMs: pendingResult.averageReactionMs,
-        survivalMs: pendingResult.survivalMs
+        mode: submittedResult.mode,
+        score: submittedResult.score,
+        hits: submittedResult.hits,
+        dodges: submittedResult.dodges,
+        fastestReactionMs: submittedResult.fastestReactionMs,
+        averageReactionMs: submittedResult.averageReactionMs,
+        survivalMs: submittedResult.survivalMs
       })
     });
     const body = await readApiResponse(response);
-    pendingResult.submitted = true;
-    activatePlayerProfile(name, pendingResult);
-    renderHud(engine.getSnapshot(now()));
-    elements.scoreSubmit.textContent = body.rank === null ? "Not ranked" : "Saved";
-    setScoreStatus(
-      body.rank === null
-        ? "This result did not reach the current Top 20."
-        : `Score saved at #${body.rank}.`
-    );
-    leaderboardRequestId += 1;
-    selectLeaderboardMode(body.mode);
-    renderLeaderboard(body.entries, body.mode);
-    setLeaderboardStatus(`${body.entries.length} of 20 places filled.`);
-    openLeaderboard();
+    submittedResult.submitted = true;
+    topScoreRevisions[body.mode] += 1;
+    updateTopScore(body.mode, body.entries);
+    if (pendingResult === submittedResult) {
+      elements.scoreSubmit.textContent = body.rank === null ? "Not ranked" : "Saved";
+      setScoreStatus(
+        body.rank === null
+          ? "This result did not reach the current Top 20."
+          : `Score saved at #${body.rank}.`
+      );
+    }
   } catch (error) {
-    elements.scoreSubmit.disabled = false;
-    elements.playerName.disabled = false;
-    setScoreStatus(error.message, true);
+    if (pendingResult === submittedResult) {
+      elements.scoreSubmit.disabled = false;
+      elements.playerName.disabled = false;
+      setScoreStatus(error.message, true);
+    }
   }
 }
 
@@ -713,9 +629,9 @@ function ensureBoard(dimension) {
 }
 
 function renderHud(snapshot) {
-  const best = Math.max(highScores[snapshot.mode], snapshot.points);
   elements.points.textContent = snapshot.points.toLocaleString();
-  elements.highScore.textContent = best.toLocaleString();
+  const topScore = topScores[snapshot.mode];
+  elements.highScore.textContent = topScore === null ? "—" : topScore.toLocaleString();
   if (snapshot.mode === GAME_MODES.ZEN) {
     elements.modeLabel.textContent = "Mode";
     elements.modeName.textContent = "Zen";
@@ -810,6 +726,7 @@ elements.installButton.addEventListener("click", async () => {
 
 elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMAL));
 elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
+elements.mainMenuButton.addEventListener("click", showMainMenu);
 elements.scoreForm.addEventListener("submit", submitScore);
 elements.leaderboardToggle.addEventListener("click", () => {
   if (elements.leaderboardPanel.hidden) {
@@ -823,6 +740,9 @@ for (const tab of elements.leaderboardTabs) {
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 
-updatePlayerProfile();
 engine.reset();
+resetResultUi();
 render();
+for (const mode of Object.values(GAME_MODES)) {
+  void refreshTopScore(mode);
+}

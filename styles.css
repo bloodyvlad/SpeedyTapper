@@ -456,31 +456,9 @@ h1 {
   line-height: 1.5;
 }
 
-.player-profile {
-  margin: -3px 0 16px;
-  padding: 8px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.035);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: #8f97af;
-  font-size: 0.72rem;
-}
-
-.player-profile span {
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.player-profile strong {
-  overflow: hidden;
-  color: #e8eaff;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.result-content[hidden],
+.main-menu-content[hidden] {
+  display: none;
 }
 
 .result-stats {

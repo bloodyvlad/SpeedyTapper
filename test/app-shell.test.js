@@ -27,12 +27,16 @@ test("the complete browser module graph uses one release version", () => {
 test("the streamlined dialog contains player, leaderboard, and reaction statistics", () => {
   assert.doesNotMatch(indexHtml, /Mechanics prototype/i);
   assert.doesNotMatch(indexHtml, /id="phase"|id="hint"|id="rules"/);
+  assert.doesNotMatch(indexHtml, /player-profile|player profile|for this device/i);
   assert.match(indexHtml, /id="result-stats"/);
+  assert.match(indexHtml, /id="result-content"/);
   assert.match(indexHtml, /id="result-fastest-value"/);
   assert.match(indexHtml, /id="result-average-value"/);
-  assert.match(indexHtml, /id="player-profile-name"/);
+  assert.match(indexHtml, /id="main-menu-content"/);
+  assert.match(indexHtml, /id="main-menu-button"/);
   assert.match(indexHtml, /id="response-rails"/);
   assert.match(indexHtml, /id="score-form"/);
   assert.match(indexHtml, /id="player-name"/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);
+  assert.doesNotMatch(mainSource, /localStorage|Profile best|My best/);
 });

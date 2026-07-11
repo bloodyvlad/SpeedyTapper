@@ -50,8 +50,8 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
 - Two full-height side rails drain during every active decision to show the current response window.
-- Normal and Zen high scores are stored separately for each named local player profile in that browser; this is device-local identity, not a global authenticated account.
-- Each completed run can be submitted under that player name to a shared, mode-specific Top 20 leaderboard. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
+- The HUD and result screen show the current global top score for the selected mode; no player profile or local result history is stored.
+- Each completed run asks for a name and can be submitted to the shared, mode-specific Top 20 leaderboard. Names are not remembered between runs. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
 - Leaderboard submissions are validated and throttled, but gameplay still runs in the browser; this prototype board is not suitable for competitive play without server-authoritative anti-cheat.
 - Moving the app into the background safely stops the current run.
 
