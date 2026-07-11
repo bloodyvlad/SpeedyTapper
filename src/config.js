@@ -7,6 +7,27 @@ export const COLORS = Object.freeze([
   Object.freeze({ id: "violet", name: "Violet", value: "#a987ff", ink: "#180c37", glyph: "★" })
 ]);
 
+export const THEMES = Object.freeze({
+  CLASSIC: "classic",
+  DISCO: "disco"
+});
+
+const DISCO_COLOR_VALUES = Object.freeze({
+  cyan: "#65e9f1",
+  yellow: "#ffe681",
+  magenta: "#ff86bc",
+  lime: "#b2ee7c",
+  orange: "#ffb06f",
+  violet: "#c3a8ff"
+});
+
+export const THEME_PALETTES = Object.freeze({
+  [THEMES.CLASSIC]: COLORS,
+  [THEMES.DISCO]: Object.freeze(
+    COLORS.map((color) => Object.freeze({ ...color, value: DISCO_COLOR_VALUES[color.id] }))
+  )
+});
+
 export const GAME_MODES = Object.freeze({
   NORMAL: "normal",
   ZEN: "zen"

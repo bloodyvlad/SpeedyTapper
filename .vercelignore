@@ -3,5 +3,6 @@
 .data
 .env*
 README.md
+design-qa.md
 scripts
 test

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="classic" data-glyphs="on">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
@@ -10,10 +10,29 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <link rel="manifest" href="./manifest.webmanifest?v=20260711-2" />
+    <script>
+      (() => {
+        let theme = "classic";
+        let glyphs = "on";
+        try {
+          const storedTheme = window.localStorage.getItem("speedytapper.theme.v1");
+          if (storedTheme === "classic" || storedTheme === "disco") theme = storedTheme;
+          if (window.localStorage.getItem("speedytapper.colorBlindMode.v1") === "off") {
+            glyphs = "off";
+          }
+        } catch {
+          // Default display settings remain available when storage is restricted.
+        }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.glyphs = glyphs;
+        document.querySelector('meta[name="theme-color"]').content =
+          theme === "disco" ? "#050606" : "#0b0d18";
+      })();
+    </script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260711-3" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260711-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-3" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -126,6 +145,56 @@
               </div>
             </fieldset>
             <button
+              class="secondary-button themes-toggle"
+              id="themes-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="themes-panel"
+            >
+              <span>Themes</span>
+              <span class="themes-toggle__value" id="theme-current">Classic</span>
+            </button>
+            <fieldset class="themes-panel" id="themes-panel" hidden>
+              <legend class="visually-hidden">Choose a theme</legend>
+              <div class="theme-options">
+                <label class="theme-choice">
+                  <input class="theme-choice__input" type="radio" name="theme" value="classic" checked />
+                  <span class="theme-choice__surface">
+                    <span class="theme-preview" data-theme-preview="classic" aria-hidden="true">
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
+                    </span>
+                    <strong>Classic</strong>
+                  </span>
+                </label>
+                <label class="theme-choice">
+                  <input class="theme-choice__input" type="radio" name="theme" value="disco" />
+                  <span class="theme-choice__surface">
+                    <span class="theme-preview" data-theme-preview="disco" aria-hidden="true">
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
+                    </span>
+                    <strong>Disco</strong>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+            <label class="color-blind-setting" for="color-blind-toggle">
+              <span class="color-blind-setting__copy">
+                <strong>Color-blind mode</strong>
+                <small>Show shapes on tiles</small>
+              </span>
+              <input id="color-blind-toggle" type="checkbox" role="switch" checked />
+            </label>
+            <button
               class="secondary-button leaderboard-toggle"
               id="leaderboard-toggle"
               type="button"
@@ -156,7 +225,7 @@
 
     <script>
       (() => {
-        const buildId = "20260711-2";
+        const buildId = "20260711-3";
         if (!("serviceWorker" in navigator)) return;
 
         const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
@@ -186,6 +255,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260711-2"></script>
+    <script type="module" src="./src/main.js?v=20260711-3"></script>
   </body>
 </html>

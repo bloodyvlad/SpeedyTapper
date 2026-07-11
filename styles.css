@@ -11,6 +11,12 @@
   --board-gap: clamp(4px, 1.5vw, 8px);
 }
 
+:root[data-theme="disco"] {
+  --panel: rgba(12, 15, 22, 0.9);
+  --panel-border: rgba(218, 239, 244, 0.13);
+  --muted: #a8afb9;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -31,6 +37,26 @@ body {
   background:
     radial-gradient(circle at 50% -10%, rgba(102, 81, 214, 0.3), transparent 42%),
     linear-gradient(180deg, #101326 0%, #080a12 75%);
+}
+
+:root[data-theme="disco"] body {
+  background-color: #050606;
+  background-image: url("./assets/disco-concrete.png");
+  background-position: center;
+  background-size: cover;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .response-rails {
@@ -253,6 +279,18 @@ button {
     inset 0 1px rgba(255, 255, 255, 0.06);
 }
 
+:root[data-theme="disco"] .board-shell {
+  border-color: rgba(181, 205, 210, 0.2);
+  background-color: #070808;
+  background-image: url("./assets/disco-concrete.png");
+  background-position: center;
+  background-size: cover;
+  box-shadow:
+    0 24px 78px rgba(0, 0, 0, 0.68),
+    inset 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 38px rgba(0, 0, 0, 0.5);
+}
+
 .board {
   --grid-size: 1;
   width: 100%;
@@ -291,6 +329,23 @@ button {
     transform 65ms ease-out;
 }
 
+.tile__glyph {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  pointer-events: none;
+}
+
+:root[data-theme="disco"] .tile {
+  isolation: isolate;
+  border-color: rgba(217, 232, 234, 0.12);
+  background: #101214;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 -16px 34px rgba(0, 0, 0, 0.42),
+    0 7px 14px rgba(0, 0, 0, 0.34);
+}
+
 .tile:focus-visible {
   outline: 3px solid white;
   outline-offset: -5px;
@@ -310,6 +365,32 @@ button {
   animation: cell-on 90ms ease-out both;
 }
 
+:root[data-theme="disco"] .tile--lit {
+  border-color: color-mix(in srgb, var(--tile-color) 62%, white 38%);
+  background: var(--tile-color);
+  box-shadow:
+    0 0 13px color-mix(in srgb, var(--tile-color) 68%, transparent),
+    0 0 30px color-mix(in srgb, var(--tile-color) 34%, transparent),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.34),
+    inset 0 0 28px rgba(255, 255, 255, 0.2),
+    inset 0 0 34px 7px rgba(22, 17, 21, 0.42);
+  animation-name: disco-cell-on;
+}
+
+:root[data-theme="disco"] .tile--lit::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background-image: url("./assets/disco-tile-overlay.png");
+  background-position: center;
+  background-size: cover;
+  content: "";
+  mix-blend-mode: screen;
+  opacity: 0.56;
+  pointer-events: none;
+}
+
 .tile:active {
   transform: scale(0.96);
 }
@@ -317,6 +398,17 @@ button {
 @keyframes cell-on {
   from {
     filter: brightness(1.7);
+    transform: scale(0.93);
+  }
+  to {
+    filter: brightness(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes disco-cell-on {
+  from {
+    filter: brightness(1.14);
     transform: scale(0.93);
   }
   to {
@@ -384,6 +476,11 @@ button {
   transition: opacity 160ms ease;
 }
 
+:root[data-theme="disco"] .overlay {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+
 .overlay[hidden] {
   display: none;
 }
@@ -397,6 +494,19 @@ button {
   border-radius: 24px;
   background: linear-gradient(155deg, rgba(34, 38, 65, 0.98), rgba(14, 16, 29, 0.98));
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme="disco"] .dialog {
+  border-color: rgba(185, 211, 217, 0.22);
+  background: linear-gradient(155deg, rgba(15, 20, 31, 0.98), rgba(5, 7, 11, 0.98));
+  box-shadow:
+    0 30px 95px rgba(0, 0, 0, 0.76),
+    0 0 30px rgba(63, 232, 241, 0.055);
+}
+
+:root[data-theme="disco"] .stat,
+:root[data-theme="disco"] .color-hero {
+  background-color: rgba(8, 11, 15, 0.91);
 }
 
 .brand-logo {
@@ -633,6 +743,288 @@ h1 {
 .mode-actions button {
   min-width: 0;
   font-size: 0.9rem;
+}
+
+.themes-toggle {
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+}
+
+.themes-toggle[aria-expanded="true"] {
+  border-color: rgba(92, 238, 242, 0.42);
+  background: rgba(71, 221, 228, 0.085);
+}
+
+.themes-toggle__value {
+  color: #aab2c9;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.themes-panel {
+  min-width: 0;
+  margin: 0;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 16px;
+  background: rgba(5, 7, 14, 0.54);
+}
+
+.themes-panel[hidden] {
+  display: none;
+}
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-choice {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.theme-choice__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.theme-choice__surface {
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #e8eaff;
+  text-align: center;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.theme-choice__surface strong {
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.theme-choice__input:checked + .theme-choice__surface {
+  border-color: #50e9ef;
+  box-shadow:
+    0 0 0 1px rgba(80, 233, 239, 0.22),
+    0 0 17px rgba(80, 233, 239, 0.13);
+}
+
+.theme-choice__input:focus-visible + .theme-choice__surface {
+  outline: 3px solid white;
+  outline-offset: 2px;
+}
+
+.theme-choice:active .theme-choice__surface {
+  transform: scale(0.98);
+}
+
+.theme-preview {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: #101425;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.theme-preview[data-theme-preview="disco"] {
+  border-color: rgba(207, 230, 234, 0.24);
+  background-color: #080909;
+  background-image: url("./assets/disco-concrete.png");
+  background-position: center;
+  background-size: cover;
+}
+
+.theme-preview__tile {
+  --preview-color: #35e6df;
+  --preview-ink: #11151a;
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--preview-color) 70%, white 30%);
+  border-radius: 6px;
+  background: var(--preview-color);
+  box-shadow:
+    0 0 8px color-mix(in srgb, var(--preview-color) 46%, transparent),
+    inset 0 1px rgba(255, 255, 255, 0.4),
+    inset 0 -6px 11px rgba(0, 0, 0, 0.17);
+  color: var(--preview-ink);
+  display: grid;
+  place-items: center;
+  font-size: clamp(0.56rem, 2.8vw, 0.78rem);
+  font-weight: 950;
+}
+
+.theme-preview__tile:nth-child(1) {
+  --preview-color: #35e6df;
+}
+
+.theme-preview__tile:nth-child(2) {
+  --preview-color: #ffd84d;
+}
+
+.theme-preview__tile:nth-child(3) {
+  --preview-color: #ff5ba8;
+}
+
+.theme-preview__tile:nth-child(4) {
+  --preview-color: #8ee85a;
+}
+
+.theme-preview__tile:nth-child(5) {
+  --preview-color: #ff914d;
+}
+
+.theme-preview__tile:nth-child(6) {
+  --preview-color: #a987ff;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile:nth-child(1) {
+  --preview-color: #65e9f1;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile:nth-child(2) {
+  --preview-color: #ffe681;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile:nth-child(3) {
+  --preview-color: #ff86bc;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile:nth-child(4) {
+  --preview-color: #b2ee7c;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile:nth-child(5) {
+  --preview-color: #ffb06f;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile:nth-child(6) {
+  --preview-color: #c3a8ff;
+}
+
+[data-theme-preview="disco"] .theme-preview__tile {
+  border-color: color-mix(in srgb, var(--preview-color) 55%, white 45%);
+  box-shadow:
+    0 0 8px color-mix(in srgb, var(--preview-color) 44%, transparent),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+    inset 0 0 9px 2px rgba(25, 19, 22, 0.36);
+}
+
+[data-theme-preview="disco"] .theme-preview__tile::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-image: url("./assets/disco-tile-overlay.png");
+  background-position: center;
+  background-size: cover;
+  content: "";
+  mix-blend-mode: screen;
+  opacity: 0.5;
+}
+
+.theme-preview__glyph {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-glyphs="off"] .theme-preview__glyph {
+  visibility: hidden;
+}
+
+.color-blind-setting {
+  min-height: 61px;
+  padding: 9px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: pointer;
+}
+
+.color-blind-setting__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.color-blind-setting__copy strong {
+  color: white;
+  font-size: 0.87rem;
+  line-height: 1.15;
+}
+
+.color-blind-setting__copy small {
+  color: #9ca4ba;
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+#color-blind-toggle {
+  position: relative;
+  width: 50px;
+  height: 29px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  appearance: none;
+  background: #353b4c;
+  cursor: pointer;
+  transition:
+    background-color 130ms ease,
+    border-color 130ms ease;
+}
+
+#color-blind-toggle::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #f7f8ff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  content: "";
+  transition: transform 130ms ease;
+}
+
+#color-blind-toggle:checked {
+  border-color: rgba(118, 245, 248, 0.68);
+  background: #29dbe2;
+}
+
+#color-blind-toggle:checked::after {
+  transform: translateX(21px);
+}
+
+#color-blind-toggle:focus-visible {
+  outline: 3px solid white;
+  outline-offset: 3px;
 }
 
 .primary-button,

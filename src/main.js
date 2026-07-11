@@ -1,12 +1,15 @@
-import { COLORS, GAME_MODES } from "./config.js?v=20260711-2";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-2";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-2";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-3";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-3";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-3";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
+const THEME_STORAGE_KEY = "speedytapper.theme.v1";
+const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 
 const elements = {
   board: document.querySelector("#board"),
+  colorBlindToggle: document.querySelector("#color-blind-toggle"),
   colorHero: document.querySelector("#color-hero"),
   colorGlyph: document.querySelector("#color-glyph"),
   colorName: document.querySelector("#color-name"),
@@ -44,6 +47,11 @@ const elements = {
   scoreSubmit: document.querySelector("#score-submit"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
+  themeCurrent: document.querySelector("#theme-current"),
+  themeInputs: [...document.querySelectorAll('input[name="theme"]')],
+  themeColorMeta: document.querySelector('meta[name="theme-color"]'),
+  themesPanel: document.querySelector("#themes-panel"),
+  themesToggle: document.querySelector("#themes-toggle"),
   zenButton: document.querySelector("#zen-button")
 };
 
@@ -68,21 +76,25 @@ let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
 let leaderboardRequestId = 0;
+let activeTheme = THEMES.CLASSIC;
+let colorBlindMode = true;
 
 const sound = (() => {
-  const relayOn = new Audio("./assets/audio/relay-on.mp3");
   const relayOff = new Audio("./assets/audio/relay-off.mp3");
   const oops = new Audio("./assets/audio/oops.mp3");
   const hum = new Audio("./assets/audio/fluorescent-hum.mp3");
-  const sounds = [relayOn, relayOff, oops, hum];
+  const sounds = [relayOff, oops, hum];
   hum.loop = true;
   hum.volume = 0.42;
-  relayOn.volume = 0.7;
-  relayOff.volume = 0.72;
+  relayOff.volume = 0.36;
   oops.volume = 0.8;
-  for (const audio of sounds) audio.preload = "auto";
+  for (const audio of sounds) {
+    audio.preload = "auto";
+    audio.load();
+  }
 
   function play(audio) {
+    if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
     audio.currentTime = 0;
     audio.play().catch(() => {});
   }
@@ -101,7 +113,7 @@ const sound = (() => {
       }
     },
     tileOn() {
-      play(relayOn);
+      if (hum.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
       hum.currentTime = 0;
       hum.play().catch(() => {});
     },
@@ -134,6 +146,64 @@ function formatReaction(milliseconds) {
     : `${Math.round(milliseconds)} ms`;
 }
 
+function readStoredPreference(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPreference(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Display preferences remain usable for the current session when storage is unavailable.
+  }
+}
+
+function isTheme(value) {
+  return Object.values(THEMES).includes(value);
+}
+
+function getDisplayColor(colorIndex) {
+  return THEME_PALETTES[activeTheme]?.[colorIndex] ?? COLORS[colorIndex];
+}
+
+function renderDisplaySettings() {
+  document.documentElement.dataset.theme = activeTheme;
+  document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
+  elements.themeCurrent.textContent = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
+  elements.colorBlindToggle.checked = colorBlindMode;
+  elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
+  for (const input of elements.themeInputs) {
+    input.checked = input.value === activeTheme;
+  }
+}
+
+function initializeDisplaySettings() {
+  const storedTheme = readStoredPreference(THEME_STORAGE_KEY);
+  activeTheme = isTheme(storedTheme) ? storedTheme : THEMES.CLASSIC;
+  const storedColorBlindMode = readStoredPreference(COLOR_BLIND_STORAGE_KEY);
+  colorBlindMode = storedColorBlindMode !== "off";
+  renderDisplaySettings();
+}
+
+function applyTheme(theme) {
+  if (!isTheme(theme)) return;
+  activeTheme = theme;
+  renderDisplaySettings();
+  writeStoredPreference(THEME_STORAGE_KEY, theme);
+  render();
+}
+
+function applyColorBlindMode(enabled) {
+  colorBlindMode = Boolean(enabled);
+  renderDisplaySettings();
+  writeStoredPreference(COLOR_BLIND_STORAGE_KEY, colorBlindMode ? "on" : "off");
+  render();
+}
+
 function stopResponseRails() {
   window.cancelAnimationFrame(progressFrame);
   progressFrame = null;
@@ -150,7 +220,10 @@ function renderResponseRails(snapshot) {
   }
 
   elements.responseRails.hidden = false;
-  elements.responseRails.style.setProperty("--player-color", snapshot.playerColor.value);
+  elements.responseRails.style.setProperty(
+    "--player-color",
+    getDisplayColor(snapshot.playerColorIndex).value
+  );
   const progress = Math.max(0, Math.min(1, snapshot.reactionProgress));
   for (const fill of elements.responseRailFills) {
     fill.style.transform = `scaleY(${progress})`;
@@ -237,7 +310,7 @@ function scheduleDeadline(currentSession, delayMs) {
       scheduleDeadline(currentSession, Math.ceil(result.remainingMs));
       return;
     }
-    sound.tileOff();
+    sound.tileOff(false);
     stopResponseRails();
     if (result.type === "ignored-color") {
       showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
@@ -378,6 +451,7 @@ function resetResultUi() {
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("");
+  closeThemes();
   closeLeaderboard();
 }
 
@@ -427,7 +501,22 @@ function selectLeaderboardMode(mode) {
   }
 }
 
+function openThemes() {
+  closeLeaderboard();
+  elements.themesPanel.hidden = false;
+  elements.themesToggle.setAttribute("aria-expanded", "true");
+  window.requestAnimationFrame(() => {
+    elements.themesPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+}
+
+function closeThemes() {
+  elements.themesPanel.hidden = true;
+  elements.themesToggle.setAttribute("aria-expanded", "false");
+}
+
 function openLeaderboard() {
+  closeThemes();
   elements.leaderboardPanel.hidden = false;
   elements.leaderboardToggle.setAttribute("aria-expanded", "true");
   elements.leaderboardToggle.textContent = "Close board";
@@ -622,6 +711,10 @@ function ensureBoard(dimension) {
     tile.className = "tile";
     tile.dataset.index = String(index);
     tile.setAttribute("aria-label", `Inactive cell ${index + 1}`);
+    const glyph = document.createElement("span");
+    glyph.className = "tile__glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    tile.append(glyph);
     tile.addEventListener("pointerdown", handleTileTap);
     fragment.append(tile);
   }
@@ -639,11 +732,13 @@ function renderHud(snapshot) {
     elements.modeLabel.textContent = "Survived";
     elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
   }
-  elements.colorName.textContent = snapshot.playerColor.name;
-  elements.colorGlyph.textContent = snapshot.playerColor.glyph;
-  elements.colorSwatch.style.background = snapshot.playerColor.value;
-  elements.colorSwatch.style.color = snapshot.playerColor.ink;
-  elements.colorHero.style.setProperty("--player-color", snapshot.playerColor.value);
+  const playerColor = getDisplayColor(snapshot.playerColorIndex);
+  elements.colorName.textContent = playerColor.name;
+  elements.colorGlyph.hidden = !colorBlindMode;
+  elements.colorGlyph.textContent = colorBlindMode ? playerColor.glyph : "";
+  elements.colorSwatch.style.background = playerColor.value;
+  elements.colorSwatch.style.color = playerColor.ink;
+  elements.colorHero.style.setProperty("--player-color", playerColor.value);
 
   elements.statusValue.className = "stat__value status-value";
   if (snapshot.mode === GAME_MODES.ZEN) {
@@ -673,18 +768,19 @@ function render() {
   const tiles = [...elements.board.children];
   for (const [index, tile] of tiles.entries()) {
     const cell = snapshot.cells[index] ?? { kind: "idle", colorIndex: null };
+    const glyph = tile.querySelector(".tile__glyph");
     tile.className = "tile";
-    tile.textContent = "";
+    glyph.textContent = "";
     tile.style.removeProperty("--tile-color");
     tile.style.removeProperty("--tile-ink");
     tile.setAttribute("aria-label", `Inactive cell ${index + 1}`);
 
     if (cell.kind !== "idle") {
-      const color = COLORS[cell.colorIndex];
+      const color = getDisplayColor(cell.colorIndex);
       tile.classList.add("tile--lit");
       tile.style.setProperty("--tile-color", color.value);
       tile.style.setProperty("--tile-ink", color.ink);
-      tile.textContent = color.glyph;
+      glyph.textContent = colorBlindMode ? color.glyph : "";
       tile.setAttribute("aria-label", `${color.name} cell ${index + 1}`);
     }
   }
@@ -728,6 +824,21 @@ elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMA
 elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
 elements.mainMenuButton.addEventListener("click", showMainMenu);
 elements.scoreForm.addEventListener("submit", submitScore);
+elements.themesToggle.addEventListener("click", () => {
+  if (elements.themesPanel.hidden) {
+    openThemes();
+  } else {
+    closeThemes();
+  }
+});
+for (const input of elements.themeInputs) {
+  input.addEventListener("change", () => {
+    if (input.checked) applyTheme(input.value);
+  });
+}
+elements.colorBlindToggle.addEventListener("change", () => {
+  applyColorBlindMode(elements.colorBlindToggle.checked);
+});
 elements.leaderboardToggle.addEventListener("click", () => {
   if (elements.leaderboardPanel.hidden) {
     loadLeaderboard(leaderboardMode);
@@ -740,6 +851,7 @@ for (const tab of elements.leaderboardTabs) {
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 
+initializeDisplaySettings();
 engine.reset();
 resetResultUi();
 render();

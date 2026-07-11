@@ -50,6 +50,8 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
 - Two full-height side rails drain during every active decision to show the current response window.
+- The main menu offers Classic and Disco themes. Disco uses paler white-backlit colors, black painted concrete, and worn acrylic tile surfaces.
+- Color-blind mode is on by default and shows a unique shape on each color; turning it off removes the glyphs from the HUD, game tiles, and theme previews. Theme and display preferences are stored on that device.
 - The HUD and result screen show the current global top score for the selected mode; no player profile or local result history is stored.
 - Each completed run asks for a name and can be submitted to the shared, mode-specific Top 20 leaderboard. Names are not remembered between runs. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
 - Leaderboard submissions are validated and throttled, but gameplay still runs in the browser; this prototype board is not suitable for competitive play without server-authoritative anti-cheat.
