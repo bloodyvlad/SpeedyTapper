@@ -40,10 +40,13 @@ body {
 }
 
 :root[data-theme="disco"] body {
-  background-color: #050606;
-  background-image: url("./assets/disco-concrete.png");
-  background-position: center;
-  background-size: cover;
+  background-color: #030404;
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.2)),
+    url("./assets/disco-concrete.png");
+  background-position: center, center top;
+  background-repeat: no-repeat, repeat;
+  background-size: auto, 600px 600px;
 }
 
 .visually-hidden {
@@ -60,7 +63,6 @@ body {
 }
 
 .response-rails {
-  --player-color: #35e6df;
   position: fixed;
   z-index: 8;
   inset-block: 0;
@@ -80,7 +82,7 @@ body {
   bottom: 0;
   width: clamp(3px, 1vw, 5px);
   overflow: hidden;
-  background: color-mix(in srgb, var(--player-color) 12%, transparent);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .response-rail--left {
@@ -94,8 +96,8 @@ body {
 .response-rail__fill {
   position: absolute;
   inset: 0;
-  background: var(--player-color);
-  box-shadow: 0 0 13px var(--player-color);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 13px rgba(255, 255, 255, 0.32);
   transform: scaleY(0);
   transform-origin: bottom;
   will-change: transform;
@@ -284,7 +286,8 @@ button {
   background-color: #070808;
   background-image: url("./assets/disco-concrete.png");
   background-position: center;
-  background-size: cover;
+  background-repeat: repeat;
+  background-size: 480px 480px;
   box-shadow:
     0 24px 78px rgba(0, 0, 0, 0.68),
     inset 0 1px rgba(255, 255, 255, 0.08),
@@ -339,11 +342,36 @@ button {
 :root[data-theme="disco"] .tile {
   isolation: isolate;
   border-color: rgba(217, 232, 234, 0.12);
-  background: #101214;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.075), transparent 36%, rgba(0, 0, 0, 0.28)),
+    #101214;
   box-shadow:
     inset 0 1px rgba(255, 255, 255, 0.08),
     inset 0 -16px 34px rgba(0, 0, 0, 0.42),
     0 7px 14px rgba(0, 0, 0, 0.34);
+}
+
+:root[data-theme="disco"] .tile::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background-image: url("./assets/disco-tile-overlay.png");
+  background-position: center;
+  background-size: 200% 200%;
+  content: "";
+  filter: contrast(1.55) brightness(0.72);
+  mix-blend-mode: screen;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+:root[data-theme="disco"] .tile:nth-child(3n + 2)::before {
+  background-position: 65% 35%;
+}
+
+:root[data-theme="disco"] .tile:nth-child(3n)::before {
+  background-position: 35% 68%;
 }
 
 .tile:focus-visible {
@@ -367,7 +395,9 @@ button {
 
 :root[data-theme="disco"] .tile--lit {
   border-color: color-mix(in srgb, var(--tile-color) 62%, white 38%);
-  background: var(--tile-color);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.23), transparent 35%, rgba(0, 0, 0, 0.18)),
+    var(--tile-color);
   box-shadow:
     0 0 13px color-mix(in srgb, var(--tile-color) 68%, transparent),
     0 0 30px color-mix(in srgb, var(--tile-color) 34%, transparent),
@@ -378,17 +408,8 @@ button {
 }
 
 :root[data-theme="disco"] .tile--lit::before {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  border-radius: inherit;
-  background-image: url("./assets/disco-tile-overlay.png");
-  background-position: center;
-  background-size: cover;
-  content: "";
-  mix-blend-mode: screen;
-  opacity: 0.56;
-  pointer-events: none;
+  filter: contrast(1.45) brightness(0.9);
+  opacity: 0.34;
 }
 
 .tile:active {
@@ -477,8 +498,14 @@ button {
 }
 
 :root[data-theme="disco"] .overlay {
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
+  background-color: rgba(0, 0, 0, 0.18);
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.38)),
+    url("./assets/disco-concrete.png");
+  background-position: center, center top;
+  background-repeat: no-repeat, repeat;
+  background-size: auto, 600px 600px;
+  backdrop-filter: blur(0.5px);
 }
 
 .overlay[hidden] {
@@ -498,7 +525,12 @@ button {
 
 :root[data-theme="disco"] .dialog {
   border-color: rgba(185, 211, 217, 0.22);
-  background: linear-gradient(155deg, rgba(15, 20, 31, 0.98), rgba(5, 7, 11, 0.98));
+  background-color: rgba(5, 7, 11, 0.9);
+  background-image:
+    linear-gradient(155deg, rgba(15, 20, 31, 0.87), rgba(5, 7, 11, 0.93)),
+    url("./assets/disco-concrete.png");
+  background-position: center;
+  background-size: auto, 560px 560px;
   box-shadow:
     0 30px 95px rgba(0, 0, 0, 0.76),
     0 0 30px rgba(63, 232, 241, 0.055);
@@ -745,7 +777,8 @@ h1 {
   font-size: 0.9rem;
 }
 
-.themes-toggle {
+.themes-toggle,
+.settings-toggle {
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -754,18 +787,21 @@ h1 {
   text-align: left;
 }
 
-.themes-toggle[aria-expanded="true"] {
+.themes-toggle[aria-expanded="true"],
+.settings-toggle[aria-expanded="true"] {
   border-color: rgba(92, 238, 242, 0.42);
   background: rgba(71, 221, 228, 0.085);
 }
 
-.themes-toggle__value {
+.themes-toggle__value,
+.settings-toggle__value {
   color: #aab2c9;
   font-size: 0.76rem;
   font-weight: 800;
 }
 
-.themes-panel {
+.themes-panel,
+.settings-panel {
   min-width: 0;
   margin: 0;
   padding: 9px;
@@ -774,7 +810,8 @@ h1 {
   background: rgba(5, 7, 14, 0.54);
 }
 
-.themes-panel[hidden] {
+.themes-panel[hidden],
+.settings-panel[hidden] {
   display: none;
 }
 
@@ -925,6 +962,9 @@ h1 {
 
 [data-theme-preview="disco"] .theme-preview__tile {
   border-color: color-mix(in srgb, var(--preview-color) 55%, white 45%);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.2), transparent 36%, rgba(0, 0, 0, 0.18)),
+    var(--preview-color);
   box-shadow:
     0 0 8px color-mix(in srgb, var(--preview-color) 44%, transparent),
     inset 0 0 0 1px rgba(255, 255, 255, 0.3),
@@ -937,10 +977,11 @@ h1 {
   inset: 0;
   background-image: url("./assets/disco-tile-overlay.png");
   background-position: center;
-  background-size: cover;
+  background-size: 180% 180%;
   content: "";
+  filter: contrast(1.45) brightness(0.88);
   mix-blend-mode: screen;
-  opacity: 0.5;
+  opacity: 0.32;
 }
 
 .theme-preview__glyph {
@@ -963,6 +1004,10 @@ h1 {
   justify-content: space-between;
   gap: 14px;
   cursor: pointer;
+}
+
+.settings-panel .color-blind-setting {
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .color-blind-setting__copy {

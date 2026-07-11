@@ -1,6 +1,6 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-3";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-3";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-3";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-4";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-4";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-4";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -45,6 +45,9 @@ const elements = {
   scoreForm: document.querySelector("#score-form"),
   scoreStatus: document.querySelector("#score-status"),
   scoreSubmit: document.querySelector("#score-submit"),
+  settingsCurrent: document.querySelector("#settings-current"),
+  settingsPanel: document.querySelector("#settings-panel"),
+  settingsToggle: document.querySelector("#settings-toggle"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
   themeCurrent: document.querySelector("#theme-current"),
@@ -80,13 +83,11 @@ let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 
 const sound = (() => {
-  const relayOff = new Audio("./assets/audio/relay-off.mp3");
   const oops = new Audio("./assets/audio/oops.mp3");
   const hum = new Audio("./assets/audio/fluorescent-hum.mp3");
-  const sounds = [relayOff, oops, hum];
+  const sounds = [oops, hum];
   hum.loop = true;
   hum.volume = 0.42;
-  relayOff.volume = 0.36;
   oops.volume = 0.8;
   for (const audio of sounds) {
     audio.preload = "auto";
@@ -117,10 +118,9 @@ const sound = (() => {
       hum.currentTime = 0;
       hum.play().catch(() => {});
     },
-    tileOff(withRelay = true) {
+    tileOff() {
       hum.pause();
       hum.currentTime = 0;
-      if (withRelay) play(relayOff);
     },
     lifeLost() {
       play(oops);
@@ -174,6 +174,7 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   elements.themeCurrent.textContent = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
+  elements.settingsCurrent.textContent = colorBlindMode ? "Shapes on" : "Shapes off";
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
@@ -220,10 +221,6 @@ function renderResponseRails(snapshot) {
   }
 
   elements.responseRails.hidden = false;
-  elements.responseRails.style.setProperty(
-    "--player-color",
-    getDisplayColor(snapshot.playerColorIndex).value
-  );
   const progress = Math.max(0, Math.min(1, snapshot.reactionProgress));
   for (const fill of elements.responseRailFills) {
     fill.style.transform = `scaleY(${progress})`;
@@ -259,7 +256,7 @@ function clearTimers() {
   runEndTimer = null;
   clockTimer = null;
   completionTimer = null;
-  sound.tileOff(false);
+  sound.tileOff();
 }
 
 function startGame(mode) {
@@ -310,7 +307,7 @@ function scheduleDeadline(currentSession, delayMs) {
       scheduleDeadline(currentSession, Math.ceil(result.remainingMs));
       return;
     }
-    sound.tileOff(false);
+    sound.tileOff();
     stopResponseRails();
     if (result.type === "ignored-color") {
       showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
@@ -452,6 +449,7 @@ function resetResultUi() {
   elements.scoreSubmit.textContent = "Save score";
   setScoreStatus("");
   closeThemes();
+  closeSettings();
   closeLeaderboard();
 }
 
@@ -502,6 +500,7 @@ function selectLeaderboardMode(mode) {
 }
 
 function openThemes() {
+  closeSettings();
   closeLeaderboard();
   elements.themesPanel.hidden = false;
   elements.themesToggle.setAttribute("aria-expanded", "true");
@@ -515,8 +514,24 @@ function closeThemes() {
   elements.themesToggle.setAttribute("aria-expanded", "false");
 }
 
+function openSettings() {
+  closeThemes();
+  closeLeaderboard();
+  elements.settingsPanel.hidden = false;
+  elements.settingsToggle.setAttribute("aria-expanded", "true");
+  window.requestAnimationFrame(() => {
+    elements.settingsPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+}
+
+function closeSettings() {
+  elements.settingsPanel.hidden = true;
+  elements.settingsToggle.setAttribute("aria-expanded", "false");
+}
+
 function openLeaderboard() {
   closeThemes();
+  closeSettings();
   elements.leaderboardPanel.hidden = false;
   elements.leaderboardToggle.setAttribute("aria-expanded", "true");
   elements.leaderboardToggle.textContent = "Close board";
@@ -829,6 +844,13 @@ elements.themesToggle.addEventListener("click", () => {
     openThemes();
   } else {
     closeThemes();
+  }
+});
+elements.settingsToggle.addEventListener("click", () => {
+  if (elements.settingsPanel.hidden) {
+    openSettings();
+  } else {
+    closeSettings();
   }
 });
 for (const input of elements.themeInputs) {

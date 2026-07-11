@@ -49,9 +49,10 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - Mixed-round pressure rises by 1.5 percentage points per successful tap. Every ten successful taps adds another possible decoy and gently reduces the quiet interval, up to six decoys and an 80% mixed-round ceiling.
 - Normal has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Normal survival time is shown live and freezes when the final life is lost.
-- Two full-height side rails drain during every active decision to show the current response window.
-- The main menu offers Classic and Disco themes. Disco uses paler white-backlit colors, black painted concrete, and worn acrylic tile surfaces.
-- Color-blind mode is on by default and shows a unique shape on each color; turning it off removes the glyphs from the HUD, game tiles, and theme previews. Theme and display preferences are stored on that device.
+- Two full-height neutral-grey side rails drain during every active decision to show the current response window. Their 60%-white fill stays independent of the player's current color.
+- The main menu offers Classic and Disco themes. Disco uses paler white-backlit colors, clearly visible repeating black concrete, and lightly scratched plastic tile surfaces in both idle and lit states.
+- Color-blind mode lives under **Settings**. It is on by default and shows a unique shape on each color; turning it off removes the glyphs from the HUD, game tiles, and theme previews. Theme and display preferences are stored on that device.
+- Gameplay keeps the continuous active-target hum and life-loss cue, but deliberately has no delayed tap or switch-off sound in the high-speed reaction loop.
 - The HUD and result screen show the current global top score for the selected mode; no player profile or local result history is stored.
 - Each completed run asks for a name and can be submitted to the shared, mode-specific Top 20 leaderboard. Names are not remembered between runs. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
 - Leaderboard submissions are validated and throttled, but gameplay still runs in the browser; this prototype board is not suitable for competitive play without server-authoritative anti-cheat.

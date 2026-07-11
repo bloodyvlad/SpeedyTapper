@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260711-3" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260711-4" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260711-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-4" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -187,13 +187,26 @@
                 </label>
               </div>
             </fieldset>
-            <label class="color-blind-setting" for="color-blind-toggle">
-              <span class="color-blind-setting__copy">
-                <strong>Color-blind mode</strong>
-                <small>Show shapes on tiles</small>
-              </span>
-              <input id="color-blind-toggle" type="checkbox" role="switch" checked />
-            </label>
+            <button
+              class="secondary-button settings-toggle"
+              id="settings-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="settings-panel"
+            >
+              <span>Settings</span>
+              <span class="settings-toggle__value" id="settings-current">Shapes on</span>
+            </button>
+            <fieldset class="settings-panel" id="settings-panel" hidden>
+              <legend class="visually-hidden">Display settings</legend>
+              <label class="color-blind-setting" for="color-blind-toggle">
+                <span class="color-blind-setting__copy">
+                  <strong>Color-blind mode</strong>
+                  <small>Show shapes on tiles</small>
+                </span>
+                <input id="color-blind-toggle" type="checkbox" role="switch" checked />
+              </label>
+            </fieldset>
             <button
               class="secondary-button leaderboard-toggle"
               id="leaderboard-toggle"
@@ -225,7 +238,7 @@
 
     <script>
       (() => {
-        const buildId = "20260711-3";
+        const buildId = "20260711-4";
         if (!("serviceWorker" in navigator)) return;
 
         const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
@@ -255,6 +268,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260711-3"></script>
+    <script type="module" src="./src/main.js?v=20260711-4"></script>
   </body>
 </html>
