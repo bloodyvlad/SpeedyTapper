@@ -52,13 +52,14 @@ The HTML, stylesheet, and JavaScript module graph share one release version. The
 - A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.
 - Active gameplay has a compact SpeedyTapper logo plus 44px Restart and Main menu shortcuts above the HUD. The Game Over name form also offers a full-width Restart button that immediately starts the same mode again.
 - **Settings** contains the Classic and Disco theme selector. Classic targets show the vivid palette immediately with no dark color-transition frame. Disco uses paler center-lit colors, clearly visible repeating black concrete, and lightly scratched plastic tile surfaces in both idle and lit states.
-- Settings also contains Color-blind mode and Sound FX. Color-blind mode is on by default and shows a unique shape on each color; turning it off removes glyphs from the HUD, game tiles, and theme previews.
-- Sound FX is on by default and enables the active-target hum and life-loss cue; there is deliberately no delayed tap or switch-off sound in the high-speed reaction loop. Turning Sound FX off releases any loaded media, and future sound hooks do not create, load, request, or play audio files until the player turns it back on and starts a game.
+- Settings also contains Color-blind mode and the optional **Sound FX (Beta)** switch. Color-blind mode is on by default and shows a unique shape on each color; turning it off removes glyphs from the HUD, game tiles, and theme previews.
+- Sound FX is off by default. While it remains off, the app does not create an audio context or fetch, decode, cache, or play audio files. Turning it on enables the active-target hum and life-loss cue after the next explicit game-start gesture; there is deliberately no delayed tap or switch-off sound in the high-speed reaction loop.
+- Beta sound uses the standards-based Web Audio API—not an Apple-only API—with an interactive-latency `AudioContext` and predecoded in-memory buffers. One persistent silent hum loop is gated with 10ms gain ramps, while each life-loss cue gets a fresh one-shot buffer source. Audio files are excluded from the offline app shell and fetched without browser or service-worker caching. Offline gameplay therefore remains available even when optional sound cannot be loaded.
 - Theme, accessibility, and sound preferences are stored on that device.
 - The HUD and result screen show the current global top score for the selected mode; no player profile or local result history is stored.
 - Each completed run asks for a name and can be submitted to the shared, mode-specific Top 20 leaderboard. Names are not remembered between runs. Entries show survival or play time, taps, dodges, fastest reaction, and average reaction.
 - Leaderboard submissions are validated and throttled, but gameplay still runs in the browser; this prototype board is not suitable for competitive play without server-authoritative anti-cheat.
-- Moving the app into the background safely stops the current run.
+- Moving the app into the background safely stops the current run and suspends enabled Beta audio. Starting or restarting a game from the next explicit gesture resumes its audio context.
 
 All balancing values are centralized in [`src/config.js`](./src/config.js).
 
@@ -68,7 +69,7 @@ All balancing values are centralized in [`src/config.js`](./src/config.js).
 npm run check
 ```
 
-The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. Static UI tests cover the gameplay shortcuts, same-mode restart flow, distinct Classic/Disco material treatments, and release wiring. The sound controller is tested to ensure disabled audio never creates, loads, requests, or plays media and that disabling it releases anything already loaded. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
+The game engine is separate from the browser UI and is covered by deterministic tests for board progression, scoring, empty-board penalties, dodge rewards, reaction statistics, rare adjacent decoys, gradual timing, Normal life loss, and Zen timing. Static UI tests cover the gameplay shortcuts, same-mode restart flow, distinct Classic/Disco material treatments, the default-off Beta sound setting, Web Audio wiring, audio-cache exclusions, and the unified release graph. The sound controller is tested to ensure disabled audio never creates a context or fetches, decodes, or plays media; enabled cues use decoded buffers; and disabling sound stops sources and releases audio resources. The leaderboard model is tested for validation, legacy-row compatibility, deterministic ranking, mode separation, reaction metrics, and the 20-entry cap.
 
 ## Why a small PWA
 

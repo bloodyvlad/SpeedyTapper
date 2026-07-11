@@ -14,6 +14,7 @@ const [indexHtml, mainSource, engineSource, soundSource, workerSource, stylesSou
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
+  assert.equal(buildId, "20260712-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`main\\.js\\?v=${buildId}`));
@@ -29,15 +30,54 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
 
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
-  assert.doesNotMatch(appShell, /assets\/audio|\.mp3/);
+  assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
+  assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
   assert.match(
     workerSource,
     /pathname\.startsWith\("\/assets\/audio\/"\)[\s\S]*fetch\(event\.request, \{ cache: "no-store" \}\)/
   );
-  assert.match(soundSource, /function ensureAudio\(\)\s*\{\s*if \(!enabled\) return \[\]/);
-  assert.match(soundSource, /unlock\(\)\s*\{\s*if \(!enabled\) return;\s*const sounds = ensureAudio\(\)/);
-  assert.doesNotMatch(mainSource, /new Audio\s*\(/);
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
+});
+
+test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", () => {
+  const settingsPanel = indexHtml.match(
+    /<fieldset class="settings-panel" id="settings-panel" hidden>[\s\S]*?<\/fieldset>/
+  )?.[0] ?? "";
+  const soundSetting = settingsPanel.match(
+    /<label class="setting-row" for="sound-fx-toggle">[\s\S]*?<\/label>/
+  )?.[0] ?? "";
+  const soundToggle = soundSetting.match(/<input[^>]+id="sound-fx-toggle"[^>]*>/)?.[0] ?? "";
+
+  assert.match(soundSetting, /Sound FX/);
+  assert.match(soundSetting, />\s*Beta\s*</i);
+  assert.match(soundToggle, /role="switch"/);
+  assert.doesNotMatch(soundToggle, /\bchecked\b/);
+  assert.match(indexHtml, /id="settings-current">Classic · Sound off</);
+  assert.match(mainSource, /speedytapper\.soundFx\.v1/);
+  assert.match(mainSource, /let soundFxEnabled = false;/);
+  assert.match(mainSource, /soundFxEnabled = storedSoundFx === "on";/);
+  assert.match(mainSource, /soundFxToggle/);
+  assert.match(mainSource, /sound\.setEnabled\(soundFxEnabled\)/);
+  assert.match(
+    mainSource,
+    /function startGame\(mode\)\s*\{\s*clearTimers\(\);\s*(?:void\s+)?sound\.unlock\(\);/,
+    "Run cleanup must finish before the gesture-based audio unlock starts."
+  );
+
+  assert.match(soundSource, /globalThis\.AudioContext/);
+  assert.match(soundSource, /latencyHint:\s*"interactive"/);
+  assert.match(soundSource, /decodeAudioData\s*\(/);
+  assert.match(soundSource, /createBufferSource\s*\(/);
+  assert.match(soundSource, /\.resume\s*\(/);
+  assert.match(soundSource, /\.suspend\s*\(/);
+  assert.match(soundSource, /\.close\s*\(/);
+  assert.match(soundSource, /cache:\s*"no-store"/);
+  assert.match(soundSource, /let enabled = false;/);
+  assert.match(soundSource, /(?:async\s+)?unlock\(\)\s*\{\s*if \(!enabled\) return/);
+  assert.match(mainSource, /sound\.suspend\(\)/);
+  assert.match(mainSource, /addEventListener\("pagehide"/);
+  assert.doesNotMatch(soundSource, /webkitAudioContext|HTMLAudioElement|AudioClass|globalThis\.Audio(?!Context)/);
+  assert.doesNotMatch(`${mainSource}\n${soundSource}`, /new Audio\s*\(|document\.createElement\(["']audio["']\)/);
 });
 
 test("the streamlined dialog contains settings, leaderboard, and reaction statistics", () => {
@@ -70,7 +110,6 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(settingsPanel, /name="theme" value="classic" checked/);
   assert.match(settingsPanel, /name="theme" value="disco"/);
   assert.match(settingsPanel, /id="color-blind-toggle"[^>]+role="switch" checked/);
-  assert.match(settingsPanel, /id="sound-fx-toggle"[^>]+role="switch" checked/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);
   assert.ok(
     indexHtml.indexOf('id="settings-toggle"') < indexHtml.indexOf('id="leaderboard-toggle"'),
@@ -79,17 +118,9 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
 
   assert.match(mainSource, /speedytapper\.theme\.v1/);
   assert.match(mainSource, /speedytapper\.colorBlindMode\.v1/);
-  assert.match(mainSource, /speedytapper\.soundFx\.v1/);
   assert.match(mainSource, /settingsToggle/);
   assert.match(mainSource, /settingsPanel/);
   assert.match(mainSource, /settingsCurrent/);
-  assert.match(mainSource, /soundFxToggle/);
-  assert.match(mainSource, /sound\.setEnabled\(soundFxEnabled\)/);
-  assert.match(
-    mainSource,
-    /function startGame\(mode\)\s*\{\s*clearTimers\(\);\s*sound\.unlock\(\);/,
-    "Run cleanup must finish before the gesture-based audio unlock starts."
-  );
   assert.match(settingsPanel, /role="radiogroup" aria-labelledby="theme-setting-label"/);
   assert.match(settingsPanel, /id="theme-setting-label">Theme</);
   assert.match(mainSource, /glyph\.textContent = colorBlindMode \? color\.glyph : ""/);

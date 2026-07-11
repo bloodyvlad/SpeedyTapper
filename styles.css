@@ -1104,6 +1104,29 @@ h1 {
   line-height: 1.15;
 }
 
+.setting-row__title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.setting-badge {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid rgba(102, 245, 238, 0.42);
+  border-radius: 999px;
+  background: rgba(61, 224, 218, 0.1);
+  color: #7ff9f1;
+  font-size: 0.52rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .setting-row__copy small {
   color: #9ca4ba;
   font-size: 0.68rem;

@@ -1,7 +1,7 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260711-6";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260711-6";
-import { createSoundController } from "./sound-controller.js?v=20260711-6";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260711-6";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260712-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260712-1";
+import { createSoundController } from "./sound-controller.js?v=20260712-1";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260712-1";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -85,7 +85,7 @@ let leaderboardMode = GAME_MODES.NORMAL;
 let leaderboardRequestId = 0;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
-let soundFxEnabled = true;
+let soundFxEnabled = false;
 
 const sound = createSoundController();
 
@@ -150,7 +150,7 @@ function initializeDisplaySettings() {
   const storedColorBlindMode = readStoredPreference(COLOR_BLIND_STORAGE_KEY);
   colorBlindMode = storedColorBlindMode !== "off";
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
-  soundFxEnabled = storedSoundFx !== "off";
+  soundFxEnabled = storedSoundFx === "on";
   sound.setEnabled(soundFxEnabled);
   renderDisplaySettings();
 }
@@ -774,8 +774,13 @@ function showFeedback(message, isBad) {
 }
 
 function pauseForVisibilityChange() {
-  if (!document.hidden || engine.state === GAME_STATES.IDLE || engine.state === GAME_STATES.GAME_OVER) return;
+  if (!document.hidden) return;
+  if (engine.state === GAME_STATES.IDLE || engine.state === GAME_STATES.GAME_OVER) {
+    sound.suspend();
+    return;
+  }
   clearTimers();
+  sound.suspend();
   sessionId += 1;
   resetResultUi();
   elements.dialogTitle.textContent = "Run paused";
@@ -833,6 +838,7 @@ for (const tab of elements.leaderboardTabs) {
   tab.addEventListener("click", () => loadLeaderboard(tab.dataset.leaderboardMode));
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
+window.addEventListener("pagehide", () => sound.suspend());
 
 initializeDisplaySettings();
 engine.reset();
