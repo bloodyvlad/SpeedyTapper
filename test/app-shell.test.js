@@ -14,7 +14,7 @@ const [indexHtml, mainSource, engineSource, soundSource, workerSource, stylesSou
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260712-1");
+  assert.equal(buildId, "20260712-2");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`main\\.js\\?v=${buildId}`));
@@ -60,8 +60,13 @@ test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", ()
   assert.match(mainSource, /sound\.setEnabled\(soundFxEnabled\)/);
   assert.match(
     mainSource,
-    /function startGame\(mode\)\s*\{\s*clearTimers\(\);\s*(?:void\s+)?sound\.unlock\(\);/,
+    /function startGame\(mode\)\s*\{\s*clearTimers\(\);\s*(?:void\s+)?sound\.startRun\(\);/,
     "Run cleanup must finish before the gesture-based audio unlock starts."
+  );
+  assert.match(
+    mainSource,
+    /soundFxToggle\.addEventListener\("change",[\s\S]*?applySoundFx[\s\S]*?sound\.unlock\(\)/,
+    "Opting into sound must also resume Web Audio from that trusted gesture."
   );
 
   assert.match(soundSource, /globalThis\.AudioContext/);
@@ -73,7 +78,10 @@ test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", ()
   assert.match(soundSource, /\.close\s*\(/);
   assert.match(soundSource, /cache:\s*"no-store"/);
   assert.match(soundSource, /let enabled = false;/);
-  assert.match(soundSource, /(?:async\s+)?unlock\(\)\s*\{\s*if \(!enabled\) return/);
+  assert.match(soundSource, /resumeFromGesture\(\)/);
+  assert.match(soundSource, /startRun\(\)/);
+  assert.match(soundSource, /setTargetAtTime\s*\(/);
+  assert.doesNotMatch(soundSource, /cancelAndHoldAtTime\s*\(/);
   assert.match(mainSource, /sound\.suspend\(\)/);
   assert.match(mainSource, /addEventListener\("pagehide"/);
   assert.doesNotMatch(soundSource, /webkitAudioContext|HTMLAudioElement|AudioClass|globalThis\.Audio(?!Context)/);
@@ -152,6 +160,35 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   );
   assert.match(stylesSource, /data-glyphs="off"[^}]+theme-preview__glyph/s);
   assert.doesNotMatch(mainSource, /PLAYER_NAME_KEY|PROFILE_SCORE_PREFIX|Profile best|My best/);
+});
+
+test("the leaderboard form remembers only the last validated name", () => {
+  assert.match(
+    mainSource,
+    /const REMEMBERED_NAME_STORAGE_KEY = "speedytapper\.leaderboardName\.v1";/
+  );
+  assert.match(
+    mainSource,
+    /elements\.playerName\.value = readStoredPreference\(REMEMBERED_NAME_STORAGE_KEY\) \?\? "";/
+  );
+
+  const submitStart = mainSource.indexOf("async function submitScore(event)");
+  const submitEnd = mainSource.indexOf("function ensureBoard", submitStart);
+  const submitBody = mainSource.slice(submitStart, submitEnd);
+  const sanitizeAt = submitBody.indexOf("sanitizePlayerName(elements.playerName.value)");
+  const rememberAt = submitBody.indexOf(
+    "writeStoredPreference(REMEMBERED_NAME_STORAGE_KEY, name)"
+  );
+  const requestAt = submitBody.indexOf('fetch("/api/leaderboard"');
+
+  assert.ok(sanitizeAt >= 0, "The submitted name must be validated first.");
+  assert.ok(rememberAt > sanitizeAt, "Only a validated name may be remembered.");
+  assert.ok(requestAt > rememberAt, "The valid entry should be remembered even if the network save fails.");
+  assert.doesNotMatch(
+    mainSource,
+    /player profile|personal best|profile score|PROFILE_SCORE_PREFIX/i,
+    "Remembering a form value must not reintroduce profile or personal-best semantics."
+  );
 });
 
 test("in-game and result controls provide restart and menu shortcuts", () => {

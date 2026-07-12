@@ -1,13 +1,14 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260712-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260712-1";
-import { createSoundController } from "./sound-controller.js?v=20260712-1";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260712-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260712-2";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260712-2";
+import { createSoundController } from "./sound-controller.js?v=20260712-2";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260712-2";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
+const REMEMBERED_NAME_STORAGE_KEY = "speedytapper.leaderboardName.v1";
 
 const elements = {
   board: document.querySelector("#board"),
@@ -119,7 +120,7 @@ function writeStoredPreference(key, value) {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    // Display preferences remain usable for the current session when storage is unavailable.
+    // Preferences and form conveniences remain usable for this session when storage is unavailable.
   }
 }
 
@@ -229,7 +230,7 @@ function clearTimers() {
 
 function startGame(mode) {
   clearTimers();
-  sound.unlock();
+  void sound.startRun();
   void refreshTopScore(mode);
   const currentSession = sessionId + 1;
   sessionId = currentSession;
@@ -383,7 +384,7 @@ function finishGame(snapshot, currentSession) {
   elements.resultContent.hidden = false;
   elements.scoreForm.hidden = false;
   elements.playerName.disabled = false;
-  elements.playerName.value = "";
+  elements.playerName.value = readStoredPreference(REMEMBERED_NAME_STORAGE_KEY) ?? "";
   elements.playerName.readOnly = false;
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
@@ -632,6 +633,7 @@ async function submitScore(event) {
   }
 
   elements.playerName.value = name;
+  writeStoredPreference(REMEMBERED_NAME_STORAGE_KEY, name);
 
   elements.scoreSubmit.disabled = true;
   elements.playerName.disabled = true;
@@ -826,6 +828,7 @@ elements.colorBlindToggle.addEventListener("change", () => {
 });
 elements.soundFxToggle.addEventListener("change", () => {
   applySoundFx(elements.soundFxToggle.checked);
+  if (elements.soundFxToggle.checked) void sound.unlock();
 });
 elements.leaderboardToggle.addEventListener("click", () => {
   if (elements.leaderboardPanel.hidden) {

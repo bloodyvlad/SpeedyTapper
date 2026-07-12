@@ -4,8 +4,8 @@
 - Latest production Settings screenshot: `/tmp/speedytapper-20260711-5-settings.png`
 - Latest production gameplay screenshot: `/tmp/speedytapper-20260711-5-timer.png`
 - Viewport: 390 × 844
-- Production release: `20260711-6`
-- Local candidate: `20260712-1` (implemented, not deployed)
+- Production release: `20260712-1`
+- Local candidate: `20260712-2` (implemented, not deployed)
 - Last visually verified production release: `20260711-5`
 - Last visually verified local release: `20260712-1`
 - Target state: main menu with Settings expanded, Disco selected, and Sound FX disabled; Normal gameplay with the relocated response timer active
@@ -54,6 +54,16 @@
 - Local browser verification passed at 390 × 844 and 320 × 568. The Beta badge fits, Sound FX defaults off, explicit opt-in starts and retains Web Audio without runtime errors, and opt-out persists after reload.
 - Local evidence: `/tmp/speedytapper-web-audio-settings-20260712-1.png` and `/tmp/speedytapper-web-audio-compact-20260712-1.png`.
 - Vercel production remains on `20260711-6`.
+
+## Local Candidate 20260712-2 Audio QA
+
+- A validated leaderboard name is remembered only to prefill the next result form. It creates no profile, personal best, or local score history.
+- Enabling Sound FX calls `AudioContext.resume()` directly from the trusted Settings change gesture. Every Start and Restart gesture performs the same synchronous unlock path.
+- The master output starts closed and fades in after a successful resume. Unmanaged iOS interruptions close both audio gates before resuming, while lifecycle epochs prevent a stale pending resume from reopening audio after suspension.
+- The persistent hum now uses smooth target automation rather than linear gain corners. Life-loss cues are capped at one, cleared on suspension, and decay for eight time constants to an exact scheduled zero before a quick restart stops their source.
+- `npm run check`: 58 tests passed. `git diff --check` passed.
+- Local browser interaction passed: Sound FX opted in without warnings, Normal mode started through the gesture unlock, three timed misses reached Game Over, and immediate Restart produced no runtime warning or error.
+- The supplied seven-second iPhone recording came from the earlier media-element release. Its waveform contains broadband transient spikes, but it cannot directly validate the new Web Audio build on physical iPhone hardware.
 
 ## Comparison History
 
@@ -118,4 +128,4 @@
 
 - No implementation blocker is recorded. The generated PNG textures add about 2.2 MB to the offline cache; a future asset-optimization pass could convert them to WebP if install size becomes important.
 
-final result: local candidate `20260712-1` passed; production remains `20260711-6`
+final result: local candidate `20260712-2` passed automated and browser-runtime QA; production remains `20260712-1` pending deployment
