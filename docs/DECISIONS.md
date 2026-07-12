@@ -167,3 +167,16 @@ Decision: Promote Neon Circuit Refined, Deep Current, and Power Grid as the prod
 Consequences: Musical escalation is intentionally not identical to the 40-second grid and 50-second decoy transitions. Runtime selection uses the engine snapshot's authoritative elapsed time, which currently includes each 1.5-second life-loss recovery. Playtesting must review whether response windows and recovery time create the intended felt pacing. Each runtime AAC is cached only after its first service-worker-controlled request and remains outside the install-time app shell. Retain every approved WAV master and the prior soundtrack for rollback.
 
 Revisit when: Real-run data or physical-iPhone listening shows that the 90-second or 120-second thresholds, recovery-time treatment, track order, decoded-memory cost, or transition behavior should change.
+
+## D-013 — Measure reactions from presentation to pointer contact
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Starting a reaction clock in a timer callback before DOM work and ending it with a new timestamp inside the pointer handler adds the browser's paint wait and input-dispatch delay to the player's result. Separately scheduling a full response-window timeout after rendering can also leave a target visible after its logical deadline and allow expiry plus queued input to remove two lives.
+
+Decision: Start the run and each active round on a browser animation-frame timestamp, render the tile in that frame, and anchor expiry to an absolute deadline derived from it. Use the original monotonic `PointerEvent.timeStamp` when it is compatible with the current performance clock, with a guarded handler-time fallback. Ignore queued pre-presentation input and input already covered by a deadline resolution.
+
+Consequences: Displayed reaction milliseconds, scoring, progress, and expiry share one presentation-aware clock and no longer include an avoidable full-frame or input-dispatch bias. Animation-frame time is still a browser approximation of physical pixel onset, and pointer time is still an approximation of hardware contact; claims of photon-to-contact precision require external high-speed measurement.
+
+Revisit when: A native runtime exposes display-present and touch-hardware timestamps, browser event time origins change, or device testing finds material rAF-to-pixel variance.

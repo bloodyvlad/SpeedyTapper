@@ -12,6 +12,7 @@ const APP_SHELL = [
   `./manifest.webmanifest?v=${BUILD_ID}`,
   `./src/config.js?v=${BUILD_ID}`,
   `./src/game-engine.js?v=${BUILD_ID}`,
+  `./src/input-timing.js?v=${BUILD_ID}`,
   `./src/music-controller.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
   `./src/sound-controller.js?v=${BUILD_ID}`,

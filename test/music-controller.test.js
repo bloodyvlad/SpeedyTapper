@@ -70,6 +70,7 @@ class FakeSource {
 
 class FakeAudioContext {
   static instances = [];
+  static deferSuspend = false;
 
   constructor(options) {
     this.bufferSources = [];
@@ -114,6 +115,14 @@ class FakeAudioContext {
 
   suspend() {
     this.suspendCalls += 1;
+    if (FakeAudioContext.deferSuspend) {
+      return new Promise((resolve) => {
+        this.resolveSuspend = () => {
+          this.state = "suspended";
+          resolve();
+        };
+      });
+    }
     this.state = "suspended";
     return Promise.resolve();
   }
@@ -215,7 +224,7 @@ test("music preloads three tracks, loops their regions, and rotates atomically",
   music.setStage(MUSIC_STAGES.CHALLENGE);
   const challengeSource = context.bufferSources[3];
   assert.equal(challengeSource.loopStart, 1_173_943 / 48_000);
-  assert.equal(challengeSource.loopEnd, 1_448_229 / 48_000);
+  assert.equal(challengeSource.loopEnd, 1_448_208 / 48_000);
 
   assert.equal(music.advanceTrack(MUSIC_STAGES.MENU), "deep-current");
   const deepCurrentMenu = context.bufferSources[4];
@@ -302,7 +311,7 @@ test("suspending fades active music before the context is paused", async () => {
     voiceGain.events.slice(-3).map(({ method, value }) => ({ method, value })),
     [
       { method: "cancelScheduledValues", value: undefined },
-      { method: "setValueAtTime", value: 1 },
+      { method: "setValueAtTime", value: 0 },
       { method: "linearRampToValueAtTime", value: 0 }
     ]
   );
@@ -359,6 +368,68 @@ test("unlocking during the release fade cancels a stale suspension", async () =>
   assert.equal(context.suspendCalls, 0);
   assert.equal(context.state, "running");
   assert.equal(context.bufferSources.length, 2);
+});
+
+test("a gesture replaces a context whose suspension is already in flight", async () => {
+  FakeAudioContext.instances = [];
+  FakeAudioContext.deferSuspend = true;
+  const fetchRecorder = createFetchRecorder();
+  const scheduler = new ManualScheduler();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl,
+    setTimeoutImpl: scheduler.setTimeout.bind(scheduler),
+    clearTimeoutImpl: scheduler.clearTimeout.bind(scheduler)
+  });
+
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  const oldContext = FakeAudioContext.instances[0];
+  music.suspend();
+  scheduler.runAll();
+  assert.equal(oldContext.suspendCalls, 1);
+
+  await music.unlock();
+  const replacementContext = FakeAudioContext.instances[1];
+  assert.ok(replacementContext, "The newer gesture must own a replacement context.");
+  assert.equal(replacementContext.state, "running");
+  oldContext.resolveSuspend();
+  await flushAsyncWork();
+  scheduler.runAll();
+  assert.equal(replacementContext.state, "running");
+  assert.equal(oldContext.closeCalls, 1);
+  assert.equal(replacementContext.bufferSources.length, 1);
+  FakeAudioContext.deferSuspend = false;
+});
+
+test("an interrupted crossfade holds its computed gain without jumping to full volume", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+  const menuSource = context.bufferSources[0];
+  context.currentTime = 5.06;
+  music.setStage(MUSIC_STAGES.GRID_2);
+  const menuHold = menuSource.connections[0].gain.events.findLast(
+    (event) => event.method === "setValueAtTime" && event.time === 5.06
+  );
+  assert.ok(Math.abs(menuHold.value - 0.5) < 0.000001);
+
+  const gridSource = context.bufferSources[1];
+  context.currentTime = 5.09;
+  music.advanceTrack(MUSIC_STAGES.MENU);
+  const gridHold = gridSource.connections[0].gain.events.findLast(
+    (event) => event.method === "setValueAtTime" && event.time === 5.09
+  );
+  assert.ok(Math.abs(gridHold.value - 0.25) < 0.000001);
 });
 
 test("all retained production masters are silent at every adaptive loop seam", async () => {

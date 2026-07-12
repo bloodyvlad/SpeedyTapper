@@ -25,10 +25,12 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(indexHtml, new RegExp(`const buildId = "${buildId}";`));
   assert.match(mainSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`game-engine\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`leaderboard-model\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
+  assert.match(workerSource, new RegExp(`input-timing\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`leaderboard-model\\.js\\?v=\\$\\{BUILD_ID\\}`));
@@ -219,6 +221,26 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
     mainSource,
     /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(\);/,
     "Switching leaderboard tabs must not reset focus or scroll by reopening the view."
+  );
+});
+
+test("reaction timing is anchored to presentation and original pointer contact", () => {
+  assert.match(mainSource, /requestAnimationFrame\(\(visibleAt\) => \{/);
+  assert.match(mainSource, /engine\.activateRound\(visibleAt\)/);
+  assert.match(mainSource, /resolveInputTimestamp\(event\.timeStamp, handledAt\)/);
+  assert.match(mainSource, /reactionDeadline\([\s\S]*visibleAt/);
+  assert.match(mainSource, /remainingUntilDeadline\(deadlineAt, now\(\)\)/);
+  assert.match(mainSource, /wasCoveredByDeadlineResolution/);
+  assert.match(mainSource, /deadlineCommit = scheduleAfterPaint\(presentationScheduler/);
+  assert.match(mainSource, /roundId !== activeRoundId/);
+  assert.match(mainSource, /reachedDeadline\(inputAt, runDeadlineAt\)[\s\S]*finishZenRun\(sessionId, inputAt\)/);
+  assert.match(mainSource, /scheduleZenEnd\(currentSession, runDeadlineAt\)/);
+  assert.match(mainSource, /runEndCommit = scheduleAfterPaint\(presentationScheduler/);
+  assert.match(mainSource, /window\.addEventListener\("pagehide",[\s\S]*stopRunForPageExit\(\)/);
+  assert.match(
+    mainSource,
+    /function stopRunForPageExit\(\)[\s\S]*runStartFrame === null[\s\S]*clearTimers\(\)/,
+    "Backgrounding before the first presentation frame must cancel the pending run safely."
   );
 });
 

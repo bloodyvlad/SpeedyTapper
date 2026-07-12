@@ -1,6 +1,15 @@
 import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-1";
 import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-1";
 import {
+  predatesPresentation,
+  reactionDeadline,
+  reachedDeadline,
+  remainingUntilDeadline,
+  resolveInputTimestamp,
+  scheduleAfterPaint,
+  wasCoveredByDeadlineResolution
+} from "./input-timing.js?v=20260713-1";
+import {
   createMusicController,
   MUSIC_STAGES,
   resolveMusicStage
@@ -90,8 +99,18 @@ let clockTimer = null;
 let feedbackTimer = null;
 let completionTimer = null;
 let progressFrame = null;
+let runStartFrame = null;
+let roundActivationFrame = null;
+let runEndCommit = null;
+let deadlineCommit = null;
 let sessionId = 0;
 let completedSessionId = null;
+let activeRoundVisibleAt = null;
+let activeRoundId = null;
+let nextRoundId = 0;
+let lastDeadlineResolutionAt = null;
+let roundPresentationExpired = false;
+let runDeadlineAt = null;
 let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
@@ -102,6 +121,10 @@ let soundFxEnabled = false;
 let musicEnabled = true;
 
 const sound = createSoundController();
+const presentationScheduler = Object.freeze({
+  requestFrame: (callback) => window.requestAnimationFrame(callback),
+  cancelFrame: (frameId) => window.cancelAnimationFrame(frameId)
+});
 const music = createMusicController({
   fetchImpl: async (...args) => {
     await globalThis.speedyTapperWorkerReady;
@@ -232,8 +255,9 @@ function renderResponseProgress(snapshot) {
   elements.responseProgressFill.style.transform = `scaleX(${progress})`;
 }
 
-function startResponseProgress(currentSession) {
+function startResponseProgress(currentSession, initialSnapshot) {
   window.cancelAnimationFrame(progressFrame);
+  renderResponseProgress(initialSnapshot);
   const tick = () => {
     if (
       currentSession !== sessionId ||
@@ -246,7 +270,7 @@ function startResponseProgress(currentSession) {
     renderResponseProgress(engine.getSnapshot(now()));
     progressFrame = window.requestAnimationFrame(tick);
   };
-  tick();
+  progressFrame = window.requestAnimationFrame(tick);
 }
 
 function clearTimers() {
@@ -255,12 +279,24 @@ function clearTimers() {
   window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
   window.clearTimeout(completionTimer);
+  window.cancelAnimationFrame(runStartFrame);
+  window.cancelAnimationFrame(roundActivationFrame);
+  runEndCommit?.cancel();
+  deadlineCommit?.cancel();
   stopResponseProgress();
   spawnTimer = null;
   deadlineTimer = null;
   runEndTimer = null;
   clockTimer = null;
   completionTimer = null;
+  runStartFrame = null;
+  roundActivationFrame = null;
+  runEndCommit = null;
+  deadlineCommit = null;
+  activeRoundVisibleAt = null;
+  activeRoundId = null;
+  roundPresentationExpired = false;
+  runDeadlineAt = null;
   sound.tileOff();
 }
 
@@ -272,28 +308,32 @@ function startGame(mode) {
   void refreshTopScore(mode);
   const currentSession = sessionId + 1;
   sessionId = currentSession;
-  const startedAt = now();
-  engine.start(startedAt, mode);
+  completedSessionId = null;
+  lastDeadlineResolutionAt = null;
+  engine.reset();
   resetResultUi();
   elements.gameUtility.hidden = false;
   elements.overlay.hidden = true;
   elements.dialogTitle.textContent = "Ready to react?";
-  render();
+  runStartFrame = window.requestAnimationFrame((visibleAt) => {
+    runStartFrame = null;
+    if (currentSession !== sessionId || document.hidden) return;
+    engine.start(visibleAt, mode);
+    render();
 
-  clockTimer = window.setInterval(() => {
-    const snapshot = engine.getSnapshot(now());
-    renderHud(snapshot);
-    music.setStage(musicStageFor(snapshot));
-  }, 100);
+    clockTimer = window.setInterval(() => {
+      const snapshot = engine.getSnapshot(now());
+      renderHud(snapshot);
+      music.setStage(musicStageFor(snapshot));
+    }, 100);
 
-  if (mode === GAME_MODES.ZEN) {
-    runEndTimer = window.setTimeout(
-      () => finishZenRun(currentSession),
-      engine.config.zenDurationMs
-    );
-  }
+    if (mode === GAME_MODES.ZEN) {
+      runDeadlineAt = visibleAt + engine.config.zenDurationMs;
+      scheduleZenEnd(currentSession, runDeadlineAt);
+    }
 
-  scheduleRound(currentSession);
+    scheduleRound(currentSession);
+  });
 }
 
 function scheduleRound(currentSession, additionalDelayMs = 0) {
@@ -302,42 +342,115 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
   const delayMs = engine.getNextDelayMs(now());
   spawnTimer = window.setTimeout(() => {
     if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
-    const result = engine.activateRound(now());
-    if (result.type !== "round-active") return;
-    music.setStage(musicStageFor(result.snapshot));
-    sound.tileOn();
-    render();
-    startResponseProgress(currentSession);
-    scheduleDeadline(currentSession, result.snapshot.difficulty.responseWindowMs);
+    spawnTimer = null;
+    roundActivationFrame = window.requestAnimationFrame((visibleAt) => {
+      roundActivationFrame = null;
+      if (
+        currentSession !== sessionId ||
+        document.hidden ||
+        engine.state === GAME_STATES.GAME_OVER
+      ) {
+        return;
+      }
+      const result = engine.activateRound(visibleAt);
+      if (result.type !== "round-active") return;
+      const roundId = nextRoundId + 1;
+      nextRoundId = roundId;
+      activeRoundId = roundId;
+      activeRoundVisibleAt = visibleAt;
+      roundPresentationExpired = false;
+      music.setStage(musicStageFor(result.snapshot));
+      sound.tileOn();
+      const deadlineAt = reactionDeadline(
+        visibleAt,
+        result.snapshot.difficulty.responseWindowMs
+      );
+      scheduleDeadline(currentSession, roundId, deadlineAt);
+      render();
+      startResponseProgress(currentSession, result.snapshot);
+    });
   }, delayMs + additionalDelayMs);
 }
 
-function scheduleDeadline(currentSession, delayMs) {
+function scheduleDeadline(currentSession, roundId, deadlineAt) {
+  const delayMs = remainingUntilDeadline(deadlineAt, now());
   deadlineTimer = window.setTimeout(() => {
-    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
-    const result = engine.expireRound(now());
-    if (result.type === "ignored" && result.reason === "not-expired") {
-      scheduleDeadline(currentSession, Math.ceil(result.remainingMs));
+    deadlineTimer = null;
+    if (
+      currentSession !== sessionId ||
+      roundId !== activeRoundId ||
+      document.hidden ||
+      engine.state !== GAME_STATES.ACTIVE
+    ) {
       return;
     }
+    roundPresentationExpired = true;
     sound.tileOff();
     stopResponseProgress();
-    if (result.type === "ignored-color") {
-      showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
-      render();
-      scheduleRound(currentSession);
-      return;
-    }
-    if (result.type === "miss") {
-      handleMiss(result, currentSession);
-    }
+    render();
+
+    // Give pointer events already generated for the visible tile one rendering
+    // turn to resolve by their original timestamps before committing expiry.
+    deadlineCommit = scheduleAfterPaint(presentationScheduler, () => {
+      deadlineCommit = null;
+      if (
+        currentSession !== sessionId ||
+        roundId !== activeRoundId ||
+        document.hidden ||
+        engine.state !== GAME_STATES.ACTIVE
+      ) {
+        return;
+      }
+      const resolvedAt = now();
+      const result = engine.expireRound(resolvedAt);
+      if (result.type === "ignored" && result.reason === "not-expired") {
+        roundPresentationExpired = false;
+        render();
+        scheduleDeadline(currentSession, roundId, deadlineAt);
+        return;
+      }
+      lastDeadlineResolutionAt = resolvedAt;
+      activeRoundVisibleAt = null;
+      activeRoundId = null;
+      roundPresentationExpired = false;
+      if (result.type === "ignored-color") {
+        showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
+        render();
+        scheduleRound(currentSession);
+        return;
+      }
+      if (result.type === "miss") {
+        handleMiss(result, currentSession);
+      }
+    });
   }, delayMs);
 }
 
 function handleTileTap(event) {
   event.preventDefault();
   const cellIndex = Number.parseInt(event.currentTarget.dataset.index, 10);
-  const result = engine.tap(cellIndex, now());
+  const handledAt = now();
+  const inputAt = resolveInputTimestamp(event.timeStamp, handledAt);
+  if (
+    engine.mode === GAME_MODES.ZEN &&
+    reachedDeadline(inputAt, runDeadlineAt)
+  ) {
+    finishZenRun(sessionId, inputAt);
+    return;
+  }
+  if (
+    engine.state === GAME_STATES.ACTIVE &&
+    predatesPresentation(inputAt, activeRoundVisibleAt)
+  ) {
+    return;
+  }
+  if (
+    engine.state === GAME_STATES.WAITING &&
+    wasCoveredByDeadlineResolution(inputAt, lastDeadlineResolutionAt)
+  ) {
+    return;
+  }
+  const result = engine.tap(cellIndex, inputAt);
   if (result.type === "ignored") return;
 
   sound.tileOff();
@@ -345,6 +458,16 @@ function handleTileTap(event) {
   spawnTimer = null;
   window.clearTimeout(deadlineTimer);
   deadlineTimer = null;
+  window.cancelAnimationFrame(roundActivationFrame);
+  roundActivationFrame = null;
+  deadlineCommit?.cancel();
+  deadlineCommit = null;
+  activeRoundVisibleAt = null;
+  activeRoundId = null;
+  roundPresentationExpired = false;
+  if (result.type === "miss" && result.reason === "late") {
+    lastDeadlineResolutionAt = handledAt;
+  }
   stopResponseProgress();
 
   if (result.type === "hit") {
@@ -379,14 +502,23 @@ function handleMiss(result, currentSession) {
   }
 }
 
-function finishZenRun(currentSession) {
+function scheduleZenEnd(currentSession, deadlineAt) {
+  const delayMs = remainingUntilDeadline(deadlineAt, now());
+  runEndTimer = window.setTimeout(() => {
+    runEndTimer = null;
+    if (currentSession !== sessionId || document.hidden) return;
+    runEndCommit = scheduleAfterPaint(presentationScheduler, () => {
+      runEndCommit = null;
+      finishZenRun(currentSession, now());
+    });
+  }, delayMs);
+}
+
+function finishZenRun(currentSession, finishedAt = now()) {
   if (currentSession !== sessionId) return;
-  const result = engine.finishTimedRun(now());
+  const result = engine.finishTimedRun(finishedAt);
   if (result.type === "ignored" && result.reason === "time-remaining") {
-    runEndTimer = window.setTimeout(
-      () => finishZenRun(currentSession),
-      Math.max(1, Math.ceil(result.remainingMs))
-    );
+    scheduleZenEnd(currentSession, runDeadlineAt);
     return;
   }
   if (result.type === "time-up") {
@@ -813,7 +945,9 @@ function render() {
 
   const tiles = [...elements.board.children];
   for (const [index, tile] of tiles.entries()) {
-    const cell = snapshot.cells[index] ?? { kind: "idle", colorIndex: null };
+    const cell = roundPresentationExpired && snapshot.state === GAME_STATES.ACTIVE
+      ? { kind: "idle", colorIndex: null }
+      : snapshot.cells[index] ?? { kind: "idle", colorIndex: null };
     const glyph = tile.querySelector(".tile__glyph");
     tile.className = "tile";
     glyph.textContent = "";
@@ -842,22 +976,28 @@ function showFeedback(message, isBad) {
   }, 540);
 }
 
-function pauseForVisibilityChange() {
-  if (!document.hidden) return;
-  if (engine.state === GAME_STATES.IDLE || engine.state === GAME_STATES.GAME_OVER) {
-    sound.suspend();
-    music.suspend();
+function stopRunForPageExit() {
+  if (
+    runStartFrame === null &&
+    engine.state !== GAME_STATES.WAITING &&
+    engine.state !== GAME_STATES.ACTIVE
+  ) {
     return;
   }
   clearTimers();
-  sound.suspend();
   music.setStage(MUSIC_STAGES.MENU);
-  music.suspend();
   sessionId += 1;
   resetResultUi();
   elements.dialogTitle.textContent = "Run paused";
   elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped. Choose a mode to restart.";
   elements.overlay.hidden = false;
+}
+
+function pauseForVisibilityChange() {
+  if (!document.hidden) return;
+  stopRunForPageExit();
+  sound.suspend();
+  music.suspend();
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -911,6 +1051,7 @@ document.addEventListener("pointerdown", () => {
   if (musicEnabled) void music.unlock();
 }, { capture: true });
 window.addEventListener("pagehide", () => {
+  stopRunForPageExit();
   sound.suspend();
   music.suspend();
 });

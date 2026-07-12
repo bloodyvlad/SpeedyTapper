@@ -9,6 +9,8 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import tempfile
 import wave
@@ -22,6 +24,7 @@ RUNTIME_OUT = ROOT / "assets" / "audio"
 MASTER_OUT = RUNTIME_OUT / "music-masters"
 TEMPOS = (100, 120, 140, 168)
 SECTION_BOUNDARIES = (0, 460_800, 844_800, 1_173_943, 1_448_229)
+CORE_AUDIO_VALID_FRAMES = 1_448_208
 
 
 @dataclass(frozen=True)
@@ -415,6 +418,19 @@ def verify_aac(track, sections, m4a_path):
         boundary_peaks.append(float(np.max(np.abs(window))))
     if any(value > 0.08 for value in boundary_peaks):
         raise RuntimeError(f"Noisy AAC section boundary for {m4a_path}: {boundary_peaks}")
+
+    afinfo_path = shutil.which("afinfo")
+    if afinfo_path:
+        core_audio_info = subprocess.check_output([afinfo_path, str(m4a_path)], text=True)
+        valid_frames_match = re.search(r"audio\s+(\d+)\s+valid frames", core_audio_info)
+        if not valid_frames_match:
+            raise RuntimeError(f"Unable to read CoreAudio valid frames for {m4a_path}")
+        valid_frames = int(valid_frames_match.group(1))
+        if valid_frames != CORE_AUDIO_VALID_FRAMES:
+            raise RuntimeError(
+                f"Unexpected CoreAudio duration for {m4a_path}: "
+                f"{valid_frames} vs {CORE_AUDIO_VALID_FRAMES} valid frames"
+            )
 
     print(
         f"QA {track.title}: AAC-{probe['profile']} {probe['sample_rate']} Hz, "

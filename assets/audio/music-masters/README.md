@@ -11,7 +11,7 @@ All candidates use the same adaptive structure:
 | 0:17.60 | Mature 4x4 decoy pressure from 1:30 game time | 140 BPM |
 | 0:24.46 | Endurance tier from 2:00 game time | 168 BPM |
 
-The runtime M4A files are 48 kHz stereo AAC-LC with a 192 kbps target. These retained WAV files are 48 kHz/16-bit stereo PCM. Every synthesized voice uses smooth attack/release ramps; sections are mastered independently and receive a final 80 ms raised-cosine edge treatment. The arrangements contain no noise percussion, hats, vinyl texture, or third-party samples.
+The runtime M4A files are 48 kHz stereo AAC-LC with a 192 kbps target. Apple/CoreAudio exposes 1,448,208 valid runtime frames, so the browser loop ends there; the retained PCM master contains 1,448,229 frames, with its final 21 silent-edge frames treated as AAC/container trim. These retained WAV files are 48 kHz/16-bit stereo PCM. Every synthesized voice uses smooth attack/release ramps; sections are mastered independently and receive a final 80 ms raised-cosine edge treatment. The arrangements contain no noise percussion, hats, vinyl texture, or third-party samples.
 
 - **Neon Circuit Refined:** warm analog bass, rounded four-on-floor pulse, and muted neon plucks.
 - **Deep Current:** spacious dub-techno harmony, deeper bass movement, and low-mid percussion.

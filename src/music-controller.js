@@ -19,7 +19,7 @@ const SEGMENTS = Object.freeze({
   [MUSIC_STAGES.MENU]: Object.freeze({ offset: 0, duration: 460_800 / 48_000 }),
   [MUSIC_STAGES.GRID_2]: Object.freeze({ offset: 460_800 / 48_000, duration: 384_000 / 48_000 }),
   [MUSIC_STAGES.GRID_4]: Object.freeze({ offset: 844_800 / 48_000, duration: 329_143 / 48_000 }),
-  [MUSIC_STAGES.CHALLENGE]: Object.freeze({ offset: 1_173_943 / 48_000, duration: 274_286 / 48_000 })
+  [MUSIC_STAGES.CHALLENGE]: Object.freeze({ offset: 1_173_943 / 48_000, duration: 274_265 / 48_000 })
 });
 
 export function resolveMusicStage(snapshot, stageStartsAtMs) {
@@ -62,6 +62,8 @@ export function createMusicController({
   let currentVoice = null;
   let suspendTimer = null;
   let suspendSequence = 0;
+  let pendingSuspendContext = null;
+  let pendingSuspendWork = null;
   const buffers = new Map();
   const preparations = new Map();
   const loadControllers = new Map();
@@ -95,6 +97,29 @@ export function createMusicController({
     if (targetVoices.includes(currentVoice)) currentVoice = null;
   }
 
+  function voiceGainAtTime(voice, time) {
+    const envelope = voice?.envelope;
+    if (!envelope) return 1;
+    if (time <= envelope.startedAt) return envelope.from;
+    if (time >= envelope.endsAt) return envelope.to;
+    const progress = (time - envelope.startedAt) / (envelope.endsAt - envelope.startedAt);
+    return envelope.from + (envelope.to - envelope.from) * progress;
+  }
+
+  function fadeVoiceToZero(voice, time, duration) {
+    const heldGain = voiceGainAtTime(voice, time);
+    const parameter = voice.gain.gain;
+    parameter.cancelScheduledValues(time);
+    parameter.setValueAtTime(heldGain, time);
+    parameter.linearRampToValueAtTime(0, time + duration);
+    voice.envelope = Object.freeze({
+      from: heldGain,
+      to: 0,
+      startedAt: time,
+      endsAt: time + duration
+    });
+  }
+
   function fadeAndStopVoices(activeContext = context, targetVoices = [...voices]) {
     if (!activeContext || activeContext.state !== "running") {
       stopVoicesImmediately(targetVoices);
@@ -103,10 +128,7 @@ export function createMusicController({
 
     const time = activeContext.currentTime;
     for (const voice of targetVoices) {
-      const parameter = voice.gain.gain;
-      parameter.cancelScheduledValues(time);
-      parameter.setValueAtTime(Math.max(0, parameter.value), time);
-      parameter.linearRampToValueAtTime(0, time + RELEASE_FADE_SECONDS);
+      fadeVoiceToZero(voice, time, RELEASE_FADE_SECONDS);
       try {
         voice.source.stop(time + RELEASE_FADE_SECONDS + 0.01);
       } catch {
@@ -156,7 +178,18 @@ export function createMusicController({
     source.connect(gain);
     gain.connect(masterGain);
 
-    const voice = { gain, source, stage: desiredStage, trackIndex: desiredTrackIndex };
+    const voice = {
+      envelope: Object.freeze({
+        from: 0,
+        to: 1,
+        startedAt: time,
+        endsAt: time + CROSSFADE_SECONDS
+      }),
+      gain,
+      source,
+      stage: desiredStage,
+      trackIndex: desiredTrackIndex
+    };
     voices.add(voice);
     source.onended = () => cleanupVoice(voice);
     source.start(time, segment.offset);
@@ -164,9 +197,7 @@ export function createMusicController({
     const previousVoice = currentVoice;
     currentVoice = voice;
     if (!previousVoice) return;
-    previousVoice.gain.gain.cancelScheduledValues(time);
-    previousVoice.gain.gain.setValueAtTime(previousVoice.gain.gain.value, time);
-    previousVoice.gain.gain.linearRampToValueAtTime(0, time + CROSSFADE_SECONDS);
+    fadeVoiceToZero(previousVoice, time, CROSSFADE_SECONDS);
     try {
       previousVoice.source.stop(time + CROSSFADE_SECONDS + 0.01);
     } catch {
@@ -253,6 +284,10 @@ export function createMusicController({
     const closingVoices = [...voices];
     const closingMaster = masterGain;
     const closingContext = context;
+    if (pendingSuspendContext === closingContext) {
+      pendingSuspendContext = null;
+      pendingSuspendWork = null;
+    }
     masterGain = null;
     context = null;
     currentVoice = null;
@@ -318,6 +353,14 @@ export function createMusicController({
 
     unlock() {
       if (!enabled) return Promise.resolve(false);
+      if (pendingSuspendContext && pendingSuspendContext === context) {
+        // A suspend already in flight cannot be cancelled. Replace its context
+        // inside this trusted gesture so its completion cannot mute the new run.
+        generation += 1;
+        desiredRunning = false;
+        suspendSequence += 1;
+        release();
+      }
       cancelPendingSuspend();
       suspendSequence += 1;
       const activeContext = ensureContext();
@@ -370,12 +413,15 @@ export function createMusicController({
           return;
         }
         try {
-          Promise.resolve(activeContext.suspend())
-            .then(() => {
-              if (!enabled || !desiredRunning || activeContext !== context) return;
-              return Promise.resolve(activeContext.resume()).then(() => startDesiredStage());
-            })
-            .catch(() => {});
+          const work = Promise.resolve(activeContext.suspend())
+            .catch(() => {})
+            .finally(() => {
+              if (pendingSuspendWork !== work) return;
+              pendingSuspendContext = null;
+              pendingSuspendWork = null;
+            });
+          pendingSuspendContext = activeContext;
+          pendingSuspendWork = work;
         } catch {
           // A failed suspension does not affect gameplay.
         }
