@@ -7,6 +7,7 @@ import { BlobPreconditionFailedError, get, put } from "@vercel/blob";
 import {
   LeaderboardValidationError,
   addEntryToLeaderboard,
+  buildLeaderboardWindow,
   emptyLeaderboardDocument,
   normalizeLeaderboardDocument,
   normalizeMode,
@@ -37,6 +38,18 @@ function isVercelRuntime() {
 
 export function normalizeBlobEtag(etag) {
   return typeof etag === "string" ? etag.replace(/^W\//, "") : etag;
+}
+
+export function createLeaderboardPayload(mode, entries, playerRank = undefined) {
+  const normalizedMode = normalizeMode(mode);
+  const retainedEntries = Array.isArray(entries) ? entries : [];
+  const payload = {
+    mode: normalizedMode,
+    entries: buildLeaderboardWindow(retainedEntries, playerRank),
+    totalEntries: retainedEntries.length
+  };
+  if (playerRank !== undefined) payload.rank = playerRank;
+  return payload;
 }
 
 async function readRequestBody(request) {
@@ -199,7 +212,7 @@ export default async function leaderboardHandler(request, response) {
       const requestUrl = new URL(request.url ?? "/api/leaderboard", "http://localhost");
       const mode = normalizeMode(requestUrl.searchParams.get("mode") ?? "normal");
       const document = await getDocument();
-      sendJson(response, 200, { mode, entries: document[mode] });
+      sendJson(response, 200, createLeaderboardPayload(mode, document[mode]));
       return;
     }
 
@@ -211,11 +224,7 @@ export default async function leaderboardHandler(request, response) {
         createdAt: new Date().toISOString()
       });
       const result = await submitEntry(entry);
-      sendJson(response, 201, {
-        mode: entry.mode,
-        entries: result.entries,
-        rank: result.rank
-      });
+      sendJson(response, 201, createLeaderboardPayload(entry.mode, result.entries, result.rank));
       return;
     }
 

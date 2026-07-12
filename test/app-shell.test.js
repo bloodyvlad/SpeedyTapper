@@ -16,7 +16,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-1");
+  assert.equal(buildId, "20260713-2");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -103,6 +103,7 @@ test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", ()
 test("the streamlined dialog contains settings, leaderboard, and reaction statistics", () => {
   assert.doesNotMatch(indexHtml, /Mechanics prototype/i);
   assert.match(indexHtml, /<html lang="en" data-theme="classic" data-glyphs="on">/);
+  assert.match(indexHtml, /<div id="app" inert>/);
   assert.doesNotMatch(indexHtml, /id="phase"|id="hint"|id="rules"/);
   assert.doesNotMatch(indexHtml, /player-profile|player profile|for this device/i);
   assert.match(indexHtml, /id="result-stats"/);
@@ -124,7 +125,8 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /id="settings-view" hidden/);
   assert.match(indexHtml, /id="settings-back-button"[^>]*>← Back</);
   assert.match(indexHtml, /id="leaderboard-view" hidden/);
-  assert.match(indexHtml, /id="leaderboard-back-button"[^>]*>← Back</);
+  assert.match(indexHtml, /id="leaderboard-back-button"[\s\S]*aria-label="Go back"/);
+  assert.match(indexHtml, /id="leaderboard-menu-button"[\s\S]*aria-label="Return to main menu"/);
 
   const settingsPanel = indexHtml.match(
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
@@ -145,8 +147,12 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(mainSource, /settingsPanel/);
   assert.match(mainSource, /settingsCurrent/);
   assert.match(mainSource, /function showMenuView\(/);
+  assert.match(mainSource, /function setOverlayVisible\(visible\)[\s\S]*elements\.app\.inert = visible/);
+  assert.match(mainSource, /function startGame\(mode\)[\s\S]*setOverlayVisible\(false\)/);
+  assert.match(mainSource, /function finishGame\(snapshot, currentSession\)[\s\S]*setOverlayVisible\(true\)/);
   assert.match(mainSource, /settingsBackButton\.addEventListener\("click"/);
   assert.match(mainSource, /leaderboardBackButton\.addEventListener\("click"/);
+  assert.match(mainSource, /leaderboardMenuButton\.addEventListener\("click", showMainMenu\)/);
   assert.match(settingsPanel, /role="radiogroup" aria-labelledby="theme-setting-label"/);
   assert.match(settingsPanel, /id="theme-setting-label">Theme</);
   assert.match(mainSource, /glyph\.textContent = colorBlindMode \? color\.glyph : ""/);
@@ -219,7 +225,7 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(workerSource, /const MUSIC_ASSET_PATHS = new Set\(\[/);
   assert.match(
     mainSource,
-    /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(\);/,
+    /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(returnView\);/,
     "Switching leaderboard tabs must not reset focus or scroll by reopening the view."
   );
 });
@@ -273,6 +279,28 @@ test("the leaderboard form remembers only the last validated name", () => {
   );
 });
 
+test("result leaderboard navigation preserves result context and renders compact absolute ranks", () => {
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Top 20|of 20 places/i);
+  assert.match(indexHtml, /id="result-leaderboard-button"[^>]*>Leaderboard</);
+  assert.match(indexHtml, /class="leaderboard-utility"/);
+  assert.match(indexHtml, /class="leaderboard-tabs" role="group" aria-label="Leaderboard mode"/);
+  assert.doesNotMatch(indexHtml, /role="tab"|role="tablist"|aria-selected/);
+  assert.match(mainSource, /let leaderboardReturnView = "menu";/);
+  assert.match(mainSource, /function openResultLeaderboard\(\)/);
+  assert.match(mainSource, /openLeaderboard\("result"\)/);
+  assert.match(mainSource, /function returnFromLeaderboard\(\)[\s\S]*showResultView\(elements\.resultLeaderboardButton\)/);
+  assert.match(mainSource, /dialogView === "result" && pendingResult\?\.mode === mode/);
+  assert.match(mainSource, /const entryRank = Number\.isInteger\(entry\.rank\) \? entry\.rank : index \+ 1/);
+  assert.match(mainSource, /entryRank > previousRank \+ 1/);
+  assert.match(mainSource, /currentBadge\.textContent = "This run"/);
+  assert.match(stylesSource, /\.leaderboard-entry\.is-current/);
+  assert.match(stylesSource, /\.leaderboard-gap/);
+  assert.match(
+    stylesSource,
+    /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*38px\s+minmax\(0,\s*1fr\)\s+auto/s
+  );
+});
+
 test("in-game and result controls provide restart and menu shortcuts", () => {
   assert.match(indexHtml, /class="game-header"/);
   assert.match(indexHtml, /class="game-utility" id="game-utility" hidden/);
@@ -284,12 +312,13 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
   assert.match(indexHtml, /id="game-menu-button"[\s\S]*aria-label="Return to main menu"/);
   assert.match(
     indexHtml,
-    /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="main-menu-button"/
+    /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="result-leaderboard-button"[\s\S]*id="main-menu-button"/
   );
 
   assert.match(mainSource, /gameRestartButton:\s*document\.querySelector\("#game-restart-button"\)/);
   assert.match(mainSource, /gameMenuButton:\s*document\.querySelector\("#game-menu-button"\)/);
   assert.match(mainSource, /resultRestartButton:\s*document\.querySelector\("#result-restart-button"\)/);
+  assert.match(mainSource, /resultLeaderboardButton:\s*document\.querySelector\("#result-leaderboard-button"\)/);
   const restartBody = mainSource.match(/function restartCurrentMode\(\)\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(restartBody, /pendingResult\?\.mode\s*\?\?\s*engine\.mode/);
   assert.match(restartBody, /startGame\([^)]+\);/);
@@ -307,8 +336,10 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
 
   assertClickHandler("gameRestartButton", "restartCurrentMode");
   assertClickHandler("resultRestartButton", "restartCurrentMode");
+  assertClickHandler("resultLeaderboardButton", "openResultLeaderboard");
   assertClickHandler("gameMenuButton", "showMainMenu");
   assertClickHandler("mainMenuButton", "showMainMenu");
+  assert.match(mainSource, /function showMainMenu\(\)[\s\S]*elements\.normalButton\.focus\(\{ preventScroll: true \}\)/);
 });
 
 test("Classic and Disco gameplay tiles keep distinct material treatments", () => {

@@ -63,7 +63,7 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 - Normal mode is endless and ends only after all three lives are lost.
 - Zen mode lasts exactly 60 seconds and never removes lives.
 - Wrong colors, inactive cells, empty-board taps, and expired correct targets remain mistakes in Normal mode.
-- Leaderboards are mode-specific and capped at 20 entries.
+- Leaderboards are mode-specific and retain at most 1,000 entries. Public reads show the top five; a successful submission may additionally return that run with two neighboring ranks on each side.
 - Production leaderboard data uses Vercel Blob; local development uses ignored `.data/leaderboard.json`.
 - Preserve compatibility with legacy leaderboard rows when changing validation.
 - There are no player profiles, personal best records, or local score histories.

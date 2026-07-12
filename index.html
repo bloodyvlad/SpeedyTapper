@@ -29,14 +29,14 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-1" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-2" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-2" />
     <title>SpeedyTapper</title>
   </head>
   <body>
-    <div id="app">
+    <div id="app" inert>
       <div class="game-header">
         <div class="game-utility" id="game-utility" hidden>
           <div class="brand-logo brand-logo--game" role="img" aria-label="SpeedyTapper">
@@ -148,7 +148,7 @@
           <form class="score-form" id="score-form" hidden>
             <div class="section-heading">
               <h2>Save your run</h2>
-              <span>Top 20</span>
+              <span>Top 1,000</span>
             </div>
             <label for="player-name">Player name</label>
             <div class="score-form__row">
@@ -169,7 +169,10 @@
             </button>
             <p class="form-status" id="score-status" aria-live="polite"></p>
           </form>
-          <button class="secondary-button main-menu-button" id="main-menu-button" type="button">Main menu</button>
+          <div class="result-navigation">
+            <button class="secondary-button" id="result-leaderboard-button" type="button">Leaderboard</button>
+            <button class="secondary-button main-menu-button" id="main-menu-button" type="button">Main menu</button>
+          </div>
         </div>
         <div class="main-menu-content" id="main-menu-content">
           <div class="action-stack">
@@ -267,15 +270,39 @@
           </fieldset>
         </div>
         <div class="overlay-view" id="leaderboard-view" hidden>
-          <button class="secondary-button view-back-button" id="leaderboard-back-button" type="button">← Back</button>
+          <nav class="leaderboard-utility" aria-label="Leaderboard navigation">
+            <button
+              class="game-utility__button"
+              id="leaderboard-back-button"
+              type="button"
+              aria-label="Go back"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M19 12H5"></path>
+                <path d="m12 19-7-7 7-7"></path>
+              </svg>
+            </button>
+            <button
+              class="game-utility__button"
+              id="leaderboard-menu-button"
+              type="button"
+              aria-label="Return to main menu"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 6h16"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 18h16"></path>
+              </svg>
+            </button>
+          </nav>
           <section class="leaderboard-panel" id="leaderboard-panel">
             <div class="section-heading">
               <h2>Leaderboard</h2>
-              <span>Best scores</span>
+              <span>Top 1,000</span>
             </div>
-            <div class="leaderboard-tabs" role="tablist" aria-label="Leaderboard mode">
-              <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" role="tab" aria-selected="true">Normal</button>
-              <button class="leaderboard-tab" type="button" data-leaderboard-mode="zen" role="tab" aria-selected="false">Zen</button>
+            <div class="leaderboard-tabs" role="group" aria-label="Leaderboard mode">
+              <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" aria-pressed="true">Normal</button>
+              <button class="leaderboard-tab" type="button" data-leaderboard-mode="zen" aria-pressed="false">Zen</button>
             </div>
             <p class="leaderboard-status" id="leaderboard-status" aria-live="polite">Loading scores…</p>
             <ol class="leaderboard-list" id="leaderboard-list"></ol>
@@ -287,7 +314,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-1";
+        const buildId = "20260713-2";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -341,6 +368,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-1"></script>
+    <script type="module" src="./src/main.js?v=20260713-2"></script>
   </body>
 </html>

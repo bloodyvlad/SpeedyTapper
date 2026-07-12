@@ -3,9 +3,12 @@ import test from "node:test";
 
 import {
   DODGE_POINTS,
+  LEADERBOARD_LIMIT,
   LeaderboardValidationError,
   addEntryToLeaderboard,
+  buildLeaderboardWindow,
   emptyLeaderboardDocument,
+  normalizeLeaderboardDocument,
   normalizeScoreSubmission,
   rankEntries,
   sanitizePlayerName
@@ -102,20 +105,20 @@ test("Normal rankings use survival time and hits as deterministic tie breakers",
   );
 });
 
-test("rankings stay mode-specific and retain only the best 20 entries", () => {
-  const normalEntries = Array.from({ length: 25 }, (_, index) => makeEntry({ index }));
+test("rankings stay mode-specific and retain only the best 1,000 entries", () => {
+  const normalEntries = Array.from({ length: 1_005 }, (_, index) => makeEntry({ index }));
   const zenEntry = makeEntry({ index: 99, mode: "zen", score: 999_999, hits: 1_000 });
   const ranked = rankEntries([...normalEntries, zenEntry], "normal");
 
-  assert.equal(ranked.length, 20);
-  assert.equal(ranked[0].score, 1_024);
+  assert.equal(ranked.length, LEADERBOARD_LIMIT);
+  assert.equal(ranked[0].score, 2_004);
   assert.equal(ranked.at(-1).score, 1_005);
   assert.equal(ranked.some((entry) => entry.mode === "zen"), false);
 });
 
-test("a submission reports its rank or null when it misses the Top 20", () => {
+test("a submission reports its rank or null when it misses the Top 1,000", () => {
   let document = emptyLeaderboardDocument();
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < LEADERBOARD_LIMIT; index += 1) {
     document = addEntryToLeaderboard(document, makeEntry({ index })).document;
   }
 
@@ -124,12 +127,54 @@ test("a submission reports its rank or null when it misses the Top 20", () => {
     makeEntry({ index: 50, score: 50_000, hits: 50 })
   );
   assert.equal(winner.rank, 1);
-  assert.equal(winner.entries.length, 20);
+  assert.equal(winner.entries.length, LEADERBOARD_LIMIT);
 
   const outside = addEntryToLeaderboard(
     winner.document,
-    makeEntry({ index: 51, score: 100, hits: 1 })
+    makeEntry({ index: 5_001, score: 100, hits: 1 })
   );
   assert.equal(outside.rank, null);
-  assert.equal(outside.entries.length, 20);
+  assert.equal(outside.entries.length, LEADERBOARD_LIMIT);
+});
+
+test("a boundary submission can occupy rank 1,000", () => {
+  const existing = Array.from({ length: LEADERBOARD_LIMIT - 1 }, (_, offset) =>
+    makeEntry({ index: offset + 1 })
+  );
+  const document = normalizeLeaderboardDocument({ version: 2, normal: existing, zen: [] });
+  const boundary = addEntryToLeaderboard(
+    document,
+    makeEntry({ index: 5_000, score: 1_000, hits: 10 })
+  );
+
+  assert.equal(boundary.rank, LEADERBOARD_LIMIT);
+  assert.equal(boundary.entries.at(-1).id, "score-5000");
+});
+
+test("leaderboard windows show the top five and a submitted result with two neighbors", () => {
+  const ranked = rankEntries(
+    Array.from({ length: LEADERBOARD_LIMIT }, (_, index) => makeEntry({ index })),
+    "normal"
+  );
+
+  assert.deepEqual(
+    buildLeaderboardWindow(ranked).map((entry) => entry.rank),
+    [1, 2, 3, 4, 5]
+  );
+  assert.deepEqual(
+    buildLeaderboardWindow(ranked, 500).map((entry) => entry.rank),
+    [1, 2, 3, 4, 5, 498, 499, 500, 501, 502]
+  );
+  assert.deepEqual(
+    buildLeaderboardWindow(ranked, 999).map((entry) => entry.rank),
+    [1, 2, 3, 4, 5, 997, 998, 999, 1_000]
+  );
+});
+
+test("version 2 documents migrate without the previous 20-row truncation", () => {
+  const legacyEntries = Array.from({ length: 25 }, (_, index) => makeEntry({ index }));
+  const migrated = normalizeLeaderboardDocument({ version: 2, normal: legacyEntries, zen: [] });
+
+  assert.equal(migrated.version, 3);
+  assert.equal(migrated.normal.length, 25);
 });

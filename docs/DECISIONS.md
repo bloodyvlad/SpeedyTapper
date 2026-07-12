@@ -67,7 +67,9 @@ Revisit when: Playtest evidence shows that one mode harms clarity or retention.
 ## D-005 — Use a minimal leaderboard identity model
 
 - Date: 2026-07-12
-- Status: Accepted
+- Status: Superseded
+
+Supersession scope: D-014 replaces only the Top 20 capacity and presentation rule. The minimal name-only identity model remains accepted through D-014.
 
 Context: Profiles and personal-result tracking add onboarding, privacy, account, and synchronization complexity that the prototype does not need.
 
@@ -180,3 +182,16 @@ Decision: Start the run and each active round on a browser animation-frame times
 Consequences: Displayed reaction milliseconds, scoring, progress, and expiry share one presentation-aware clock and no longer include an avoidable full-frame or input-dispatch bias. Animation-frame time is still a browser approximation of physical pixel onset, and pointer time is still an approximation of hardware contact; claims of photon-to-contact precision require external high-speed measurement.
 
 Revisit when: A native runtime exposes display-present and touch-hardware timestamps, browser event time origins change, or device testing finds material rAF-to-pixel variance.
+
+## D-014 — Retain a deeper leaderboard and return compact rank context
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: A Top 20 board gives most submitted runs no visible placement, while sending or rendering hundreds of detailed rows would add unnecessary network and mobile-browser cost. The existing private Vercel Blob document can hold a larger prototype board without a storage migration.
+
+Decision: Retain the best 1,000 validated results independently for Normal and Zen modes. Public leaderboard reads return only the top five. A successful score submission returns the top five plus the submitted run and up to two neighboring ranks on each side, with absolute rank numbers. Keep D-005's name-only form convenience and its prohibition on profiles, personal bests, and local score histories. This supersedes D-005 only where it specified a Top 20 capacity.
+
+Consequences: Existing positions below 20 were previously discarded and cannot be recovered. The private Blob remains one document and is rewritten through the existing optimistic-concurrency flow; only compact result windows are sent to the browser. A submission below rank 1,000 is not retained. The browser-authoritative ranking remains unverified.
+
+Revisit when: Submission volume, Blob rewrite cost, moderation, pagination, historical rank lookup, or server-authoritative competition warrants indexed storage.

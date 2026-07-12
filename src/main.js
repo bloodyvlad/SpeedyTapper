@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-2";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-2";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,14 +8,14 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-1";
+} from "./input-timing.js?v=20260713-2";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-1";
-import { createSoundController } from "./sound-controller.js?v=20260713-1";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260713-1";
+} from "./music-controller.js?v=20260713-2";
+import { createSoundController } from "./sound-controller.js?v=20260713-2";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260713-2";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -26,6 +26,7 @@ const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
 const REMEMBERED_NAME_STORAGE_KEY = "speedytapper.leaderboardName.v1";
 
 const elements = {
+  app: document.querySelector("#app"),
   board: document.querySelector("#board"),
   colorBlindToggle: document.querySelector("#color-blind-toggle"),
   colorHero: document.querySelector("#color-hero"),
@@ -43,6 +44,7 @@ const elements = {
   installButton: document.querySelector("#install-button"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardBackButton: document.querySelector("#leaderboard-back-button"),
+  leaderboardMenuButton: document.querySelector("#leaderboard-menu-button"),
   leaderboardPanel: document.querySelector("#leaderboard-panel"),
   leaderboardStatus: document.querySelector("#leaderboard-status"),
   leaderboardTabs: [...document.querySelectorAll("[data-leaderboard-mode]")],
@@ -66,6 +68,7 @@ const elements = {
   resultDurationLabel: document.querySelector("#result-duration-label"),
   resultDurationValue: document.querySelector("#result-duration-value"),
   resultFastestValue: document.querySelector("#result-fastest-value"),
+  resultLeaderboardButton: document.querySelector("#result-leaderboard-button"),
   resultStats: document.querySelector("#result-stats"),
   scoreForm: document.querySelector("#score-form"),
   scoreStatus: document.querySelector("#score-status"),
@@ -115,6 +118,9 @@ let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
 let leaderboardRequestId = 0;
+let leaderboardReturnView = "menu";
+let leaderboardReturnScrollTop = 0;
+let dialogView = "menu";
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = false;
@@ -134,6 +140,11 @@ const music = createMusicController({
 
 function now() {
   return performance.now();
+}
+
+function setOverlayVisible(visible) {
+  elements.overlay.hidden = !visible;
+  elements.app.inert = visible;
 }
 
 function formatDuration(milliseconds, showTenths = false) {
@@ -313,7 +324,7 @@ function startGame(mode) {
   engine.reset();
   resetResultUi();
   elements.gameUtility.hidden = false;
-  elements.overlay.hidden = true;
+  setOverlayVisible(false);
   elements.dialogTitle.textContent = "Ready to react?";
   runStartFrame = window.requestAnimationFrame((visibleAt) => {
     runStartFrame = null;
@@ -549,6 +560,7 @@ function finishGame(snapshot, currentSession) {
     "aria-label",
     `Restart ${isZen ? "Zen" : "Normal"} mode`
   );
+  dialogView = "result";
   pendingResult = {
     mode: snapshot.mode,
     score: snapshot.points,
@@ -572,11 +584,12 @@ function finishGame(snapshot, currentSession) {
   elements.playerName.readOnly = false;
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
-  setScoreStatus("Enter your name to submit this run to the Top 20.");
+  elements.resultLeaderboardButton.disabled = false;
+  setScoreStatus("Enter your name to submit this run to the Top 1,000.");
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
       elements.gameUtility.hidden = true;
-      elements.overlay.hidden = false;
+      setOverlayVisible(true);
       elements.dialog.scrollTop = 0;
       elements.playerName.focus({ preventScroll: true });
       const keepPromptVisible = () => {
@@ -597,6 +610,8 @@ function finishGame(snapshot, currentSession) {
 
 function resetResultUi() {
   pendingResult = null;
+  dialogView = "menu";
+  leaderboardReturnView = "menu";
   elements.gameUtility.hidden = true;
   elements.resultContent.hidden = true;
   elements.resultStats.hidden = true;
@@ -607,6 +622,7 @@ function resetResultUi() {
   elements.playerName.value = "";
   elements.scoreSubmit.disabled = false;
   elements.scoreSubmit.textContent = "Save score";
+  elements.resultLeaderboardButton.disabled = false;
   setScoreStatus("");
   closeSettings();
   closeLeaderboard();
@@ -633,9 +649,10 @@ function showMainMenu() {
   resetResultUi();
   elements.dialogTitle.textContent = "Ready to react?";
   elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
-  elements.overlay.hidden = false;
+  setOverlayVisible(true);
   elements.dialog.scrollTop = 0;
   render();
+  elements.normalButton.focus({ preventScroll: true });
   for (const mode of Object.values(GAME_MODES)) {
     void refreshTopScore(mode);
   }
@@ -661,13 +678,15 @@ function selectLeaderboardMode(mode) {
   for (const tab of elements.leaderboardTabs) {
     const selected = tab.dataset.leaderboardMode === mode;
     tab.classList.toggle("is-active", selected);
-    tab.setAttribute("aria-selected", String(selected));
+    tab.setAttribute("aria-pressed", String(selected));
   }
 }
 
 function showMenuView(focusTarget = null) {
   closeSettings();
   closeLeaderboard();
+  dialogView = "menu";
+  leaderboardReturnView = "menu";
   elements.resultContent.hidden = true;
   elements.mainMenuContent.hidden = false;
   elements.dialogTitle.textContent = "Ready to react?";
@@ -678,6 +697,7 @@ function showMenuView(focusTarget = null) {
 
 function openSettings() {
   closeLeaderboard();
+  dialogView = "settings";
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.settingsView.hidden = false;
@@ -692,8 +712,11 @@ function closeSettings() {
   elements.settingsView.hidden = true;
 }
 
-function openLeaderboard() {
+function openLeaderboard(returnView = "menu") {
   closeSettings();
+  leaderboardReturnView = returnView;
+  leaderboardReturnScrollTop = elements.dialog.scrollTop;
+  dialogView = "leaderboard";
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.leaderboardView.hidden = false;
@@ -709,7 +732,33 @@ function closeLeaderboard() {
   elements.leaderboardView.hidden = true;
 }
 
-function renderLeaderboard(entries, mode) {
+function showResultView(focusTarget = null) {
+  if (!pendingResult) {
+    showMenuView(elements.leaderboardToggle);
+    return;
+  }
+
+  closeSettings();
+  closeLeaderboard();
+  dialogView = "result";
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = false;
+  elements.dialogTitle.textContent =
+    pendingResult.mode === GAME_MODES.ZEN ? "Minute complete" : "Game Over";
+  renderResultMessage(pendingResult);
+  elements.dialog.scrollTop = leaderboardReturnScrollTop;
+  focusTarget?.focus({ preventScroll: true });
+}
+
+function returnFromLeaderboard() {
+  if (leaderboardReturnView === "result" && pendingResult) {
+    showResultView(elements.resultLeaderboardButton);
+    return;
+  }
+  showMenuView(elements.leaderboardToggle);
+}
+
+function renderLeaderboard(entries, mode, playerRank = null) {
   elements.leaderboardList.replaceChildren();
 
   if (!Array.isArray(entries) || entries.length === 0) {
@@ -721,19 +770,40 @@ function renderLeaderboard(entries, mode) {
   }
 
   const fragment = document.createDocumentFragment();
-  for (const [index, entry] of entries.slice(0, 20).entries()) {
+  let previousRank = null;
+  for (const [index, entry] of entries.entries()) {
+    const entryRank = Number.isInteger(entry.rank) ? entry.rank : index + 1;
+    if (previousRank !== null && entryRank > previousRank + 1) {
+      const gap = document.createElement("li");
+      gap.className = "leaderboard-gap";
+      gap.setAttribute("aria-label", `Ranks ${previousRank + 1} through ${entryRank - 1} omitted`);
+      gap.textContent = "…";
+      fragment.append(gap);
+    }
+
     const row = document.createElement("li");
     row.className = "leaderboard-entry";
+    const isPlayerResult = entryRank === playerRank;
+    row.classList.toggle("is-current", isPlayerResult);
 
     const rank = document.createElement("span");
     rank.className = "leaderboard-entry__rank";
-    rank.textContent = String(index + 1);
+    rank.textContent = String(entryRank);
 
     const player = document.createElement("div");
     player.className = "leaderboard-entry__player";
+    const nameLine = document.createElement("div");
+    nameLine.className = "leaderboard-entry__name-line";
     const name = document.createElement("div");
     name.className = "leaderboard-entry__name";
     name.textContent = entry.name;
+    nameLine.append(name);
+    if (isPlayerResult) {
+      const currentBadge = document.createElement("span");
+      currentBadge.className = "leaderboard-entry__current";
+      currentBadge.textContent = "This run";
+      nameLine.append(currentBadge);
+    }
     const meta = document.createElement("div");
     meta.className = "leaderboard-entry__meta";
     const runMeta = document.createElement("span");
@@ -743,7 +813,7 @@ function renderLeaderboard(entries, mode) {
     const reactionMeta = document.createElement("span");
     reactionMeta.textContent = `Fastest ${formatReaction(entry.fastestReactionMs)} · Average ${formatReaction(entry.averageReactionMs)}`;
     meta.append(runMeta, reactionMeta);
-    player.append(name, meta);
+    player.append(nameLine, meta);
 
     const score = document.createElement("strong");
     score.className = "leaderboard-entry__score";
@@ -751,8 +821,62 @@ function renderLeaderboard(entries, mode) {
 
     row.append(rank, player, score);
     fragment.append(row);
+    previousRank = entryRank;
   }
   elements.leaderboardList.append(fragment);
+}
+
+function setLeaderboardSummary(totalEntries, playerRank = null, hasSubmittedResult = false) {
+  const safeTotal = Number.isInteger(totalEntries) ? totalEntries : 0;
+  if (safeTotal === 0) {
+    setLeaderboardStatus("No ranked results yet.");
+    return;
+  }
+  if (hasSubmittedResult && playerRank === null) {
+    setLeaderboardStatus(
+      `${safeTotal.toLocaleString()} ranked results · This run is outside the Top 1,000.`
+    );
+    return;
+  }
+  if (playerRank !== null) {
+    setLeaderboardStatus(
+      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "result" : "results"} · This run is #${playerRank.toLocaleString()}.`
+    );
+    return;
+  }
+  setLeaderboardStatus(
+    `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "result" : "results"} · Showing the top ${Math.min(5, safeTotal)}.`
+  );
+}
+
+function renderSubmittedLeaderboard(mode) {
+  if (
+    pendingResult?.mode !== mode ||
+    !Array.isArray(pendingResult.leaderboardEntries)
+  ) {
+    return false;
+  }
+
+  leaderboardRequestId += 1;
+  selectLeaderboardMode(mode);
+  renderLeaderboard(pendingResult.leaderboardEntries, mode, pendingResult.rank);
+  setLeaderboardSummary(
+    pendingResult.leaderboardTotalEntries,
+    pendingResult.rank,
+    pendingResult.submitted
+  );
+  return true;
+}
+
+function showLeaderboardMode(mode) {
+  if (leaderboardReturnView === "result" && renderSubmittedLeaderboard(mode)) return;
+  void loadLeaderboard(mode);
+}
+
+function openResultLeaderboard() {
+  if (!pendingResult) return;
+  openLeaderboard("result");
+  showLeaderboardMode(pendingResult.mode);
 }
 
 async function readApiResponse(response) {
@@ -770,7 +894,7 @@ function updateTopScore(mode, entries, revision = null) {
     ? receivedTopScore
     : Math.max(topScores[mode], receivedTopScore);
   renderHud(engine.getSnapshot(now()));
-  if (pendingResult?.mode === mode) {
+  if (dialogView === "result" && pendingResult?.mode === mode) {
     renderResultMessage(pendingResult);
   }
 }
@@ -790,9 +914,9 @@ async function refreshTopScore(mode) {
   }
 }
 
-async function loadLeaderboard(mode = leaderboardMode) {
+async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardReturnView) {
   selectLeaderboardMode(mode);
-  if (elements.leaderboardView.hidden) openLeaderboard();
+  if (elements.leaderboardView.hidden) openLeaderboard(returnView);
   const requestId = leaderboardRequestId + 1;
   leaderboardRequestId = requestId;
   const topScoreRevision = topScoreRevisions[mode] + 1;
@@ -809,7 +933,7 @@ async function loadLeaderboard(mode = leaderboardMode) {
     updateTopScore(mode, body.entries, topScoreRevision);
     if (requestId !== leaderboardRequestId) return;
     renderLeaderboard(body.entries, mode);
-    setLeaderboardStatus(`${body.entries.length} of 20 places filled.`);
+    setLeaderboardSummary(body.totalEntries);
   } catch (error) {
     if (requestId !== leaderboardRequestId) return;
     renderLeaderboard([], mode);
@@ -836,6 +960,7 @@ async function submitScore(event) {
 
   elements.scoreSubmit.disabled = true;
   elements.playerName.disabled = true;
+  elements.resultLeaderboardButton.disabled = true;
   setScoreStatus("Saving score…");
 
   try {
@@ -858,20 +983,25 @@ async function submitScore(event) {
     });
     const body = await readApiResponse(response);
     submittedResult.submitted = true;
+    submittedResult.rank = body.rank;
+    submittedResult.leaderboardEntries = body.entries;
+    submittedResult.leaderboardTotalEntries = body.totalEntries;
     topScoreRevisions[body.mode] += 1;
     updateTopScore(body.mode, body.entries);
     if (pendingResult === submittedResult) {
       elements.scoreSubmit.textContent = body.rank === null ? "Not ranked" : "Saved";
       setScoreStatus(
         body.rank === null
-          ? "This result did not reach the current Top 20."
+          ? "This result did not reach the current Top 1,000."
           : `Score saved at #${body.rank}.`
       );
+      elements.resultLeaderboardButton.disabled = false;
     }
   } catch (error) {
     if (pendingResult === submittedResult) {
       elements.scoreSubmit.disabled = false;
       elements.playerName.disabled = false;
+      elements.resultLeaderboardButton.disabled = false;
       setScoreStatus(error.message, true);
     }
   }
@@ -990,7 +1120,7 @@ function stopRunForPageExit() {
   resetResultUi();
   elements.dialogTitle.textContent = "Run paused";
   elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped. Choose a mode to restart.";
-  elements.overlay.hidden = false;
+  setOverlayVisible(true);
 }
 
 function pauseForVisibilityChange() {
@@ -1019,6 +1149,7 @@ elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
 elements.gameRestartButton.addEventListener("click", restartCurrentMode);
 elements.gameMenuButton.addEventListener("click", showMainMenu);
 elements.resultRestartButton.addEventListener("click", restartCurrentMode);
+elements.resultLeaderboardButton.addEventListener("click", openResultLeaderboard);
 elements.mainMenuButton.addEventListener("click", showMainMenu);
 elements.scoreForm.addEventListener("submit", submitScore);
 elements.settingsToggle.addEventListener("click", openSettings);
@@ -1039,12 +1170,11 @@ elements.musicToggle.addEventListener("change", () => {
   applyMusic(elements.musicToggle.checked);
   if (elements.musicToggle.checked) void music.unlock();
 });
-elements.leaderboardToggle.addEventListener("click", () => loadLeaderboard(leaderboardMode));
-elements.leaderboardBackButton.addEventListener("click", () => {
-  showMenuView(elements.leaderboardToggle);
-});
+elements.leaderboardToggle.addEventListener("click", () => loadLeaderboard(leaderboardMode, "menu"));
+elements.leaderboardBackButton.addEventListener("click", returnFromLeaderboard);
+elements.leaderboardMenuButton.addEventListener("click", showMainMenu);
 for (const tab of elements.leaderboardTabs) {
-  tab.addEventListener("click", () => loadLeaderboard(tab.dataset.leaderboardMode));
+  tab.addEventListener("click", () => showLeaderboardMode(tab.dataset.leaderboardMode));
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 document.addEventListener("pointerdown", () => {
