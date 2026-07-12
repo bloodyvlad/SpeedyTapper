@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [indexHtml, mainSource, engineSource, musicSource, soundSource, workerSource, stylesSource] = await Promise.all([
+const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSource, workerSource, stylesSource] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/main.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/config.js", import.meta.url), "utf8"),
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
   readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
@@ -15,7 +16,7 @@ const [indexHtml, mainSource, engineSource, musicSource, soundSource, workerSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260712-4");
+  assert.equal(buildId, "20260713-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -39,7 +40,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
   assert.match(
     workerSource,
-    /pathname === MUSIC_ASSET_PATH\)[\s\S]*cacheFirst\(event\.request\)/
+    /MUSIC_ASSET_PATHS\.has\(requestUrl\.pathname\)\)[\s\S]*cacheFirst\(event\.request\)/
   );
   assert.match(
     workerSource,
@@ -189,11 +190,22 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(mainSource, /let musicEnabled = true;/);
   assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
   assert.match(mainSource, /musicStageFor\(snapshot\)/);
-  assert.match(mainSource, /MUSIC_STAGES\.GRID_2/);
-  assert.match(mainSource, /MUSIC_STAGES\.GRID_4/);
-  assert.match(mainSource, /MUSIC_STAGES\.CHALLENGE/);
-  assert.match(mainSource, /finishGame[\s\S]*music\.setStage\(MUSIC_STAGES\.MENU\)/);
-  assert.match(musicSource, /neon-circuit-v1\.m4a/);
+  assert.match(musicSource, /MUSIC_STAGES\.GRID_2/);
+  assert.match(musicSource, /MUSIC_STAGES\.GRID_4/);
+  assert.match(musicSource, /MUSIC_STAGES\.CHALLENGE/);
+  assert.match(mainSource, /finishGame[\s\S]*music\.advanceTrack\(MUSIC_STAGES\.MENU\)/);
+  assert.match(mainSource, /completedSessionId === currentSession/);
+  assert.match(mainSource, /setInterval\([\s\S]*music\.setStage\(musicStageFor\(snapshot\)\)/);
+  assert.match(configSource, /fourByFourPressure:\s*90_000/);
+  assert.match(configSource, /endurance:\s*120_000/);
+  for (const filename of [
+    "neon-circuit-refined.m4a",
+    "deep-current.m4a",
+    "power-grid.m4a"
+  ]) {
+    assert.match(musicSource, new RegExp(filename.replace(".", "\\.")));
+    assert.match(workerSource, new RegExp(`/assets/audio/${filename.replace(".", "\\.")}`));
+  }
   assert.match(musicSource, /createBufferSource\(\)/);
   assert.match(musicSource, /loopStart/);
   assert.match(musicSource, /loopEnd/);
@@ -202,7 +214,7 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(workerSource, /function cacheFirst\(request\)/);
   assert.match(indexHtml, /speedyTapperWorkerReady/);
   assert.match(mainSource, /await globalThis\.speedyTapperWorkerReady/);
-  assert.match(workerSource, /MUSIC_ASSET_PATH = "\/assets\/audio\/neon-circuit-v1\.m4a"/);
+  assert.match(workerSource, /const MUSIC_ASSET_PATHS = new Set\(\[/);
   assert.match(
     mainSource,
     /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(\);/,

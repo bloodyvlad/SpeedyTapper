@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { createMusicController, MUSIC_STAGES } from "../src/music-controller.js";
+import {
+  createMusicController,
+  MUSIC_STAGES,
+  MUSIC_TRACKS,
+  resolveMusicStage
+} from "../src/music-controller.js";
 
 class FakeAudioParam {
   constructor(value = 0) {
@@ -98,7 +103,7 @@ class FakeAudioContext {
   }
 
   decodeAudioData(encoded) {
-    return Promise.resolve({ duration: 39.957, encoded });
+    return Promise.resolve({ duration: 30.172, encoded });
   }
 
   resume() {
@@ -164,12 +169,13 @@ test("disabled music creates no context or network work", async () => {
   });
 
   music.setStage(MUSIC_STAGES.GRID_2);
+  music.advanceTrack();
   assert.equal(await music.unlock(), false);
   assert.equal(FakeAudioContext.instances.length, 0);
   assert.equal(fetchRecorder.calls.length, 0);
 });
 
-test("music loops and crossfades the regions for each game stage", async () => {
+test("music preloads three tracks, loops their regions, and rotates atomically", async () => {
   FakeAudioContext.instances = [];
   const fetchRecorder = createFetchRecorder();
   const music = createMusicController({
@@ -181,31 +187,94 @@ test("music loops and crossfades the regions for each game stage", async () => {
   await flushAsyncWork();
   await music.unlock();
   const context = FakeAudioContext.instances[0];
-  assert.equal(fetchRecorder.calls.length, 1);
-  assert.match(fetchRecorder.calls[0].url, /neon-circuit-v1\.m4a$/);
+  assert.equal(fetchRecorder.calls.length, 3);
+  assert.deepEqual(
+    fetchRecorder.calls.map(({ url }) => url),
+    MUSIC_TRACKS.map(({ file }) => file)
+  );
   assert.equal(context.options.latencyHint, "playback");
 
   const menuSource = context.bufferSources[0];
   assert.equal(menuSource.loop, true);
   assert.equal(menuSource.loopStart, 0);
-  assert.equal(menuSource.loopEnd, 640_000 / 48_000);
+  assert.equal(menuSource.loopEnd, 460_800 / 48_000);
   assert.deepEqual(menuSource.startCalls[0], [5, 0]);
+  assert.match(menuSource.buffer.encoded.url, /neon-circuit-refined\.m4a$/);
 
   music.setStage(MUSIC_STAGES.GRID_2);
   const gridSource = context.bufferSources[1];
-  assert.equal(gridSource.loopStart, 640_000 / 48_000);
-  assert.equal(gridSource.loopEnd, 1_163_636 / 48_000);
-  assert.deepEqual(gridSource.startCalls[0], [5, 640_000 / 48_000]);
+  assert.equal(gridSource.loopStart, 460_800 / 48_000);
+  assert.equal(gridSource.loopEnd, 844_800 / 48_000);
+  assert.deepEqual(gridSource.startCalls[0], [5, 460_800 / 48_000]);
   assert.equal(menuSource.stopCalls.length, 1);
 
   music.setStage(MUSIC_STAGES.GRID_4);
   const fourByFourSource = context.bufferSources[2];
-  assert.equal(fourByFourSource.loopStart, 1_163_636 / 48_000);
+  assert.equal(fourByFourSource.loopStart, 844_800 / 48_000);
 
   music.setStage(MUSIC_STAGES.CHALLENGE);
   const challengeSource = context.bufferSources[3];
-  assert.equal(challengeSource.loopStart, 1_643_636 / 48_000);
-  assert.equal(challengeSource.loopEnd, 1_917_922 / 48_000);
+  assert.equal(challengeSource.loopStart, 1_173_943 / 48_000);
+  assert.equal(challengeSource.loopEnd, 1_448_229 / 48_000);
+
+  assert.equal(music.advanceTrack(MUSIC_STAGES.MENU), "deep-current");
+  const deepCurrentMenu = context.bufferSources[4];
+  assert.equal(deepCurrentMenu.loopStart, 0);
+  assert.match(deepCurrentMenu.buffer.encoded.url, /deep-current\.m4a$/);
+  assert.equal(context.bufferSources.length, 5, "Rotation must create only one new menu voice.");
+
+  assert.equal(music.advanceTrack(MUSIC_STAGES.MENU), "power-grid");
+  assert.match(context.bufferSources[5].buffer.encoded.url, /power-grid\.m4a$/);
+  assert.equal(music.advanceTrack(MUSIC_STAGES.MENU), "neon-circuit-refined");
+  assert.match(context.bufferSources[6].buffer.encoded.url, /neon-circuit-refined\.m4a$/);
+});
+
+test("music stages hold early 4x4 at 120 BPM and reserve overdrive for two minutes", () => {
+  const timing = { fourByFourPressure: 90_000, endurance: 120_000 };
+  const snapshot = (gridDimension, elapsedMs) => ({ difficulty: { gridDimension }, elapsedMs });
+
+  assert.equal(resolveMusicStage(snapshot(1, 0), timing), MUSIC_STAGES.MENU);
+  assert.equal(resolveMusicStage(snapshot(2, 10_000), timing), MUSIC_STAGES.GRID_2);
+  assert.equal(resolveMusicStage(snapshot(4, 89_999), timing), MUSIC_STAGES.GRID_2);
+  assert.equal(resolveMusicStage(snapshot(4, 90_000), timing), MUSIC_STAGES.GRID_4);
+  assert.equal(resolveMusicStage(snapshot(4, 119_999), timing), MUSIC_STAGES.GRID_4);
+  assert.equal(resolveMusicStage(snapshot(4, 120_000), timing), MUSIC_STAGES.CHALLENGE);
+});
+
+test("rotation silences stale gameplay music until a delayed next track is ready", async () => {
+  FakeAudioContext.instances = [];
+  const pending = [];
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl(url) {
+      return new Promise((resolve) => pending.push({ resolve, url }));
+    }
+  });
+
+  music.setEnabled(true);
+  assert.equal(pending.length, 3);
+  pending[0].resolve({
+    ok: true,
+    arrayBuffer: () => Promise.resolve({ url: pending[0].url })
+  });
+  await flushAsyncWork();
+  await music.unlock();
+  music.setStage(MUSIC_STAGES.CHALLENGE);
+  const context = FakeAudioContext.instances[0];
+  const staleChallenge = context.bufferSources[1];
+
+  music.advanceTrack(MUSIC_STAGES.MENU);
+  assert.equal(context.bufferSources.length, 2);
+  assert.equal(staleChallenge.stopCalls.length, 1);
+
+  pending[1].resolve({
+    ok: true,
+    arrayBuffer: () => Promise.resolve({ url: pending[1].url })
+  });
+  await flushAsyncWork();
+  assert.equal(context.bufferSources.length, 3);
+  assert.equal(context.bufferSources[2].loopStart, 0);
+  assert.match(context.bufferSources[2].buffer.encoded.url, /deep-current\.m4a$/);
 });
 
 test("suspending fades active music before the context is paused", async () => {
@@ -292,23 +361,28 @@ test("unlocking during the release fade cancels a stale suspension", async () =>
   assert.equal(context.bufferSources.length, 2);
 });
 
-test("the retained PCM master is silent at every adaptive loop seam", async () => {
-  const wav = await readFile(
-    new URL("../assets/audio/music-previews/01-neon-circuit-clicksafe-v4.wav", import.meta.url)
-  );
-  const dataOffset = wav.indexOf(Buffer.from("data"));
-  assert.ok(dataOffset >= 0, "The music master must contain a PCM data chunk.");
-  const frameData = wav.subarray(dataOffset + 8);
-  const sampleAt = (frame, channel) => frameData.readInt16LE((frame * 2 + channel) * 2) / 32_768;
-  const boundaries = [0, 640_000, 1_163_636, 1_643_636, 1_917_922];
+test("all retained production masters are silent at every adaptive loop seam", async () => {
+  const filenames = ["neon-circuit-refined.wav", "deep-current.wav", "power-grid.wav"];
+  const boundaries = [0, 460_800, 844_800, 1_173_943, 1_448_229];
 
-  for (let index = 0; index < boundaries.length - 1; index += 1) {
-    const start = boundaries[index];
-    const end = boundaries[index + 1];
-    const jump = Math.max(
-      Math.abs(sampleAt(end - 1, 0) - sampleAt(start, 0)),
-      Math.abs(sampleAt(end - 1, 1) - sampleAt(start, 1))
+  for (const filename of filenames) {
+    const wav = await readFile(
+      new URL(`../assets/audio/music-masters/${filename}`, import.meta.url)
     );
-    assert.ok(jump <= 1 / 32_768, `Loop ${index} must have a near-zero PCM boundary.`);
+    const dataOffset = wav.indexOf(Buffer.from("data"));
+    assert.ok(dataOffset >= 0, `${filename} must contain a PCM data chunk.`);
+    const frameData = wav.subarray(dataOffset + 8);
+    const sampleAt = (frame, channel) =>
+      frameData.readInt16LE((frame * 2 + channel) * 2) / 32_768;
+
+    for (let index = 0; index < boundaries.length - 1; index += 1) {
+      const start = boundaries[index];
+      const end = boundaries[index + 1];
+      const jump = Math.max(
+        Math.abs(sampleAt(end - 1, 0) - sampleAt(start, 0)),
+        Math.abs(sampleAt(end - 1, 1) - sampleAt(start, 1))
+      );
+      assert.ok(jump <= 1 / 32_768, `${filename} loop ${index} must be near zero.`);
+    }
   }
 });

@@ -5,17 +5,42 @@ export const MUSIC_STAGES = Object.freeze({
   CHALLENGE: "challenge"
 });
 
-const MUSIC_FILE = "./assets/audio/neon-circuit-v1.m4a";
+export const MUSIC_TRACKS = Object.freeze([
+  Object.freeze({ id: "neon-circuit-refined", file: "./assets/audio/neon-circuit-refined.m4a" }),
+  Object.freeze({ id: "deep-current", file: "./assets/audio/deep-current.m4a" }),
+  Object.freeze({ id: "power-grid", file: "./assets/audio/power-grid.m4a" })
+]);
+
 const MUSIC_GAIN = 0.22;
 const CROSSFADE_SECONDS = 0.12;
 const RELEASE_FADE_SECONDS = 0.06;
 const RELEASE_DELAY_MS = 75;
 const SEGMENTS = Object.freeze({
-  [MUSIC_STAGES.MENU]: Object.freeze({ offset: 0, duration: 640_000 / 48_000 }),
-  [MUSIC_STAGES.GRID_2]: Object.freeze({ offset: 640_000 / 48_000, duration: 523_636 / 48_000 }),
-  [MUSIC_STAGES.GRID_4]: Object.freeze({ offset: 1_163_636 / 48_000, duration: 480_000 / 48_000 }),
-  [MUSIC_STAGES.CHALLENGE]: Object.freeze({ offset: 1_643_636 / 48_000, duration: 274_286 / 48_000 })
+  [MUSIC_STAGES.MENU]: Object.freeze({ offset: 0, duration: 460_800 / 48_000 }),
+  [MUSIC_STAGES.GRID_2]: Object.freeze({ offset: 460_800 / 48_000, duration: 384_000 / 48_000 }),
+  [MUSIC_STAGES.GRID_4]: Object.freeze({ offset: 844_800 / 48_000, duration: 329_143 / 48_000 }),
+  [MUSIC_STAGES.CHALLENGE]: Object.freeze({ offset: 1_173_943 / 48_000, duration: 274_286 / 48_000 })
 });
+
+export function resolveMusicStage(snapshot, stageStartsAtMs) {
+  if (snapshot?.difficulty?.gridDimension === 1) return MUSIC_STAGES.MENU;
+  const elapsedMs = Number.isFinite(snapshot?.elapsedMs) ? snapshot.elapsedMs : 0;
+  const pressureStartsAtMs = stageStartsAtMs?.fourByFourPressure ?? Number.POSITIVE_INFINITY;
+  const enduranceStartsAtMs = stageStartsAtMs?.endurance ?? Number.POSITIVE_INFINITY;
+  if (
+    snapshot?.difficulty?.gridDimension >= 4 &&
+    elapsedMs >= enduranceStartsAtMs
+  ) {
+    return MUSIC_STAGES.CHALLENGE;
+  }
+  if (
+    snapshot?.difficulty?.gridDimension >= 4 &&
+    elapsedMs >= pressureStartsAtMs
+  ) {
+    return MUSIC_STAGES.GRID_4;
+  }
+  return MUSIC_STAGES.GRID_2;
+}
 
 function ignoreFailure(promise) {
   Promise.resolve(promise).catch(() => {});
@@ -30,15 +55,16 @@ export function createMusicController({
   let enabled = false;
   let desiredRunning = false;
   let desiredStage = MUSIC_STAGES.MENU;
+  let desiredTrackIndex = 0;
   let generation = 0;
   let context = null;
   let masterGain = null;
-  let buffer = null;
-  let preparation = null;
-  let loadController = null;
   let currentVoice = null;
   let suspendTimer = null;
   let suspendSequence = 0;
+  const buffers = new Map();
+  const preparations = new Map();
+  const loadControllers = new Map();
   const voices = new Set();
 
   function cleanupVoice(voice) {
@@ -103,20 +129,25 @@ export function createMusicController({
       activeGeneration === generation &&
       activeContext === context &&
       activeContext?.state === "running" &&
-      buffer &&
+      buffers.has(desiredTrackIndex) &&
       masterGain
     );
   }
 
   function startDesiredStage() {
-    if (!canPlay() || currentVoice?.stage === desiredStage) return;
+    if (
+      !canPlay() ||
+      (currentVoice?.stage === desiredStage && currentVoice?.trackIndex === desiredTrackIndex)
+    ) {
+      return;
+    }
     const segment = SEGMENTS[desiredStage];
     if (!segment) return;
 
     const time = context.currentTime;
     const source = context.createBufferSource();
     const gain = context.createGain();
-    source.buffer = buffer;
+    source.buffer = buffers.get(desiredTrackIndex);
     source.loop = true;
     source.loopStart = segment.offset;
     source.loopEnd = segment.offset + segment.duration;
@@ -125,7 +156,7 @@ export function createMusicController({
     source.connect(gain);
     gain.connect(masterGain);
 
-    const voice = { gain, source, stage: desiredStage };
+    const voice = { gain, source, stage: desiredStage, trackIndex: desiredTrackIndex };
     voices.add(voice);
     source.onended = () => cleanupVoice(voice);
     source.start(time, segment.offset);
@@ -143,10 +174,12 @@ export function createMusicController({
     }
   }
 
-  function prepare(activeGeneration, activeContext) {
+  function prepareTrack(trackIndex, activeGeneration, activeContext) {
+    const track = MUSIC_TRACKS[trackIndex];
     if (
-      preparation ||
-      buffer ||
+      !track ||
+      preparations.has(trackIndex) ||
+      buffers.has(trackIndex) ||
       !enabled ||
       activeGeneration !== generation ||
       activeContext !== context ||
@@ -155,9 +188,9 @@ export function createMusicController({
       return;
     }
 
-    loadController = new AbortController();
-    const activeController = loadController;
-    const work = fetchImpl(MUSIC_FILE, { cache: "no-store", signal: activeController.signal })
+    const activeController = new AbortController();
+    loadControllers.set(trackIndex, activeController);
+    const work = fetchImpl(track.file, { cache: "no-store", signal: activeController.signal })
       .then((response) => {
         if (!response?.ok) throw new Error("Unable to load adaptive music.");
         return response.arrayBuffer();
@@ -172,15 +205,23 @@ export function createMusicController({
         ) {
           return;
         }
-        buffer = decodedAudio;
-        startDesiredStage();
+        buffers.set(trackIndex, decodedAudio);
+        if (trackIndex === desiredTrackIndex) startDesiredStage();
       })
       .catch(() => {})
       .finally(() => {
-        if (preparation === work) preparation = null;
-        if (loadController === activeController) loadController = null;
+        if (preparations.get(trackIndex) === work) preparations.delete(trackIndex);
+        if (loadControllers.get(trackIndex) === activeController) {
+          loadControllers.delete(trackIndex);
+        }
       });
-    preparation = work;
+    preparations.set(trackIndex, work);
+  }
+
+  function prepareAll(activeGeneration, activeContext) {
+    for (const trackIndex of MUSIC_TRACKS.keys()) {
+      prepareTrack(trackIndex, activeGeneration, activeContext);
+    }
   }
 
   function ensureContext() {
@@ -199,16 +240,16 @@ export function createMusicController({
         return null;
       }
     }
-    prepare(generation, context);
+    prepareAll(generation, context);
     return context;
   }
 
   function release() {
     cancelPendingSuspend();
-    loadController?.abort();
-    loadController = null;
-    preparation = null;
-    buffer = null;
+    for (const controller of loadControllers.values()) controller.abort();
+    loadControllers.clear();
+    preparations.clear();
+    buffers.clear();
     const closingVoices = [...voices];
     const closingMaster = masterGain;
     const closingContext = context;
@@ -263,6 +304,16 @@ export function createMusicController({
       if (!SEGMENTS[stage] || desiredStage === stage) return;
       desiredStage = stage;
       startDesiredStage();
+    },
+
+    advanceTrack(stage = MUSIC_STAGES.MENU) {
+      if (SEGMENTS[stage]) desiredStage = stage;
+      desiredTrackIndex = (desiredTrackIndex + 1) % MUSIC_TRACKS.length;
+      if (!buffers.has(desiredTrackIndex) && currentVoice) {
+        fadeAndStopVoices(context, [currentVoice]);
+      }
+      startDesiredStage();
+      return MUSIC_TRACKS[desiredTrackIndex].id;
     },
 
     unlock() {

@@ -154,3 +154,16 @@ Decision: Keep music independently switchable from Sound FX and default it on wh
 Consequences: Music stage changes follow engine state rather than duplicate progression rules. Music being enabled does not cause disabled Sound FX assets to be requested, decoded, or cached. The worker must control the page before soundtrack fetching so the first request is retained. Section mastering and runtime boundaries must remain aligned and quiet. Runtime caching, default state, loop boundaries, backgrounding, and interruption behavior require automated tests; physical-iPhone listening remains required before calling an audio release device-validated.
 
 Revisit when: Native packaging changes the audio lifecycle, a production build pipeline emits separate loop assets, or device testing shows that AAC region looping remains unreliable.
+
+## D-012 — Rotate the approved adaptive soundtrack set
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Three original soundtrack variants were approved with the same adaptive structure. The game reaches 4×4 at 40 seconds and reintroduces decoys at 50 seconds, but playtesting favors holding the mid-tempo arrangement longer, adding the mature-pressure arrangement around 1:30, and reserving the fastest arrangement for two-minute runs.
+
+Decision: Promote Neon Circuit Refined, Deep Current, and Power Grid as the production soundtrack set. Each track uses 100 BPM for the menu and 1×1 opening, 120 BPM from 2×2 through early 4×4 play, 140 BPM from 90 seconds elapsed, and 168 BPM from 120 seconds elapsed. Advance through the fixed three-track cycle whenever a completed result screen opens, play the newly selected track's menu region there, and retain it for the following run. This supersedes D-011 only where it specifies one runtime asset; its opt-out, trusted-gesture, Web Audio, crossfade, shutdown, cache, and rollback requirements remain accepted.
+
+Consequences: Musical escalation is intentionally not identical to the 40-second grid and 50-second decoy transitions. Runtime selection uses the engine snapshot's authoritative elapsed time, which currently includes each 1.5-second life-loss recovery. Playtesting must review whether response windows and recovery time create the intended felt pacing. Each runtime AAC is cached only after its first service-worker-controlled request and remains outside the install-time app shell. Retain every approved WAV master and the prior soundtrack for rollback.
+
+Revisit when: Real-run data or physical-iPhone listening shows that the 90-second or 120-second thresholds, recovery-time treatment, track order, decoded-memory cost, or transition behavior should change.

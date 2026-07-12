@@ -45,6 +45,10 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourStartsAtMs: 40_000,
     fourByFourChallengeStartsAtMs: 50_000
   }),
+  musicStageStartsAtMs: Object.freeze({
+    fourByFourPressure: 90_000,
+    endurance: 120_000
+  }),
   responseWindowsMs: Object.freeze({
     comfortable: 1_000,
     gentleMinimum: 750,

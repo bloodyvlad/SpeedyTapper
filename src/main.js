@@ -1,8 +1,12 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260712-4";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260712-4";
-import { createMusicController, MUSIC_STAGES } from "./music-controller.js?v=20260712-4";
-import { createSoundController } from "./sound-controller.js?v=20260712-4";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260712-4";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-1";
+import {
+  createMusicController,
+  MUSIC_STAGES,
+  resolveMusicStage
+} from "./music-controller.js?v=20260713-1";
+import { createSoundController } from "./sound-controller.js?v=20260713-1";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260713-1";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -87,6 +91,7 @@ let feedbackTimer = null;
 let completionTimer = null;
 let progressFrame = null;
 let sessionId = 0;
+let completedSessionId = null;
 let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
@@ -206,11 +211,7 @@ function applyMusic(enabled) {
 }
 
 function musicStageFor(snapshot) {
-  if (snapshot.difficulty.gridDimension === 1) return MUSIC_STAGES.MENU;
-  if (snapshot.difficulty.gridDimension === 2) return MUSIC_STAGES.GRID_2;
-  return snapshot.difficulty.phaseId === "four-by-four-challenge"
-    ? MUSIC_STAGES.CHALLENGE
-    : MUSIC_STAGES.GRID_4;
+  return resolveMusicStage(snapshot, engine.config.musicStageStartsAtMs);
 }
 
 function stopResponseProgress() {
@@ -279,7 +280,11 @@ function startGame(mode) {
   elements.dialogTitle.textContent = "Ready to react?";
   render();
 
-  clockTimer = window.setInterval(() => renderHud(engine.getSnapshot(now())), 100);
+  clockTimer = window.setInterval(() => {
+    const snapshot = engine.getSnapshot(now());
+    renderHud(snapshot);
+    music.setStage(musicStageFor(snapshot));
+  }, 100);
 
   if (mode === GAME_MODES.ZEN) {
     runEndTimer = window.setTimeout(
@@ -390,9 +395,16 @@ function finishZenRun(currentSession) {
 }
 
 function finishGame(snapshot, currentSession) {
-  if (currentSession !== sessionId || !engine.isRunComplete()) return;
+  if (
+    currentSession !== sessionId ||
+    completedSessionId === currentSession ||
+    !engine.isRunComplete()
+  ) {
+    return;
+  }
+  completedSessionId = currentSession;
   clearTimers();
-  music.setStage(MUSIC_STAGES.MENU);
+  music.advanceTrack(MUSIC_STAGES.MENU);
   const isZen = snapshot.mode === GAME_MODES.ZEN;
   elements.dialogTitle.textContent = isZen ? "Minute complete" : "Game Over";
   elements.resultStats.hidden = false;

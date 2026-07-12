@@ -1,7 +1,11 @@
-const BUILD_ID = "20260712-4";
+const BUILD_ID = "20260713-1";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
-const MUSIC_ASSET_PATH = "/assets/audio/neon-circuit-v1.m4a";
+const MUSIC_ASSET_PATHS = new Set([
+  "/assets/audio/neon-circuit-refined.m4a",
+  "/assets/audio/deep-current.m4a",
+  "/assets/audio/power-grid.m4a"
+]);
 const APP_SHELL = [
   "./index.html",
   `./styles.css?v=${BUILD_ID}`,
@@ -75,7 +79,7 @@ self.addEventListener("fetch", (event) => {
 
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin || requestUrl.pathname.startsWith("/api/")) return;
-  if (requestUrl.pathname === MUSIC_ASSET_PATH) {
+  if (MUSIC_ASSET_PATHS.has(requestUrl.pathname)) {
     event.respondWith(cacheFirst(event.request));
     return;
   }
