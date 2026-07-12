@@ -663,8 +663,21 @@ h1 {
 }
 
 .result-content[hidden],
-.main-menu-content[hidden] {
+.main-menu-content[hidden],
+.overlay-view[hidden] {
   display: none;
+}
+
+.overlay-view {
+  display: grid;
+  gap: 12px;
+}
+
+.view-back-button {
+  width: auto;
+  min-height: 44px;
+  padding: 0 16px;
+  justify-self: start;
 }
 
 .result-stats {
@@ -1218,6 +1231,10 @@ h1 {
 .leaderboard-panel {
   margin-top: 9px;
   margin-bottom: 0;
+}
+
+.overlay-view .leaderboard-panel {
+  margin-top: 0;
 }
 
 .leaderboard-tabs {

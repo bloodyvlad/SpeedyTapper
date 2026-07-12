@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [indexHtml, mainSource, engineSource, soundSource, workerSource, stylesSource] = await Promise.all([
+const [indexHtml, mainSource, engineSource, musicSource, soundSource, workerSource, stylesSource] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/main.js", import.meta.url), "utf8"),
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8")
@@ -14,17 +15,21 @@ const [indexHtml, mainSource, engineSource, soundSource, workerSource, stylesSou
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260712-2");
+  assert.equal(buildId, "20260712-4");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
+  assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`main\\.js\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`sw\\.js\\?v=\\$\\{buildId\\}`));
+  assert.match(indexHtml, new RegExp(`const buildId = "${buildId}";`));
   assert.match(mainSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`game-engine\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`leaderboard-model\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`leaderboard-model\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
@@ -34,6 +39,10 @@ test("the complete browser module graph uses one release version", () => {
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
   assert.match(
     workerSource,
+    /pathname === MUSIC_ASSET_PATH\)[\s\S]*cacheFirst\(event\.request\)/
+  );
+  assert.match(
+    workerSource,
     /pathname\.startsWith\("\/assets\/audio\/"\)[\s\S]*fetch\(event\.request, \{ cache: "no-store" \}\)/
   );
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
@@ -41,7 +50,7 @@ test("the complete browser module graph uses one release version", () => {
 
 test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", () => {
   const settingsPanel = indexHtml.match(
-    /<fieldset class="settings-panel" id="settings-panel" hidden>[\s\S]*?<\/fieldset>/
+    /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0] ?? "";
   const soundSetting = settingsPanel.match(
     /<label class="setting-row" for="sound-fx-toggle">[\s\S]*?<\/label>/
@@ -52,7 +61,7 @@ test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", ()
   assert.match(soundSetting, />\s*Beta\s*</i);
   assert.match(soundToggle, /role="switch"/);
   assert.doesNotMatch(soundToggle, /\bchecked\b/);
-  assert.match(indexHtml, /id="settings-current">Classic · Sound off</);
+  assert.match(indexHtml, /id="settings-current">Classic · FX off · Music on</);
   assert.match(mainSource, /speedytapper\.soundFx\.v1/);
   assert.match(mainSource, /let soundFxEnabled = false;/);
   assert.match(mainSource, /soundFxEnabled = storedSoundFx === "on";/);
@@ -108,11 +117,14 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /id="score-form"/);
   assert.match(indexHtml, /id="player-name"/);
   assert.doesNotMatch(indexHtml, /id="themes-toggle"|id="themes-panel"/);
-  assert.match(indexHtml, /id="settings-toggle"[^>]+aria-controls="settings-panel"/s);
-  assert.match(indexHtml, /id="settings-panel" hidden/);
+  assert.match(indexHtml, /id="settings-toggle"[^>]+aria-controls="settings-view"/s);
+  assert.match(indexHtml, /id="settings-view" hidden/);
+  assert.match(indexHtml, /id="settings-back-button"[^>]*>← Back</);
+  assert.match(indexHtml, /id="leaderboard-view" hidden/);
+  assert.match(indexHtml, /id="leaderboard-back-button"[^>]*>← Back</);
 
   const settingsPanel = indexHtml.match(
-    /<fieldset class="settings-panel" id="settings-panel" hidden>[\s\S]*?<\/fieldset>/
+    /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0];
   assert.ok(settingsPanel, "Settings panel must be present.");
   assert.match(settingsPanel, /name="theme" value="classic" checked/);
@@ -129,6 +141,9 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(mainSource, /settingsToggle/);
   assert.match(mainSource, /settingsPanel/);
   assert.match(mainSource, /settingsCurrent/);
+  assert.match(mainSource, /function showMenuView\(/);
+  assert.match(mainSource, /settingsBackButton\.addEventListener\("click"/);
+  assert.match(mainSource, /leaderboardBackButton\.addEventListener\("click"/);
   assert.match(settingsPanel, /role="radiogroup" aria-labelledby="theme-setting-label"/);
   assert.match(settingsPanel, /id="theme-setting-label">Theme</);
   assert.match(mainSource, /glyph\.textContent = colorBlindMode \? color\.glyph : ""/);
@@ -160,6 +175,39 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   );
   assert.match(stylesSource, /data-glyphs="off"[^}]+theme-preview__glyph/s);
   assert.doesNotMatch(mainSource, /PLAYER_NAME_KEY|PROFILE_SCORE_PREFIX|Profile best|My best/);
+});
+
+test("Music is an adaptive Web Audio soundtrack with an independent setting", () => {
+  const musicSetting = indexHtml.match(
+    /<label class="setting-row" for="music-toggle">[\s\S]*?<\/label>/
+  )?.[0] ?? "";
+  assert.match(musicSetting, />Music</);
+  assert.match(musicSetting, /Adaptive soundtrack/);
+  assert.match(musicSetting, /id="music-toggle"[^>]+role="switch"/);
+  assert.match(musicSetting, /\bchecked\b/);
+  assert.match(mainSource, /speedytapper\.music\.v1/);
+  assert.match(mainSource, /let musicEnabled = true;/);
+  assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
+  assert.match(mainSource, /musicStageFor\(snapshot\)/);
+  assert.match(mainSource, /MUSIC_STAGES\.GRID_2/);
+  assert.match(mainSource, /MUSIC_STAGES\.GRID_4/);
+  assert.match(mainSource, /MUSIC_STAGES\.CHALLENGE/);
+  assert.match(mainSource, /finishGame[\s\S]*music\.setStage\(MUSIC_STAGES\.MENU\)/);
+  assert.match(musicSource, /neon-circuit-v1\.m4a/);
+  assert.match(musicSource, /createBufferSource\(\)/);
+  assert.match(musicSource, /loopStart/);
+  assert.match(musicSource, /loopEnd/);
+  assert.match(musicSource, /linearRampToValueAtTime/);
+  assert.match(musicSource, /latencyHint:\s*"playback"/);
+  assert.match(workerSource, /function cacheFirst\(request\)/);
+  assert.match(indexHtml, /speedyTapperWorkerReady/);
+  assert.match(mainSource, /await globalThis\.speedyTapperWorkerReady/);
+  assert.match(workerSource, /MUSIC_ASSET_PATH = "\/assets\/audio\/neon-circuit-v1\.m4a"/);
+  assert.match(
+    mainSource,
+    /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(\);/,
+    "Switching leaderboard tabs must not reset focus or scroll by reopening the view."
+  );
 });
 
 test("the leaderboard form remembers only the last validated name", () => {

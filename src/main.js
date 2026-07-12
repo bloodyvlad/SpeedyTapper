@@ -1,13 +1,15 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260712-2";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260712-2";
-import { createSoundController } from "./sound-controller.js?v=20260712-2";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260712-2";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260712-4";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260712-4";
+import { createMusicController, MUSIC_STAGES } from "./music-controller.js?v=20260712-4";
+import { createSoundController } from "./sound-controller.js?v=20260712-4";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260712-4";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
+const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
 const REMEMBERED_NAME_STORAGE_KEY = "speedytapper.leaderboardName.v1";
 
 const elements = {
@@ -27,14 +29,17 @@ const elements = {
   highScore: document.querySelector("#high-score"),
   installButton: document.querySelector("#install-button"),
   leaderboardList: document.querySelector("#leaderboard-list"),
+  leaderboardBackButton: document.querySelector("#leaderboard-back-button"),
   leaderboardPanel: document.querySelector("#leaderboard-panel"),
   leaderboardStatus: document.querySelector("#leaderboard-status"),
   leaderboardTabs: [...document.querySelectorAll("[data-leaderboard-mode]")],
   leaderboardToggle: document.querySelector("#leaderboard-toggle"),
+  leaderboardView: document.querySelector("#leaderboard-view"),
   mainMenuButton: document.querySelector("#main-menu-button"),
   mainMenuContent: document.querySelector("#main-menu-content"),
   modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
+  musicToggle: document.querySelector("#music-toggle"),
   normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
   playerName: document.querySelector("#player-name"),
@@ -53,8 +58,10 @@ const elements = {
   scoreStatus: document.querySelector("#score-status"),
   scoreSubmit: document.querySelector("#score-submit"),
   settingsCurrent: document.querySelector("#settings-current"),
+  settingsBackButton: document.querySelector("#settings-back-button"),
   settingsPanel: document.querySelector("#settings-panel"),
   settingsToggle: document.querySelector("#settings-toggle"),
+  settingsView: document.querySelector("#settings-view"),
   soundFxToggle: document.querySelector("#sound-fx-toggle"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
@@ -87,8 +94,15 @@ let leaderboardRequestId = 0;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = false;
+let musicEnabled = true;
 
 const sound = createSoundController();
+const music = createMusicController({
+  fetchImpl: async (...args) => {
+    await globalThis.speedyTapperWorkerReady;
+    return globalThis.fetch(...args);
+  }
+});
 
 function now() {
   return performance.now();
@@ -136,9 +150,10 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  elements.settingsCurrent.textContent = `${themeName} · Sound ${soundFxEnabled ? "on" : "off"}`;
+  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicEnabled ? "on" : "off"}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
+  elements.musicToggle.checked = musicEnabled;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
     input.checked = input.value === activeTheme;
@@ -153,6 +168,10 @@ function initializeDisplaySettings() {
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
   soundFxEnabled = storedSoundFx === "on";
   sound.setEnabled(soundFxEnabled);
+  const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
+  musicEnabled = storedMusic !== "off";
+  music.setEnabled(musicEnabled);
+  music.setStage(MUSIC_STAGES.MENU);
   renderDisplaySettings();
 }
 
@@ -176,6 +195,22 @@ function applySoundFx(enabled) {
   sound.setEnabled(soundFxEnabled);
   renderDisplaySettings();
   writeStoredPreference(SOUND_FX_STORAGE_KEY, soundFxEnabled ? "on" : "off");
+}
+
+function applyMusic(enabled) {
+  musicEnabled = Boolean(enabled);
+  music.setEnabled(musicEnabled);
+  music.setStage(MUSIC_STAGES.MENU);
+  renderDisplaySettings();
+  writeStoredPreference(MUSIC_STORAGE_KEY, musicEnabled ? "on" : "off");
+}
+
+function musicStageFor(snapshot) {
+  if (snapshot.difficulty.gridDimension === 1) return MUSIC_STAGES.MENU;
+  if (snapshot.difficulty.gridDimension === 2) return MUSIC_STAGES.GRID_2;
+  return snapshot.difficulty.phaseId === "four-by-four-challenge"
+    ? MUSIC_STAGES.CHALLENGE
+    : MUSIC_STAGES.GRID_4;
 }
 
 function stopResponseProgress() {
@@ -231,6 +266,8 @@ function clearTimers() {
 function startGame(mode) {
   clearTimers();
   void sound.startRun();
+  music.setStage(MUSIC_STAGES.MENU);
+  void music.unlock();
   void refreshTopScore(mode);
   const currentSession = sessionId + 1;
   sessionId = currentSession;
@@ -262,6 +299,7 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
     if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) return;
     const result = engine.activateRound(now());
     if (result.type !== "round-active") return;
+    music.setStage(musicStageFor(result.snapshot));
     sound.tileOn();
     render();
     startResponseProgress(currentSession);
@@ -305,6 +343,7 @@ function handleTileTap(event) {
   stopResponseProgress();
 
   if (result.type === "hit") {
+    music.setStage(musicStageFor(result.snapshot));
     showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
     render();
     scheduleRound(sessionId);
@@ -353,6 +392,7 @@ function finishZenRun(currentSession) {
 function finishGame(snapshot, currentSession) {
   if (currentSession !== sessionId || !engine.isRunComplete()) return;
   clearTimers();
+  music.setStage(MUSIC_STAGES.MENU);
   const isZen = snapshot.mode === GAME_MODES.ZEN;
   elements.dialogTitle.textContent = isZen ? "Minute complete" : "Game Over";
   elements.resultStats.hidden = false;
@@ -442,6 +482,8 @@ function renderResultMessage(result) {
 
 function showMainMenu() {
   clearTimers();
+  music.setStage(MUSIC_STAGES.MENU);
+  void music.unlock();
   sessionId += 1;
   engine.reset();
   resetResultUi();
@@ -479,35 +521,48 @@ function selectLeaderboardMode(mode) {
   }
 }
 
+function showMenuView(focusTarget = null) {
+  closeSettings();
+  closeLeaderboard();
+  elements.resultContent.hidden = true;
+  elements.mainMenuContent.hidden = false;
+  elements.dialogTitle.textContent = "Ready to react?";
+  elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
+  elements.dialog.scrollTop = 0;
+  focusTarget?.focus({ preventScroll: true });
+}
+
 function openSettings() {
   closeLeaderboard();
-  elements.settingsPanel.hidden = false;
-  elements.settingsToggle.setAttribute("aria-expanded", "true");
-  window.requestAnimationFrame(() => {
-    elements.settingsPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.settingsView.hidden = false;
+  elements.dialogTitle.textContent = "Settings";
+  elements.dialogMessage.textContent = "Choose how SpeedyTapper looks and sounds.";
+  elements.dialog.scrollTop = 0;
+  void music.unlock();
+  elements.settingsBackButton.focus({ preventScroll: true });
 }
 
 function closeSettings() {
-  elements.settingsPanel.hidden = true;
-  elements.settingsToggle.setAttribute("aria-expanded", "false");
+  elements.settingsView.hidden = true;
 }
 
 function openLeaderboard() {
   closeSettings();
-  elements.leaderboardPanel.hidden = false;
-  elements.leaderboardToggle.setAttribute("aria-expanded", "true");
-  elements.leaderboardToggle.textContent = "Close board";
-  window.requestAnimationFrame(() => {
-    elements.leaderboardPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.leaderboardView.hidden = false;
+  elements.dialogTitle.textContent = "Leaderboard";
+  elements.dialogMessage.textContent = "Compare the best Normal and Zen runs.";
+  elements.dialog.scrollTop = 0;
+  void music.unlock();
+  elements.leaderboardBackButton.focus({ preventScroll: true });
 }
 
 function closeLeaderboard() {
   leaderboardRequestId += 1;
-  elements.leaderboardPanel.hidden = true;
-  elements.leaderboardToggle.setAttribute("aria-expanded", "false");
-  elements.leaderboardToggle.textContent = "Leaderboard";
+  elements.leaderboardView.hidden = true;
 }
 
 function renderLeaderboard(entries, mode) {
@@ -593,7 +648,7 @@ async function refreshTopScore(mode) {
 
 async function loadLeaderboard(mode = leaderboardMode) {
   selectLeaderboardMode(mode);
-  openLeaderboard();
+  if (elements.leaderboardView.hidden) openLeaderboard();
   const requestId = leaderboardRequestId + 1;
   leaderboardRequestId = requestId;
   const topScoreRevision = topScoreRevisions[mode] + 1;
@@ -779,10 +834,13 @@ function pauseForVisibilityChange() {
   if (!document.hidden) return;
   if (engine.state === GAME_STATES.IDLE || engine.state === GAME_STATES.GAME_OVER) {
     sound.suspend();
+    music.suspend();
     return;
   }
   clearTimers();
   sound.suspend();
+  music.setStage(MUSIC_STAGES.MENU);
+  music.suspend();
   sessionId += 1;
   resetResultUi();
   elements.dialogTitle.textContent = "Run paused";
@@ -811,13 +869,8 @@ elements.gameMenuButton.addEventListener("click", showMainMenu);
 elements.resultRestartButton.addEventListener("click", restartCurrentMode);
 elements.mainMenuButton.addEventListener("click", showMainMenu);
 elements.scoreForm.addEventListener("submit", submitScore);
-elements.settingsToggle.addEventListener("click", () => {
-  if (elements.settingsPanel.hidden) {
-    openSettings();
-  } else {
-    closeSettings();
-  }
-});
+elements.settingsToggle.addEventListener("click", openSettings);
+elements.settingsBackButton.addEventListener("click", () => showMenuView(elements.settingsToggle));
 for (const input of elements.themeInputs) {
   input.addEventListener("change", () => {
     if (input.checked) applyTheme(input.value);
@@ -830,18 +883,25 @@ elements.soundFxToggle.addEventListener("change", () => {
   applySoundFx(elements.soundFxToggle.checked);
   if (elements.soundFxToggle.checked) void sound.unlock();
 });
-elements.leaderboardToggle.addEventListener("click", () => {
-  if (elements.leaderboardPanel.hidden) {
-    loadLeaderboard(leaderboardMode);
-  } else {
-    closeLeaderboard();
-  }
+elements.musicToggle.addEventListener("change", () => {
+  applyMusic(elements.musicToggle.checked);
+  if (elements.musicToggle.checked) void music.unlock();
+});
+elements.leaderboardToggle.addEventListener("click", () => loadLeaderboard(leaderboardMode));
+elements.leaderboardBackButton.addEventListener("click", () => {
+  showMenuView(elements.leaderboardToggle);
 });
 for (const tab of elements.leaderboardTabs) {
   tab.addEventListener("click", () => loadLeaderboard(tab.dataset.leaderboardMode));
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
-window.addEventListener("pagehide", () => sound.suspend());
+document.addEventListener("pointerdown", () => {
+  if (musicEnabled) void music.unlock();
+}, { capture: true });
+window.addEventListener("pagehide", () => {
+  sound.suspend();
+  music.suspend();
+});
 
 initializeDisplaySettings();
 engine.reset();

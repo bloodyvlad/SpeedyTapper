@@ -3,6 +3,9 @@
 .data
 .env*
 README.md
+AGENTS.md
 design-qa.md
+docs
 scripts
 test
+assets/audio/music-previews

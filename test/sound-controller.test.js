@@ -6,7 +6,7 @@ import { createSoundController } from "../src/sound-controller.js";
 
 const SOUND_URLS = [
   "./assets/audio/fluorescent-hum.wav",
-  "./assets/audio/oops.mp3"
+  "./assets/audio/oops.wav"
 ];
 
 class FakeAudioParam {
@@ -140,7 +140,7 @@ class FakeAudioContext {
   decodeAudioData(arrayBuffer) {
     this.decodeCalls.push(arrayBuffer);
     return Promise.resolve({
-      duration: arrayBuffer.url.endsWith("oops.mp3") ? 0.55 : 2,
+      duration: arrayBuffer.url.endsWith("oops.wav") ? 0.62 : 2,
       id: arrayBuffer.url
     });
   }
@@ -246,6 +246,25 @@ test("the PCM hum asset has a click-safe loop seam", async () => {
     Math.abs(lastSample - firstSample) <= 512,
     `The hum loop edge is too large: ${lastSample} → ${firstSample}.`
   );
+});
+
+test("the PCM life-loss cue starts and ends at exact zero", async () => {
+  const wav = await readFile(new URL("../assets/audio/oops.wav", import.meta.url));
+  let offset = 12;
+  let audioData = null;
+  while (offset + 8 <= wav.length) {
+    const chunkId = wav.toString("ascii", offset, offset + 4);
+    const chunkSize = wav.readUInt32LE(offset + 4);
+    if (chunkId === "data") {
+      audioData = wav.subarray(offset + 8, offset + 8 + chunkSize);
+      break;
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+
+  assert.ok(audioData && audioData.length >= 4, "The oops WAV must contain 16-bit PCM data.");
+  assert.equal(audioData.readInt16LE(0), 0);
+  assert.equal(audioData.readInt16LE(audioData.length - 2), 0);
 });
 
 test("the controller is Web Audio based and contains no browser sniffing or media-element seeking", async () => {
@@ -599,7 +618,7 @@ test("life-loss cues cannot overlap and clip the output", async () => {
 
   let oneShots = context.bufferSources.filter((source) => !source.loop);
   assert.equal(oneShots.length, 1, "Rapid misses must not stack multiple loud cues.");
-  assert.ok(oneShots[0].buffer?.id.endsWith("oops.mp3"));
+  assert.ok(oneShots[0].buffer?.id.endsWith("oops.wav"));
   assert.equal(oneShots[0].startCalls.length, 1);
   const oneShotGain = oneShots[0].connections.find((node) => node instanceof FakeGainNode);
   assert.equal(oneShotGain.gain.events[0]?.value, 0);
@@ -620,20 +639,20 @@ test("starting a new run fades and stops a stale failure cue", async () => {
 
   sound.lifeLost();
   const oneShot = context.bufferSources.find((source) => !source.loop);
-  context.currentTime = 4.544;
+  context.currentTime = 4.614;
   await sound.startRun();
 
   assert.equal(oneShot.stopCalls.length, 1);
-  assert.ok(oneShot.stopCalls[0] > 4.556 && oneShot.stopCalls[0] <= 4.559);
+  assert.ok(oneShot.stopCalls[0] > 4.626 && oneShot.stopCalls[0] <= 4.629);
   const oneShotGain = oneShot.connections.find((node) => node instanceof FakeGainNode);
   const fadeTarget = oneShotGain.gain.events.findLast(
     (event) => event.method === "setTargetAtTime" && event.value === 0
   );
   const heldReleaseGain = oneShotGain.gain.events.findLast(
-    (event) => event.method === "setValueAtTime" && event.time === 4.544
+    (event) => event.method === "setValueAtTime" && event.time === 4.614
   );
   const settledZero = oneShotGain.gain.events.findLast(
-    (event) => event.method === "setValueAtTime" && event.value === 0 && event.time > 4.544
+    (event) => event.method === "setValueAtTime" && event.value === 0 && event.time > 4.614
   );
   assert.ok(fadeTarget);
   assert.ok(

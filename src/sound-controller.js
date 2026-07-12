@@ -1,6 +1,6 @@
 const SOUND_FILES = Object.freeze({
   hum: "./assets/audio/fluorescent-hum.wav",
-  oops: "./assets/audio/oops.mp3"
+  oops: "./assets/audio/oops.wav"
 });
 
 const HUM_GAIN = 0.3;

@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260712-2" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260712-4" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260712-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260712-4" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -184,78 +184,91 @@
               class="secondary-button settings-toggle"
               id="settings-toggle"
               type="button"
-              aria-expanded="false"
-              aria-controls="settings-panel"
+              aria-controls="settings-view"
             >
               <span>Settings</span>
-              <span class="settings-toggle__value" id="settings-current">Classic · Sound off</span>
+              <span class="settings-toggle__value" id="settings-current">Classic · FX off · Music on</span>
             </button>
-            <fieldset class="settings-panel" id="settings-panel" hidden>
-              <legend class="visually-hidden">Settings</legend>
-              <div class="settings-section" role="radiogroup" aria-labelledby="theme-setting-label">
-                <span class="settings-section__label" id="theme-setting-label">Theme</span>
-                <div class="theme-options">
-                  <label class="theme-choice">
-                    <input class="theme-choice__input" type="radio" name="theme" value="classic" checked />
-                    <span class="theme-choice__surface">
-                      <span class="theme-preview" data-theme-preview="classic" aria-hidden="true">
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
-                      </span>
-                      <strong>Classic</strong>
-                    </span>
-                  </label>
-                  <label class="theme-choice">
-                    <input class="theme-choice__input" type="radio" name="theme" value="disco" />
-                    <span class="theme-choice__surface">
-                      <span class="theme-preview" data-theme-preview="disco" aria-hidden="true">
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
-                        <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
-                      </span>
-                      <strong>Disco</strong>
-                    </span>
-                  </label>
-                </div>
-              </div>
-              <div class="settings-switches">
-                <label class="setting-row" for="color-blind-toggle">
-                  <span class="setting-row__copy">
-                    <strong>Color-blind mode</strong>
-                    <small>Show shapes on tiles</small>
-                  </span>
-                  <input class="setting-toggle" id="color-blind-toggle" type="checkbox" role="switch" checked />
-                </label>
-                <label class="setting-row" for="sound-fx-toggle">
-                  <span class="setting-row__copy">
-                    <strong class="setting-row__title">
-                      <span>Sound FX</span>
-                      <span class="setting-badge">Beta</span>
-                    </strong>
-                    <small>Preloaded low-latency sounds</small>
-                  </span>
-                  <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" />
-                </label>
-              </div>
-            </fieldset>
             <button
               class="secondary-button leaderboard-toggle"
               id="leaderboard-toggle"
               type="button"
-              aria-expanded="false"
-              aria-controls="leaderboard-panel"
+              aria-controls="leaderboard-view"
             >
               Leaderboard
             </button>
           </div>
-          <section class="leaderboard-panel" id="leaderboard-panel" hidden>
+          <button class="install-button" id="install-button" type="button" hidden>Install app</button>
+          <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
+        </div>
+        <div class="overlay-view" id="settings-view" hidden>
+          <button class="secondary-button view-back-button" id="settings-back-button" type="button">← Back</button>
+          <fieldset class="settings-panel" id="settings-panel">
+            <legend class="visually-hidden">Settings</legend>
+            <div class="settings-section" role="radiogroup" aria-labelledby="theme-setting-label">
+              <span class="settings-section__label" id="theme-setting-label">Theme</span>
+              <div class="theme-options">
+                <label class="theme-choice">
+                  <input class="theme-choice__input" type="radio" name="theme" value="classic" checked />
+                  <span class="theme-choice__surface">
+                    <span class="theme-preview" data-theme-preview="classic" aria-hidden="true">
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
+                    </span>
+                    <strong>Classic</strong>
+                  </span>
+                </label>
+                <label class="theme-choice">
+                  <input class="theme-choice__input" type="radio" name="theme" value="disco" />
+                  <span class="theme-choice__surface">
+                    <span class="theme-preview" data-theme-preview="disco" aria-hidden="true">
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
+                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
+                    </span>
+                    <strong>Disco</strong>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-switches">
+              <label class="setting-row" for="color-blind-toggle">
+                <span class="setting-row__copy">
+                  <strong>Color-blind mode</strong>
+                  <small>Show shapes on tiles</small>
+                </span>
+                <input class="setting-toggle" id="color-blind-toggle" type="checkbox" role="switch" checked />
+              </label>
+              <label class="setting-row" for="sound-fx-toggle">
+                <span class="setting-row__copy">
+                  <strong class="setting-row__title">
+                    <span>Sound FX</span>
+                    <span class="setting-badge">Beta</span>
+                  </strong>
+                  <small>Low-latency tile and life-loss sounds</small>
+                </span>
+                <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" />
+              </label>
+              <label class="setting-row" for="music-toggle">
+                <span class="setting-row__copy">
+                  <strong>Music</strong>
+                  <small>Adaptive soundtrack that builds with difficulty</small>
+                </span>
+                <input class="setting-toggle" id="music-toggle" type="checkbox" role="switch" checked />
+              </label>
+            </div>
+          </fieldset>
+        </div>
+        <div class="overlay-view" id="leaderboard-view" hidden>
+          <button class="secondary-button view-back-button" id="leaderboard-back-button" type="button">← Back</button>
+          <section class="leaderboard-panel" id="leaderboard-panel">
             <div class="section-heading">
               <h2>Leaderboard</h2>
               <span>Best scores</span>
@@ -268,19 +281,38 @@
             <ol class="leaderboard-list" id="leaderboard-list"></ol>
             <p class="leaderboard-note">Scores are not anti-cheat verified yet.</p>
           </section>
-          <button class="install-button" id="install-button" type="button" hidden>Install app</button>
-          <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
         </div>
       </section>
     </div>
 
     <script>
       (() => {
-        const buildId = "20260712-2";
+        const buildId = "20260712-4";
+        window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
         const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
         let refreshing = false;
+        const hasCurrentWorker = () => {
+          const scriptUrl = navigator.serviceWorker.controller?.scriptURL;
+          if (!scriptUrl) return false;
+          try {
+            return new URL(scriptUrl).searchParams.get("v") === buildId;
+          } catch {
+            return false;
+          }
+        };
+        const waitForCurrentWorker = () => {
+          if (hasCurrentWorker()) return Promise.resolve(true);
+          return new Promise((resolve) => {
+            const handleControllerChange = () => {
+              if (!hasCurrentWorker()) return;
+              navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
+              resolve(true);
+            };
+            navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
+          });
+        };
         navigator.serviceWorker.addEventListener("controllerchange", () => {
           if (!replaceExistingWorker || refreshing) return;
           const reloadKey = `speedytapper-worker-reload-${buildId}`;
@@ -294,18 +326,21 @@
           window.location.reload();
         });
 
-        window.addEventListener("load", async () => {
+        window.speedyTapperWorkerReady = (async () => {
           try {
             const registration = await navigator.serviceWorker.register(`./sw.js?v=${buildId}`, {
               updateViaCache: "none"
             });
             await registration.update();
+            await navigator.serviceWorker.ready;
+            return waitForCurrentWorker();
           } catch {
             // The online game remains playable if installation support is unavailable.
+            return false;
           }
-        });
+        })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260712-2"></script>
+    <script type="module" src="./src/main.js?v=20260712-4"></script>
   </body>
 </html>

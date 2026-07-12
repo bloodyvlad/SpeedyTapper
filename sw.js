@@ -1,12 +1,14 @@
-const BUILD_ID = "20260712-2";
+const BUILD_ID = "20260712-4";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
+const MUSIC_ASSET_PATH = "/assets/audio/neon-circuit-v1.m4a";
 const APP_SHELL = [
   "./index.html",
   `./styles.css?v=${BUILD_ID}`,
   `./manifest.webmanifest?v=${BUILD_ID}`,
   `./src/config.js?v=${BUILD_ID}`,
   `./src/game-engine.js?v=${BUILD_ID}`,
+  `./src/music-controller.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
   `./src/sound-controller.js?v=${BUILD_ID}`,
   `./lib/leaderboard-model.js?v=${BUILD_ID}`,
@@ -58,11 +60,25 @@ async function networkFirst(request) {
   }
 }
 
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  const response = await fetch(request, { cache: "no-store" });
+  if (response.ok) await cache.put(request, response.clone());
+  return response;
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin || requestUrl.pathname.startsWith("/api/")) return;
+  if (requestUrl.pathname === MUSIC_ASSET_PATH) {
+    event.respondWith(cacheFirst(event.request));
+    return;
+  }
   if (requestUrl.pathname.startsWith("/assets/audio/")) {
     event.respondWith(fetch(event.request, { cache: "no-store" }));
     return;
