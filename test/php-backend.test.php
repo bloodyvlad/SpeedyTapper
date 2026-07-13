@@ -156,9 +156,9 @@ $throwsApi(
         'averageReactionMs' => 100,
         'speedRatings' => ['godlike' => 1, 'perfect' => 0, 'great' => 0, 'good' => 5],
     ]),
-    'Maximum multiplier cannot exceed the milestone allowed by elite taps.',
+    'Maximum multiplier cannot exceed the milestone allowed by qualifying taps.',
 );
-$goodAtMultiplierRun = ScoreSubmission::fromArray([
+$greatUnlockedGoodAtMultiplierRun = ScoreSubmission::fromArray([
         'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0461',
         'mode' => 'normal',
         'score' => 7_000,
@@ -170,15 +170,16 @@ $goodAtMultiplierRun = ScoreSubmission::fromArray([
         'hits' => 6,
         'dodges' => 0,
         'survivalMs' => 10_000,
-        'fastestReactionMs' => 100,
-        'averageReactionMs' => 400,
-        'speedRatings' => ['godlike' => 5, 'perfect' => 0, 'great' => 0, 'good' => 1],
+        'fastestReactionMs' => 350,
+        'averageReactionMs' => 367,
+        'speedRatings' => ['godlike' => 0, 'perfect' => 0, 'great' => 5, 'good' => 1],
     ]);
 $assert(
-    $goodAtMultiplierRun->goodCount === 1
-        && $goodAtMultiplierRun->multiplierTwoHits === 1
-        && $goodAtMultiplierRun->multiplierBonusPoints === 1_000,
-    'Good reactions preserve and use the multiplier unlocked by five elite taps.',
+    $greatUnlockedGoodAtMultiplierRun->greatCount === 5
+        && $greatUnlockedGoodAtMultiplierRun->goodCount === 1
+        && $greatUnlockedGoodAtMultiplierRun->multiplierTwoHits === 1
+        && $greatUnlockedGoodAtMultiplierRun->multiplierBonusPoints === 1_000,
+    'Five Great reactions unlock a multiplier that a later Good reaction can preserve and use.',
 );
 
 $maxMultiplierRun = ScoreSubmission::fromArray([
@@ -275,7 +276,7 @@ foreach ($milestoneRuns as $hitCount => $milestone) {
     ]);
     $assert(
         $run->maxMultiplier === $milestone['maxMultiplier'],
-        'A run ending on elite hit ' . $hitCount . ' reports the highest multiplier used, not the next unlocked tier.',
+        'A run ending on qualifying hit ' . $hitCount . ' reports the highest multiplier used, not the next unlocked tier.',
     );
 }
 

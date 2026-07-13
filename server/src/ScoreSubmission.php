@@ -143,7 +143,7 @@ final readonly class ScoreSubmission
                 throw new ApiException(400, 'Multiplier hit counts skip a required milestone.');
             }
         }
-        if ($godlike + $perfect < 5 * ($maxMultiplier - 1)) {
+        if ($godlike + $perfect + $great < 5 * ($maxMultiplier - 1)) {
             throw new ApiException(400, 'Maximum multiplier does not match the speed ratings.');
         }
         $fastest = self::nullableInteger($input['fastestReactionMs'] ?? null, 'Fastest reaction', self::MAX_REACTION_MS);

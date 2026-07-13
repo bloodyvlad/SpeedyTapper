@@ -351,3 +351,16 @@ Decision: Classify the same rounded reaction value as Godlike below 250 ms, Perf
 Consequences: More correct taps retain earned multiplier progress, ratings better match current phone playtests, and decoys remain independent without clustering into unreadable bursts. Scores produced under these rules are not directly comparable with older rows; production deployment needs an explicit leaderboard-retention or reset decision because this change does not itself authorize data deletion.
 
 Revisit when: Telemetry or playtesting supports different bands, Good should advance rather than preserve, a 300 ms decoy gap feels sparse, the meter competes with the board on small screens, or leaderboard continuity is resolved another way.
+
+## D-027 — Let Great reactions advance the speed streak
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Playtesting at an active multiplier showed that Great reactions left the visible streak fill unchanged. Although this matched D-026, it looked like an intermittent meter failure because Great is presented as a successful fast rating beside Godlike and Perfect.
+
+Decision: Godlike, Perfect, and Great reactions each advance the five-step streak meter. Good reactions remain neutral: they score with and preserve the current progress and multiplier, but do not advance it. Mistakes still reset the meter and multiplier, and decoy dodges remain neutral and unmultiplied. The PHP submission boundary counts all three advancing ratings when validating whether a reported multiplier milestone is possible. This supersedes D-026 only where that decision excluded Great from streak advancement.
+
+Consequences: The visible meter now responds to every reaction rated Great or better, matching player expectations. Scores under this rule can rise faster than under D-026 and are therefore not directly comparable with earlier leaderboard rows; this decision does not authorize clearing production data.
+
+Revisit when: Playtesting indicates that Great makes multipliers too easy to sustain, Good should advance, the five-hit milestone needs adjustment, or leaderboard comparability requires a formal season boundary.

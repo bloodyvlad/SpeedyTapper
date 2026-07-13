@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-10";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-11";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -519,7 +519,8 @@ export class GameEngine {
     const multiplierBeforeAdvance = this.multiplier;
     if (
       speedRating.id === SPEED_RATING_IDS.GODLIKE ||
-      speedRating.id === SPEED_RATING_IDS.PERFECT
+      speedRating.id === SPEED_RATING_IDS.PERFECT ||
+      speedRating.id === SPEED_RATING_IDS.GREAT
     ) {
       this.#advanceStreak();
     }

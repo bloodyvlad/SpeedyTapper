@@ -414,13 +414,14 @@ test("correct taps retain per-run speed rating counts with reaction statistics",
   assert.equal(finalHit.displayedReactionMs, 450);
 });
 
-test("five Godlike or Perfect taps unlock the next multiplier for the following hit", () => {
+test("five Godlike, Perfect, or Great taps unlock the next multiplier for the following hit", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
   let thresholdHit;
-  for (let hit = 0; hit < 5; hit += 1) {
-    thresholdHit = hitRound(engine, 100 + hit * 1_000, 150);
+  const qualifyingReactions = [150, 250, 350, 150, 350];
+  for (let hit = 0; hit < qualifyingReactions.length; hit += 1) {
+    thresholdHit = hitRound(engine, 100 + hit * 1_000, qualifyingReactions[hit]);
   }
 
   assert.equal(thresholdHit.multiplierUsed, 1);
@@ -441,23 +442,24 @@ test("five Godlike or Perfect taps unlock the next multiplier for the following 
   assert.equal(multipliedHit.snapshot.multiplier, 2);
 });
 
-test("Great and Good preserve streak progress and the current multiplier", () => {
+test("Great advances streak progress while Good preserves the current progress and multiplier", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
   hitRound(engine, 100, 150);
   hitRound(engine, 1_100, 250);
   const great = hitRound(engine, 2_100, 350);
-  assert.equal(great.snapshot.streakProgress, 2);
+  assert.equal(great.snapshot.streakProgress, 3);
   assert.equal(great.snapshot.multiplier, 1);
 
-  hitRound(engine, 3_100, 150);
-  const fourthFastTap = hitRound(engine, 4_100, 250);
+  const goodBeforeUnlock = hitRound(engine, 3_100, 450);
+  assert.equal(goodBeforeUnlock.snapshot.streakProgress, 3);
+  const fourthFastTap = hitRound(engine, 4_100, 350);
   assert.equal(fourthFastTap.snapshot.streakProgress, 4);
-  const unlock = hitRound(engine, 5_100, 150);
+  const unlock = hitRound(engine, 5_100, 350);
   assert.equal(unlock.snapshot.multiplier, 2);
 
-  const nextFastTap = hitRound(engine, 6_100, 150);
+  const nextFastTap = hitRound(engine, 6_100, 350);
   assert.equal(nextFastTap.snapshot.streakProgress, 1);
   const good = hitRound(engine, 7_100, 450);
   assert.equal(good.speedRating.id, SPEED_RATING_IDS.GOOD);
