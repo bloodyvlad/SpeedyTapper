@@ -10,6 +10,7 @@ final class App
         private readonly Config $config,
         private readonly PlayerRepository $players,
         private readonly LeaderboardRepository $leaderboard,
+        private readonly RunAttemptService $attempts,
         private readonly RunSubmissionService $runs,
         private readonly SessionStore $session,
         private readonly GoogleIdentityVerifier $google,
@@ -30,7 +31,7 @@ final class App
         }
 
         if ($request->method === 'POST' && $request->path === '/api/auth/google') {
-            $request->guardSameOriginMutation();
+            $this->guardMutation($request);
             $body = $request->json();
             $credential = $body['credential'] ?? null;
             if (!is_string($credential)) {
@@ -42,21 +43,15 @@ final class App
         }
 
         if ($request->method === 'POST' && $request->path === '/api/logout') {
-            $request->guardSameOriginMutation();
+            $this->guardMutation($request);
             $this->session->logout();
-            JsonResponse::send(200, [
-                'authenticated' => false,
-                'googleClientId' => $this->config->googleClientId,
-                'season' => ['id' => $this->config->seasonId, 'name' => $this->config->seasonName],
-                'profile' => null,
-                'ranks' => null,
-            ]);
+            JsonResponse::send(200, $this->sessionPayload());
         }
 
         if ($request->path === '/api/profile' && ($request->method === 'GET' || $request->method === 'PATCH')) {
             $profile = $this->requirePlayer();
             if ($request->method === 'PATCH') {
-                $request->guardSameOriginMutation();
+                $this->guardMutation($request);
                 $body = $request->json();
                 $profile = $this->players->updateNickname($profile['id'], $body['nickname'] ?? null);
             }
@@ -78,16 +73,50 @@ final class App
             JsonResponse::send(200, $this->leaderboard->payload($mode, $playerId));
         }
 
-        if ($request->path === '/api/leaderboard' && $request->method === 'POST') {
-            $request->guardSameOriginMutation();
+        if ($request->path === '/api/runs' && $request->method === 'POST') {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            if (($profile['nicknameConfirmed'] ?? false) !== true) {
+                throw new ApiException(409, 'Choose a public nickname before starting a ranked run.');
+            }
+            $body = $request->json();
+            JsonResponse::send(201, $this->attempts->start(
+                $profile['id'],
+                $this->session->runBindingHash(),
+                $body['mode'] ?? null,
+                $body['buildId'] ?? null,
+            ));
+        }
+
+        if ($request->path === '/api/runs/abandon' && $request->method === 'POST') {
+            $this->guardMutation($request);
+            $this->attempts->abandon(
+                $this->session->runBindingHash(),
+                $request->json()['runId'] ?? null,
+            );
+            JsonResponse::send(200, ['abandoned' => true]);
+        }
+
+        if ($request->path === '/api/runs/finish' && $request->method === 'POST') {
+            $this->guardMutation($request);
             $profile = $this->requirePlayer();
             if (($profile['nicknameConfirmed'] ?? false) !== true) {
                 throw new ApiException(409, 'Choose a public nickname before saving a score.');
             }
-            $this->session->enforceScoreRateLimit();
-            $score = ScoreSubmission::fromArray($request->json());
-            $result = $this->runs->submit($profile['id'], $score);
+            // Count the request before parsing or normalizing its proof so malformed
+            // authenticated bodies cannot repeatedly consume replay CPU for free.
+            $this->session->requireRunFinishCapacity();
+            $proof = RunProof::fromArray($request->json());
+            $result = $this->runs->submit(
+                $profile['id'],
+                $this->session->runBindingHash(),
+                $proof,
+            );
             JsonResponse::send($result['duplicate'] ? 200 : 201, $result);
+        }
+
+        if ($request->path === '/api/leaderboard' && $request->method === 'POST') {
+            throw new ApiException(410, 'Aggregate score submission is retired. Refresh before playing again.');
         }
 
         throw new ApiException(404, 'API route not found.');
@@ -100,14 +129,22 @@ final class App
         if ($playerId !== null && $profile === null) {
             $this->session->logout();
         }
+        $csrfToken = $this->session->csrfToken();
 
         return [
             'authenticated' => $profile !== null,
+            'csrfToken' => $csrfToken,
             'googleClientId' => $this->config->googleClientId,
             'season' => ['id' => $this->config->seasonId, 'name' => $this->config->seasonName],
             'profile' => $profile,
             'ranks' => $profile === null ? null : $this->leaderboard->rankings($profile['id']),
         ];
+    }
+
+    private function guardMutation(HttpRequest $request): void
+    {
+        $request->guardSameOriginMutation();
+        $this->session->requireCsrf($request);
     }
 
     private function requirePlayer(): array

@@ -18,14 +18,15 @@ async function readJson(response) {
   return body;
 }
 
-function jsonRequest(method, body) {
+function jsonRequest(method, body, csrfToken) {
   return {
     method,
     cache: "no-store",
     credentials: "same-origin",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "X-SpeedyTapper-CSRF": csrfToken
     },
     body: JSON.stringify(body ?? {})
   };
@@ -36,6 +37,8 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
     throw new TypeError("A fetch implementation is required.");
   }
 
+  let csrfToken = null;
+
   const request = async (path, options = {}) => {
     const response = await fetchImpl(path, {
       cache: "no-store",
@@ -43,7 +46,16 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       headers: { Accept: "application/json" },
       ...options
     });
-    return readJson(response);
+    const body = await readJson(response);
+    if (typeof body.csrfToken === "string" && body.csrfToken.length >= 32) {
+      csrfToken = body.csrfToken;
+    }
+    return body;
+  };
+
+  const mutation = async (path, method, body = {}) => {
+    if (csrfToken === null) await request("/api/session");
+    return request(path, jsonRequest(method, body, csrfToken));
   };
 
   return Object.freeze({
@@ -55,11 +67,11 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       if (typeof credential !== "string" || credential.length < 20) {
         throw new TypeError("A Google credential is required.");
       }
-      return request("/api/auth/google", jsonRequest("POST", { credential }));
+      return mutation("/api/auth/google", "POST", { credential });
     },
 
     logout() {
-      return request("/api/logout", jsonRequest("POST"));
+      return mutation("/api/logout", "POST");
     },
 
     getProfile(mode) {
@@ -67,15 +79,23 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
     },
 
     updateNickname(nickname) {
-      return request("/api/profile", jsonRequest("PATCH", { nickname }));
+      return mutation("/api/profile", "PATCH", { nickname });
     },
 
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
     },
 
+    startRun(mode, buildId) {
+      return mutation("/api/runs", "POST", { mode, buildId });
+    },
+
+    abandonRun(runId) {
+      return mutation("/api/runs/abandon", "POST", { runId });
+    },
+
     submitResult(result) {
-      return request("/api/leaderboard", jsonRequest("POST", result));
+      return mutation("/api/runs/finish", "POST", result);
     }
   });
 }

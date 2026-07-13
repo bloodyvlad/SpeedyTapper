@@ -9,7 +9,7 @@ SET @speedytapper_coins_exists = (
 SET @speedytapper_coins_sql = IF(
     @speedytapper_coins_exists = 0,
     'ALTER TABLE players ADD COLUMN coins BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER nickname_confirmed',
-    'SELECT 1'
+    'DO 1'
 );
 
 PREPARE speedytapper_coins_statement FROM @speedytapper_coins_sql;
@@ -27,7 +27,7 @@ SET @speedytapper_coin_remainder_exists = (
 SET @speedytapper_coin_remainder_sql = IF(
     @speedytapper_coin_remainder_exists = 0,
     'ALTER TABLE players ADD COLUMN coin_time_remainder_ms INT UNSIGNED NOT NULL DEFAULT 0 AFTER coins',
-    'SELECT 1'
+    'DO 1'
 );
 
 PREPARE speedytapper_coin_remainder_statement FROM @speedytapper_coin_remainder_sql;
@@ -45,7 +45,7 @@ SET @speedytapper_total_play_exists = (
 SET @speedytapper_total_play_sql = IF(
     @speedytapper_total_play_exists = 0,
     'ALTER TABLE players ADD COLUMN total_play_ms BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER coin_time_remainder_ms',
-    'SELECT 1'
+    'DO 1'
 );
 
 PREPARE speedytapper_total_play_statement FROM @speedytapper_total_play_sql;
@@ -64,7 +64,7 @@ SET @speedytapper_coin_remainder_check_exists = (
 SET @speedytapper_coin_remainder_check_sql = IF(
     @speedytapper_coin_remainder_check_exists = 0,
     'ALTER TABLE players ADD CONSTRAINT players_coin_remainder_range CHECK (coin_time_remainder_ms < 60000)',
-    'SELECT 1'
+    'DO 1'
 );
 
 PREPARE speedytapper_coin_remainder_check_statement FROM @speedytapper_coin_remainder_check_sql;

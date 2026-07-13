@@ -6,7 +6,7 @@ namespace SpeedyTapper;
 
 final readonly class HttpRequest
 {
-    private const MAX_BODY_BYTES = 16_384;
+    private const MAX_BODY_BYTES = 262_144;
 
     public function __construct(
         public string $method,
@@ -61,6 +61,13 @@ final readonly class HttpRequest
     {
         $forwarded = strtolower((string) ($this->server['HTTP_X_FORWARDED_PROTO'] ?? ''));
         return $forwarded === 'https' || (($this->server['HTTPS'] ?? '') !== '' && ($this->server['HTTPS'] ?? '') !== 'off');
+    }
+
+    public function header(string $name): ?string
+    {
+        $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+        $value = $this->server[$key] ?? null;
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     public function guardSameOriginMutation(): void

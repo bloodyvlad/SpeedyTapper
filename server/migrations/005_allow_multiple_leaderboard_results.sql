@@ -9,7 +9,7 @@ SET @speedytapper_single_result_index_exists = (
 SET @speedytapper_drop_single_result_index_sql = IF(
     @speedytapper_single_result_index_exists > 0,
     'ALTER TABLE leaderboard_entries DROP INDEX leaderboard_player_mode_season_unique',
-    'SELECT 1'
+    'DO 1'
 );
 
 PREPARE speedytapper_drop_single_result_index_statement
@@ -28,7 +28,7 @@ SET @speedytapper_player_mode_lookup_exists = (
 SET @speedytapper_add_player_mode_lookup_sql = IF(
     @speedytapper_player_mode_lookup_exists = 0,
     'ALTER TABLE leaderboard_entries ADD KEY leaderboard_player_mode_season_index (season_id, player_id, mode)',
-    'SELECT 1'
+    'DO 1'
 );
 
 PREPARE speedytapper_add_player_mode_lookup_statement

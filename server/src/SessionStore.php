@@ -7,9 +7,11 @@ namespace SpeedyTapper;
 final class SessionStore
 {
     private const PLAYER_KEY = 'speedytapper_player_id';
-    private const SUBMISSION_KEY = 'speedytapper_score_submissions';
-    private const SUBMISSION_WINDOW_SECONDS = 60;
-    private const SUBMISSION_LIMIT = 10;
+    private const CSRF_KEY = 'speedytapper_csrf_token';
+    private const RUN_BINDING_KEY = 'speedytapper_run_binding';
+    private const FINISH_RATE_KEY = 'speedytapper_finish_requests';
+    private const FINISH_RATE_LIMIT = 20;
+    private const FINISH_RATE_WINDOW_SECONDS = 60;
     private bool $started;
 
     public function __construct(private readonly bool $secure)
@@ -46,8 +48,16 @@ final class SessionStore
     public function login(string $playerId): void
     {
         $this->start();
+        $finishRequests = ($_SESSION[self::PLAYER_KEY] ?? null) === $playerId
+            ? ($_SESSION[self::FINISH_RATE_KEY] ?? [])
+            : [];
         session_regenerate_id(true);
-        $_SESSION = [self::PLAYER_KEY => $playerId];
+        $_SESSION = [
+            self::PLAYER_KEY => $playerId,
+            self::CSRF_KEY => self::base64Url(random_bytes(32)),
+            self::RUN_BINDING_KEY => self::base64Url(random_bytes(32)),
+            self::FINISH_RATE_KEY => is_array($finishRequests) ? $finishRequests : [],
+        ];
     }
 
     public function logout(): void
@@ -72,23 +82,71 @@ final class SessionStore
         $this->started = false;
     }
 
-    public function enforceScoreRateLimit(): void
+    public function csrfToken(): string
+    {
+        $this->start();
+        $token = $_SESSION[self::CSRF_KEY] ?? null;
+        if (!is_string($token) || strlen($token) !== 43) {
+            $token = self::base64Url(random_bytes(32));
+            $_SESSION[self::CSRF_KEY] = $token;
+        }
+        return $token;
+    }
+
+    public function requireCsrf(HttpRequest $request): void
+    {
+        $received = $request->header('X-SpeedyTapper-CSRF');
+        $expected = $this->csrfToken();
+        if (!is_string($received) || !hash_equals($expected, $received)) {
+            throw new ApiException(403, 'The security token is missing or expired. Refresh and try again.');
+        }
+    }
+
+    public function runBindingHash(): string
+    {
+        return hash('sha256', $this->runBinding(), true);
+    }
+
+    public function requireRunFinishCapacity(): void
     {
         $this->start();
         $now = time();
-        $windowStart = $now - self::SUBMISSION_WINDOW_SECONDS;
-        $timestamps = array_values(array_filter(
-            is_array($_SESSION[self::SUBMISSION_KEY] ?? null) ? $_SESSION[self::SUBMISSION_KEY] : [],
-            static fn (mixed $timestamp): bool => is_int($timestamp) && $timestamp > $windowStart,
-        ));
-        if (count($timestamps) >= self::SUBMISSION_LIMIT) {
-            $retryAfter = max(1, $timestamps[0] + self::SUBMISSION_WINDOW_SECONDS - $now);
-            throw new ApiException(429, 'Too many score submissions. Try again shortly.', [
+        $minimum = $now - self::FINISH_RATE_WINDOW_SECONDS;
+        $stored = $_SESSION[self::FINISH_RATE_KEY] ?? [];
+        $requests = [];
+        if (is_array($stored)) {
+            foreach ($stored as $timestamp) {
+                if (is_int($timestamp) && $timestamp > $minimum && $timestamp <= $now) {
+                    $requests[] = $timestamp;
+                }
+            }
+        }
+        if (count($requests) >= self::FINISH_RATE_LIMIT) {
+            sort($requests, SORT_NUMERIC);
+            $retryAfter = max(1, $requests[0] + self::FINISH_RATE_WINDOW_SECONDS - $now + 1);
+            $_SESSION[self::FINISH_RATE_KEY] = $requests;
+            throw new ApiException(429, 'Too many score submission attempts. Try again shortly.', [
                 'Retry-After' => (string) $retryAfter,
             ]);
         }
-        $timestamps[] = $now;
-        $_SESSION[self::SUBMISSION_KEY] = $timestamps;
+        $requests[] = $now;
+        $_SESSION[self::FINISH_RATE_KEY] = $requests;
+    }
+
+    private function runBinding(): string
+    {
+        $this->start();
+        $binding = $_SESSION[self::RUN_BINDING_KEY] ?? null;
+        if (!is_string($binding) || strlen($binding) !== 43) {
+            $binding = self::base64Url(random_bytes(32));
+            $_SESSION[self::RUN_BINDING_KEY] = $binding;
+        }
+        return $binding;
+    }
+
+    private static function base64Url(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
 
     private function start(): void

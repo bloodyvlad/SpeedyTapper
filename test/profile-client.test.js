@@ -28,47 +28,74 @@ test("profile client keeps authenticated requests same-origin and uncached", asy
   assert.equal(calls[0][1].cache, "no-store");
 });
 
-test("Google login sends only the credential as JSON", async () => {
+test("Google login initializes CSRF and sends only the credential as JSON", async () => {
   const calls = [];
   const client = createProfileClient({
     fetchImpl: async (...args) => {
       calls.push(args);
-      return response({ authenticated: true });
+      return calls.length === 1
+        ? response({ authenticated: false, csrfToken: "csrf-token-with-more-than-thirty-two-characters" })
+        : response({ authenticated: true });
     }
   });
   const credential = "header.payload.signature";
 
   await client.loginWithGoogleCredential(credential);
-  assert.equal(calls[0][0], "/api/auth/google");
-  assert.equal(calls[0][1].method, "POST");
-  assert.deepEqual(JSON.parse(calls[0][1].body), { credential });
+  assert.equal(calls[0][0], "/api/session");
+  assert.equal(calls[1][0], "/api/auth/google");
+  assert.equal(calls[1][1].method, "POST");
+  assert.equal(
+    calls[1][1].headers["X-SpeedyTapper-CSRF"],
+    "csrf-token-with-more-than-thirty-two-characters"
+  );
+  assert.deepEqual(JSON.parse(calls[1][1].body), { credential });
 });
 
-test("score submissions contain no name, email, or password fields", async () => {
+test("verified run submissions contain proof rather than authoritative score aggregates", async () => {
   const calls = [];
   const client = createProfileClient({
     fetchImpl: async (...args) => {
       calls.push(args);
-      return response({ rank: 1 });
+      return calls.length === 1
+        ? response({ csrfToken: "csrf-token-with-more-than-thirty-two-characters" })
+        : response({ rank: 1 });
     }
   });
   const result = {
+    runId: "4f27f9de-37de-4c31-8090-279a037bf76a",
     mode: "normal",
-    score: 12_345,
-    hits: 30,
-    dodges: 4,
-    fastestReactionMs: 148,
-    averageReactionMs: 287,
-    survivalMs: 82_000,
-    speedRatings: { godlike: 2, perfect: 11, great: 13, good: 4 }
+    proofVersion: 1,
+    ruleset: "reaction-proof-v1",
+    buildId: "20260713-16",
+    events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
   await client.submitResult(result);
-  const payload = JSON.parse(calls[0][1].body);
+  assert.equal(calls[1][0], "/api/runs/finish");
+  const payload = JSON.parse(calls[1][1].body);
   assert.deepEqual(payload, result);
-  assert.equal("name" in payload, false);
-  assert.equal("email" in payload, false);
-  assert.equal("password" in payload, false);
+  for (const forbidden of ["score", "hits", "dodges", "survivalMs", "name", "email", "password"]) {
+    assert.equal(forbidden in payload, false);
+  }
+});
+
+test("run lifecycle uses server-issued start and explicit abandon endpoints", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return calls.length === 1
+        ? response({ csrfToken: "csrf-token-with-more-than-thirty-two-characters" })
+        : response({ runId: "4f27f9de-37de-4c31-8090-279a037bf76a" });
+    }
+  });
+
+  await client.startRun("zen", "20260713-16");
+  await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
+
+  assert.equal(calls[1][0], "/api/runs");
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260713-16" });
+  assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
 test("profile context requests are mode-specific", async () => {

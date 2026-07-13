@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-15";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-15";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-16";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-16";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,19 +8,20 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-15";
+} from "./input-timing.js?v=20260713-16";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-15";
-import { createMishaController } from "./misha-controller.js?v=20260713-15";
-import { createSoundController } from "./sound-controller.js?v=20260713-15";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-15";
+} from "./music-controller.js?v=20260713-16";
+import { createMishaController } from "./misha-controller.js?v=20260713-16";
+import { createSoundController } from "./sound-controller.js?v=20260713-16";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-16";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
+const APP_BUILD_ID = "20260713-16";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
@@ -170,6 +171,8 @@ let lastDeadlineResolutionAt = null;
 let roundPresentationExpired = false;
 let runDeadlineAt = null;
 let currentRunId = null;
+let currentRunTicket = null;
+let runStartRequestId = 0;
 let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
@@ -549,16 +552,52 @@ function cancelDecoyCadence() {
   decoyActivationFrame = null;
 }
 
-function startGame(mode) {
+function setRunStartControlsDisabled(disabled) {
+  elements.normalButton.disabled = disabled;
+  elements.zenButton.disabled = disabled;
+  elements.resultRestartButton.disabled = disabled;
+  elements.gameRestartButton.disabled = disabled;
+}
+
+function abandonCurrentRun() {
+  const runId = currentRunTicket?.runId;
+  const shouldAbandon = !pendingResult?.submitting && !pendingResult?.submitted;
+  currentRunTicket = null;
+  if (shouldAbandon && typeof runId === "string") {
+    void profileClient.abandonRun(runId).catch(() => {});
+  }
+}
+
+async function startGame(mode) {
   clearTimers();
   void sound.startRun();
   music.setStage(MUSIC_STAGES.MENU);
   music.startRun();
   void music.unlock();
   void refreshTopScore(mode);
+  abandonCurrentRun();
+  const startRequestId = runStartRequestId + 1;
+  runStartRequestId = startRequestId;
+  let ticket = null;
+  if (hasConfirmedProfile()) {
+    setRunStartControlsDisabled(true);
+    try {
+      ticket = await profileClient.startRun(mode, APP_BUILD_ID);
+    } catch {
+      // The game remains available as an unranked local practice run when the
+      // security service is offline. Such a run can never earn rank or coins.
+    } finally {
+      if (startRequestId === runStartRequestId) setRunStartControlsDisabled(false);
+    }
+  }
+  if (startRequestId !== runStartRequestId) {
+    if (ticket?.runId) void profileClient.abandonRun(ticket.runId).catch(() => {});
+    return;
+  }
   const currentSession = sessionId + 1;
   sessionId = currentSession;
-  currentRunId = createRunId();
+  currentRunTicket = ticket;
+  currentRunId = ticket?.runId ?? createRunId();
   completedSessionId = null;
   lastDeadlineResolutionAt = null;
   engine.reset();
@@ -919,6 +958,15 @@ function finishGame(snapshot, currentSession) {
   setDialogView("result");
   pendingResult = {
     runId: currentRunId,
+    verificationAvailable:
+      currentRunTicket?.runId === currentRunId &&
+      currentRunTicket?.ruleset === "reaction-proof-v1",
+    proof: {
+      proofVersion: currentRunTicket?.proofVersion ?? 1,
+      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v1",
+      buildId: currentRunTicket?.buildId ?? APP_BUILD_ID,
+      events: engine.getRunProofEvents()
+    },
     mode: snapshot.mode,
     score: snapshot.points,
     hits: snapshot.hits,
@@ -999,6 +1047,9 @@ function renderResultMessage(result) {
 }
 
 function showMainMenu() {
+  runStartRequestId += 1;
+  setRunStartControlsDisabled(false);
+  abandonCurrentRun();
   clearTimers();
   music.setStage(MUSIC_STAGES.MENU);
   void music.unlock();
@@ -1210,6 +1261,13 @@ function renderLeaderboard(
       currentBadge.className = "leaderboard-entry__current";
       currentBadge.textContent = "You";
       nameLine.append(currentBadge);
+    }
+    if (entry.verification === "legacy") {
+      const legacyBadge = document.createElement("span");
+      legacyBadge.className = "leaderboard-entry__verification";
+      legacyBadge.textContent = "Legacy";
+      legacyBadge.title = "Created before gameplay proof verification";
+      nameLine.append(legacyBadge);
     }
     const meta = document.createElement("div");
     meta.className = "leaderboard-entry__meta";
@@ -1510,6 +1568,18 @@ function renderResultSaveState() {
   }
   if (pendingResult.submitted) {
     elements.resultGoogleSignin.hidden = true;
+    if (pendingResult.verificationStatus === "review") {
+      setResultSaveStatus(
+        "Result saved for security review. It has not been ranked and no coins were awarded yet."
+      );
+      return;
+    }
+    if (pendingResult.verificationStatus === "quarantined") {
+      setResultSaveStatus(
+        "Result was not ranked and no coins were awarded because its gameplay trace matched an earlier submission."
+      );
+      return;
+    }
     if (pendingResult.legacyContextUnavailable) {
       setResultSaveStatus(
         "Result was already processed. Its exact historical leaderboard position is unavailable."
@@ -1527,6 +1597,15 @@ function renderResultSaveState() {
       ? ""
       : ` This result is #${pendingResult.rank.toLocaleString()}.`;
     setResultSaveStatus(`Result saved as a new personal best.${rankCopy}`);
+    return;
+  }
+  if (!pendingResult.verificationAvailable) {
+    elements.resultGoogleSignin.hidden = true;
+    setResultSaveStatus(
+      hasConfirmedProfile()
+        ? "Local practice result only. Ranked run verification was unavailable when this game started."
+        : "Local practice result only. Sign in and choose a nickname before starting to earn rank and coins."
+    );
     return;
   }
   if (!profileSession.authenticated) {
@@ -1548,6 +1627,7 @@ async function submitPendingResult() {
     !pendingResult ||
     pendingResult.submitted ||
     pendingResult.submitting ||
+    !pendingResult.verificationAvailable ||
     !hasConfirmedProfile()
   ) {
     renderResultSaveState();
@@ -1561,23 +1641,13 @@ async function submitPendingResult() {
     const body = await profileClient.submitResult({
       runId: submittedResult.runId,
       mode: submittedResult.mode,
-      score: submittedResult.score,
-      hits: submittedResult.hits,
-      dodges: submittedResult.dodges,
-      fastestReactionMs: submittedResult.fastestReactionMs,
-      averageReactionMs: submittedResult.averageReactionMs,
-      survivalMs: submittedResult.survivalMs,
-      speedRatings: submittedResult.speedRatings,
-      reactionBasePoints: submittedResult.reactionBasePoints,
-      multiplierBonusPoints: submittedResult.multiplierBonusPoints,
-      multiplierHitCounts: submittedResult.multiplierHitCounts,
-      multiplierBasePoints: submittedResult.multiplierBasePoints,
-      maxMultiplier: submittedResult.maxMultiplier
+      ...submittedResult.proof
     });
     submittedResult.submitting = false;
     submittedResult.submitted = true;
     submittedResult.duplicate = body.duplicate === true;
     submittedResult.improved = body.improved === true;
+    submittedResult.verificationStatus = body.verificationStatus ?? "verified";
     submittedResult.hasExactLeaderboardContext = body.submittedEntryId === submittedResult.runId;
     submittedResult.rank = submittedResult.hasExactLeaderboardContext
       ? body.submittedRank ?? body.contextRank ?? body.rank ?? null
@@ -1956,6 +2026,8 @@ function showFeedback(message, isBad) {
 }
 
 function stopRunForPageExit() {
+  runStartRequestId += 1;
+  abandonCurrentRun();
   if (
     runStartFrame === null &&
     engine.state !== GAME_STATES.WAITING &&

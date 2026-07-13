@@ -17,11 +17,13 @@ php server/bin/migrate.php
 npm run check:php
 ```
 
+Run `php server/bin/purge-run-attempts.php --apply` from a daily Hostinger cron job. It deletes only bounded batches of unranked stale attempt metadata (7-day abandoned/expired retention and 30-day rejected retention); dry-run is the default, and completed/ranked/reviewed runs are never eligible.
+
 The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` replaces the former one-result-per-player uniqueness constraint with a lookup index and preserves every existing row, profile, coin balance, and completed run. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 
-All responses are JSON with `Cache-Control: no-store`. Mutations accept same-origin JSON. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services supplies the `credential` ID token, which is verified server-side by `google/apiclient` against the configured Web client ID.
+All responses are JSON with `Cache-Control: no-store`. Mutations accept same-origin JSON and require the `X-SpeedyTapper-CSRF` token returned by the session endpoint. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services supplies the `credential` ID token, which is verified server-side by `google/apiclient` against the configured Web client ID. Login regenerates the cookie session ID and rotates CSRF state. Ranked attempts can only be issued after sign-in and nickname confirmation; a signed-out run is local practice and cannot be promoted later.
 
 ### `GET /api/session`
 
@@ -30,6 +32,7 @@ Always public. The Google client ID is intentionally public configuration.
 ```json
 {
   "authenticated": true,
+  "csrfToken": "public-session-mutation-token",
   "googleClientId": "...apps.googleusercontent.com",
   "season": { "id": "season-1", "name": "Season 1" },
   "profile": {
@@ -95,30 +98,45 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 }
 ```
 
-### `POST /api/leaderboard`
+### `POST /api/runs`
 
-Authentication and a confirmed public nickname are required. The server supplies identity, nickname, entry ID, season, and timestamps; the body never contains a player name.
+Starts a ranked run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260713-16" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. A failed request may still start a local practice game, but that result is never rankable and never earns coins.
+
+### `POST /api/runs/abandon`
+
+Body: `{ "runId": "server-run-uuid" }`. Closes an issued run after restart, menu navigation, page backgrounding, or a discarded result. Completed and already-closed runs are unchanged.
+
+### `POST /api/runs/finish`
+
+Authentication and a confirmed public nickname are required. The body contains the server run identity and compact proof events only; it never contains authoritative score, duration, rating totals, coins, a player name, email, or password.
 
 ```json
 {
+  "runId": "server-run-uuid",
   "mode": "normal",
-  "score": 12345,
-  "hits": 24,
-  "dodges": 7,
-  "survivalMs": 91000,
-  "fastestReactionMs": 178,
-  "averageReactionMs": 331,
-  "speedRatings": { "godlike": 2, "perfect": 6, "great": 8, "good": 8 }
+  "buildId": "20260713-16",
+  "ruleset": "reaction-proof-v1",
+  "proofVersion": 1,
+  "events": [
+    [2, 100, 102, 0, 0],
+    [2, 200, 202, 0, 0],
+    [2, 300, 302, 0, 0],
+    [5, 300, 302]
+  ]
 }
 ```
 
-Zen submissions use `mode: "zen"` and an exact `survivalMs` of `180000`. Every accepted run is inserted as a separate immutable result using `runId` as its entry ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, and `improved`; its context window centers on that exact submitted result while `playerRank` continues to report the profile's best result. `improved` says whether the new result became that best. Repeating the identical run UUID returns idempotently without another row or coin award. A retry of a run completed before migration `005` may have no entry keyed by that historical run UUID; in that case submitted rank/ID are null and the fallback window is explicitly the profile best rather than being mislabeled as the submitted result.
+Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Arcade requires its third life loss; Zen requires an exact logical finish at `180000`. The server clock must cover the proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, and `verifiedResult`. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
+
+Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can never award a result.
 
 ## Security and limitations
 
-- The session cookie and same-origin mutation guard prevent the common cross-site cases, while Google verifies account ownership.
+- The session cookie, same-origin mutation guard, and per-session CSRF token prevent common cross-site mutations, while Google verifies account ownership.
 - The Google subject is irreversibly digested before storage. Raw tokens, email claims, and passwords are never stored.
-- Submitted scores are consistency-validated but gameplay remains browser-authoritative. Google login provides identity, not anti-cheat integrity.
-- Authenticated score submissions are limited to ten per session per minute; this limits accidental or simple request floods but is not an anti-cheat boundary.
+- PHP issues the run ID, binds it to one confirmed player and browser session, permits only one issued attempt per player, bounds elapsed time with its own clock, replays the chronological proof, derives all result fields, and consumes the run once. Start and completion limits are persisted by internal player UUID, so re-login does not clear them.
+- Requests are capped at 256 KiB and 10,000 proof events. An authenticated per-session finish limit is consumed before proof JSON is parsed, while persisted per-minute and daily player limits run before replay or proof persistence. Rejected proofs retain hashes and compact audit metadata rather than attacker-controlled event JSON. The bounded maintenance command removes stale unranked attempts. Shared-hosting or edge-level IP throttling remains recommended for broader availability protection.
+- This is protocol verification, not proof of human input. A sufficiently modified browser, scripted client, or computer-vision bot can still create plausible real-time play. High-risk distributions can be held for manual review; never describe the board as bot-proof.
+- Existing aggregate rows are `legacy` because they cannot be retrospectively verified. `server/bin/leaderboard-admin.php` scans exact IDs and supports `approve`, `reject`, `quarantine`, `restore`, and logical `delete`; mutations are dry-run by default. Quarantine is reversible and coin reconciliation recomputes the complete eligible timeline rather than subtracting one historical award in isolation.
 - PHP's default file-session store is appropriate for this single shared-hosting deployment. A multi-node deployment would need shared session storage or signed/revocable session tokens.
 - Configure the Google OAuth Web client with the final HTTPS origin before sign-in can be production-tested.

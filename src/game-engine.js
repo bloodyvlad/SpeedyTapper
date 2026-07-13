@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-15";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-16";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -51,6 +51,10 @@ export function orthogonalNeighbors(index, dimension) {
 }
 
 export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = GAME_CONFIG) {
+  // The ranked proof uses integer milliseconds. Resolve every phase and
+  // response window from that same clock so the browser and PHP replay cannot
+  // disagree around a sub-millisecond phase boundary.
+  elapsedMs = Math.round(Math.max(0, elapsedMs));
   const { phases, responseWindowsMs, spawnDelayRangesMs } = config;
   const gridDimension =
     elapsedMs >= phases.fourByFourStartsAtMs
@@ -205,6 +209,10 @@ function emptyMultiplierHitCounts(maximumMultiplier) {
 }
 
 export class GameEngine {
+  #runProofEvents = [];
+  #runProofFinished = false;
+  #proofClockFloor = 0;
+
   constructor({ config = GAME_CONFIG, colors = COLORS, random = Math.random } = {}) {
     if (colors.length < 2) {
       throw new Error("SpeedyTapper needs at least two colors.");
@@ -251,6 +259,10 @@ export class GameEngine {
     this.nextDecoyId = 1;
     this.challengeStartHits = null;
     this.recoveryUntil = null;
+    this.proofTargetAt = null;
+    this.#runProofEvents = [];
+    this.#runProofFinished = false;
+    this.#proofClockFloor = 0;
   }
 
   start(now = 0, mode = GAME_MODES.NORMAL) {
@@ -269,6 +281,10 @@ export class GameEngine {
   getElapsedMs(now) {
     if (this.startedAt === null) return 0;
     return Math.max(0, (this.endedAt ?? now) - this.startedAt);
+  }
+
+  getRunProofEvents() {
+    return this.#runProofEvents.map((event) => [...event]);
   }
 
   getRemainingMs(now) {
@@ -306,7 +322,7 @@ export class GameEngine {
 
     const recoveryRemainingMs = this.getRecoveryRemainingMs(now);
     const difficultyAt = now + recoveryRemainingMs;
-    const elapsedMs = this.getElapsedMs(difficultyAt);
+    const elapsedMs = this.#proofElapsed(difficultyAt);
     if (elapsedMs < this.config.phases.colorPatienceStartsAtMs) {
       return Math.ceil(
         recoveryRemainingMs + this.config.phases.colorPatienceStartsAtMs - elapsedMs
@@ -337,7 +353,7 @@ export class GameEngine {
 
     const settled = this.#settleExpiredDecoys(now);
 
-    const elapsedMs = this.getElapsedMs(now);
+    const elapsedMs = this.#proofElapsed(now);
     if (
       elapsedMs >= this.config.phases.fourByFourChallengeStartsAtMs &&
       this.challengeStartHits === null
@@ -385,6 +401,8 @@ export class GameEngine {
     this.roundKind = ROUND_KINDS.TARGET;
     this.activeAt = now;
     this.targetIndex = targetIndex;
+    this.proofTargetAt = this.#proofElapsed(now);
+    this.#recordProofEvent([0, this.proofTargetAt, targetIndex]);
 
     return Object.freeze({
       type: "round-active",
@@ -410,6 +428,7 @@ export class GameEngine {
     );
 
     if (difficulty.decoySpawnDelayRangeMs === null || maximumActiveDecoys === 0) {
+      this.#recordProofEvent([6, this.#proofElapsed(now)]);
       return Object.freeze({
         type: "ignored",
         reason: "decoys-disabled",
@@ -420,6 +439,7 @@ export class GameEngine {
     }
 
     if (this.activeDecoys.length >= maximumActiveDecoys) {
+      this.#recordProofEvent([6, this.#proofElapsed(now)]);
       return Object.freeze({
         type: "ignored",
         reason: "decoy-capacity",
@@ -435,6 +455,7 @@ export class GameEngine {
       (index) => !occupiedIndexes.has(index)
     );
     if (availableIndexes.length === 0) {
+      this.#recordProofEvent([6, this.#proofElapsed(now)]);
       return Object.freeze({
         type: "ignored",
         reason: "no-decoy-cell",
@@ -461,6 +482,13 @@ export class GameEngine {
     };
     this.nextDecoyId += 1;
     this.activeDecoys.push(decoy);
+    this.#recordProofEvent([
+      3,
+      this.#proofElapsed(now),
+      decoy.id,
+      decoy.cellIndex,
+      lifetimeMs
+    ]);
 
     return Object.freeze({
       type: "decoy-active",
@@ -502,7 +530,7 @@ export class GameEngine {
     const settled = { count: 0, pointsAwarded: 0, decoyIds: [] };
 
     if (this.state === GAME_STATES.WAITING) {
-      return this.#miss("empty", now, null, settled, resolvedAt);
+      return this.#miss("empty", now, null, settled, resolvedAt, cellIndex);
     }
 
     if (this.state !== GAME_STATES.ACTIVE) {
@@ -511,18 +539,26 @@ export class GameEngine {
 
     const reactionMs = Math.max(0, now - this.activeAt);
     if (reactionMs >= this.roundDifficulty.responseWindowMs) {
-      return this.#miss("late", now, reactionMs, settled, resolvedAt);
+      return this.#miss("late", now, reactionMs, settled, resolvedAt, cellIndex);
     }
 
     if (cellIndex !== this.targetIndex) {
-      return this.#miss("wrong", now, reactionMs, settled, resolvedAt);
+      return this.#miss("wrong", now, reactionMs, settled, resolvedAt, cellIndex);
     }
 
     const speedRating = classifyReaction(reactionMs);
+    const scoredReactionMs = speedRating.displayedMs;
+    const proofInputAt = (this.proofTargetAt ?? this.#proofElapsed(this.activeAt)) + scoredReactionMs;
+    this.#recordProofEvent([
+      1,
+      proofInputAt,
+      Math.max(proofInputAt, this.#proofElapsed(resolvedAt)),
+      cellIndex
+    ]);
     const multiplierUsed = this.multiplier;
     this.maximumMultiplierUsed = Math.max(this.maximumMultiplierUsed, multiplierUsed);
     const basePointsAwarded = scoreReaction(
-      reactionMs,
+      scoredReactionMs,
       this.roundDifficulty.responseWindowMs,
       this.config
     );
@@ -533,11 +569,11 @@ export class GameEngine {
     this.multiplierHitCounts[multiplierUsed] += 1;
     this.multiplierBasePoints[multiplierUsed] += basePointsAwarded;
     this.hits += 1;
-    this.reactionTotalMs += reactionMs;
+    this.reactionTotalMs += scoredReactionMs;
     this.fastestReactionMs =
       this.fastestReactionMs === null
-        ? reactionMs
-        : Math.min(this.fastestReactionMs, reactionMs);
+        ? scoredReactionMs
+        : Math.min(this.fastestReactionMs, scoredReactionMs);
     this.speedRatings[speedRating.id] += 1;
     const multiplierBeforeAdvance = this.multiplier;
     const streakSteps = this.config.streak.ratingSteps[speedRating.id] ?? 0;
@@ -546,7 +582,7 @@ export class GameEngine {
     this.#finishRound();
 
     const shouldChangeColor =
-      this.getElapsedMs(now) >= this.config.phases.colorPatienceStartsAtMs;
+      this.#proofElapsed(now) >= this.config.phases.colorPatienceStartsAtMs;
     if (shouldChangeColor) {
       this.playerColorIndex = this.#differentColorIndex();
     }
@@ -587,7 +623,7 @@ export class GameEngine {
       });
     }
 
-    return this.#miss("late", now, reactionMs, settled);
+    return this.#miss("late", now, reactionMs, settled, now, -1);
   }
 
   finishTimedRun(now) {
@@ -605,6 +641,7 @@ export class GameEngine {
     }
 
     const runDeadlineAt = this.startedAt + this.config.zenDurationMs;
+    this.#recordFinishElapsed(this.config.zenDurationMs, this.#proofElapsed(now));
     this.state = GAME_STATES.GAME_OVER;
     this.endedAt = runDeadlineAt;
     this.endReason = "time";
@@ -614,6 +651,7 @@ export class GameEngine {
     this.roundKind = null;
     this.roundDifficulty = null;
     this.recoveryUntil = null;
+    this.proofTargetAt = null;
     return Object.freeze({
       type: "time-up",
       dodgesAwarded: 0,
@@ -722,6 +760,7 @@ export class GameEngine {
     this.roundKind = null;
     this.roundDifficulty = null;
     this.recoveryUntil = null;
+    this.proofTargetAt = null;
   }
 
   #miss(
@@ -729,8 +768,21 @@ export class GameEngine {
     now,
     reactionMs,
     settled = { count: 0, pointsAwarded: 0 },
-    resolvedAt = now
+    resolvedAt = now,
+    cellIndex = -1
   ) {
+    const reasonCode = { empty: 0, wrong: 1, late: 2 }[reason];
+    const proofInputAt = reactionMs === null
+      ? this.#proofElapsed(now)
+      : (this.proofTargetAt ?? this.#proofElapsed(now - reactionMs)) + Math.round(reactionMs);
+    const proofHandledAt = Math.max(proofInputAt, this.#proofElapsed(resolvedAt));
+    this.#recordProofEvent([
+      2,
+      proofInputAt,
+      proofHandledAt,
+      reasonCode,
+      cellIndex
+    ]);
     this.#resetStreak();
     const lifeLost = this.mode === GAME_MODES.NORMAL;
     if (lifeLost) {
@@ -740,7 +792,10 @@ export class GameEngine {
 
     if (lifeLost && this.lives === 0) {
       this.state = GAME_STATES.GAME_OVER;
-      this.endedAt = now;
+      // Use the same integer logical instant recorded in the proof. Adding two
+      // independently rounded browser intervals can differ by one millisecond,
+      // which would otherwise make the result UI disagree with PHP replay.
+      this.endedAt = (this.startedAt ?? 0) + proofInputAt;
       this.endReason = "lives";
       this.activeDecoys = [];
       this.targetIndex = null;
@@ -748,6 +803,8 @@ export class GameEngine {
       this.roundKind = null;
       this.roundDifficulty = null;
       this.recoveryUntil = null;
+      this.proofTargetAt = null;
+      this.#recordFinishElapsed(proofInputAt, proofHandledAt);
     } else {
       this.#finishRound();
       if (lifeLost) {
@@ -771,10 +828,38 @@ export class GameEngine {
       ? this.roundDifficulty
       : resolveDifficulty(
           this.hits,
-          this.getElapsedMs(now),
+          this.#proofElapsed(now),
           this.getChallengeHits(),
           this.config
         );
+  }
+
+  #proofElapsed(now) {
+    if (this.startedAt === null) return 0;
+    return Math.max(
+      this.#proofClockFloor,
+      Math.round(Math.max(0, now - this.startedAt))
+    );
+  }
+
+  #recordProofEvent(event) {
+    this.#runProofEvents.push(Object.freeze([...event]));
+    const clockIndex = [1, 2, 5].includes(event[0]) ? 2 : 1;
+    this.#proofClockFloor = Math.max(this.#proofClockFloor, event[clockIndex] ?? 0);
+  }
+
+  #recordFinish(logicalAt, handledAt) {
+    this.#recordFinishElapsed(this.#proofElapsed(logicalAt), this.#proofElapsed(handledAt));
+  }
+
+  #recordFinishElapsed(logicalElapsed, handledElapsed) {
+    if (this.#runProofFinished) return;
+    this.#recordProofEvent([
+      5,
+      logicalElapsed,
+      Math.max(logicalElapsed, handledElapsed)
+    ]);
+    this.#runProofFinished = true;
   }
 
   #recoveryGuard(now) {
@@ -821,10 +906,12 @@ export class GameEngine {
     const pointsAwarded = expired.length * this.config.dodgePoints;
     this.points += pointsAwarded;
     this.dodges += expired.length;
+    const decoyIds = expired.map(({ id }) => id);
+    this.#recordProofEvent([4, this.#proofElapsed(now), ...decoyIds]);
     return {
       count: expired.length,
       pointsAwarded,
-      decoyIds: expired.map(({ id }) => id)
+      decoyIds
     };
   }
 }

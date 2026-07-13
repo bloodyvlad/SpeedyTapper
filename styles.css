@@ -2130,6 +2130,18 @@ h1 {
   text-transform: uppercase;
 }
 
+.leaderboard-entry__verification {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 207, 92, 0.28);
+  border-radius: 999px;
+  color: #d4b76a;
+  font-size: 0.52rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .leaderboard-entry__meta {
   margin-top: 2px;
   color: #777f99;

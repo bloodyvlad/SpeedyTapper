@@ -42,6 +42,47 @@ test("opening play begins with one target and a 1000 ms lifetime", () => {
   assert.equal(result.snapshot.activeDecoys.length, 0);
 });
 
+test("run proof records rounded target and hit timing without exposing mutable state", () => {
+  const engine = makeEngine();
+  engine.start(1_000.2, GAME_MODES.NORMAL);
+  const active = engine.activateRound(1_100.6);
+  const targetIndex = active.snapshot.targetIndex;
+
+  const hit = engine.tap(targetIndex, 1_250.4, 1_251.8);
+  assert.equal(hit.type, "hit");
+
+  const expected = [
+    [0, 100, targetIndex],
+    [1, 250, 252, targetIndex]
+  ];
+  const received = engine.getRunProofEvents();
+  assert.deepEqual(received, expected);
+
+  received[0][1] = 999;
+  received.push([5, 999, 999]);
+  assert.deepEqual(engine.getRunProofEvents(), expected);
+
+  engine.reset();
+  assert.deepEqual(engine.getRunProofEvents(), []);
+});
+
+test("proof time stays monotonic after separately rounded target and reaction intervals", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0.2, GAME_MODES.ZEN);
+  engine.hits = 4;
+  const target = engine.activateRound(10_000.8);
+  const hit = engine.tap(target.snapshot.targetIndex, 10_186.4, 10_186.4);
+  assert.equal(hit.type, "hit");
+  const decoy = engine.activateDecoy(10_186.5);
+  assert.equal(decoy.type, "decoy-active");
+
+  assert.deepEqual(engine.getRunProofEvents().map((event) => event.slice(0, 2)), [
+    [0, 10_001],
+    [1, 10_187],
+    [3, 10_187]
+  ]);
+});
+
 test("the board grows to 2x2 after four taps but keeps the 1000 ms lifetime", () => {
   const engine = makeEngine();
   engine.start(0);
@@ -69,6 +110,25 @@ test("the gentle phase moves gradually from 1000 ms to 750 ms", () => {
   assert.equal(resolveDifficulty(4, 25_000).responseWindowMs, 875);
   assert.equal(resolveDifficulty(4, 29_000).responseWindowMs, 775);
   assert.equal(resolveDifficulty(4, 30_000).responseWindowMs, 750);
+});
+
+test("difficulty uses the same integer proof clock across sub-millisecond phase timing", () => {
+  assert.equal(resolveDifficulty(8, 23_460.49).responseWindowMs, 914);
+  assert.equal(resolveDifficulty(8, 23_460.51).responseWindowMs, 913);
+
+  const engine = makeEngine();
+  engine.start(0.2);
+  engine.hits = 8;
+  const active = engine.activateRound(23_460.69);
+  assert.equal(active.snapshot.difficulty.responseWindowMs, 914);
+  const result = engine.tap(active.snapshot.targetIndex, 24_374.29, 24_374.4);
+
+  assert.equal(result.type, "hit");
+  assert.equal(result.displayedReactionMs, 914);
+  assert.deepEqual(engine.getRunProofEvents().slice(-2), [
+    [0, 23_460, active.snapshot.targetIndex],
+    [1, 24_374, 24_374, active.snapshot.targetIndex]
+  ]);
 });
 
 test("programmed pace levels follow game phases rather than reaction timing", () => {
@@ -173,6 +233,28 @@ test("a decoy is never assigned the player's current color", () => {
   assert.equal(result.snapshot.cells[result.decoy.cellIndex].kind, "decoy");
 });
 
+test("run proof records independent decoy opportunities that cannot spawn", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0);
+
+  const disabled = engine.activateDecoy(10_000);
+  assert.equal(disabled.type, "ignored");
+  assert.equal(disabled.reason, "decoys-disabled");
+
+  engine.hits = 4;
+  const active = engine.activateDecoy(10_150);
+  assert.equal(active.type, "decoy-active");
+  const capacity = engine.activateDecoy(10_151);
+  assert.equal(capacity.type, "ignored");
+  assert.equal(capacity.reason, "decoy-capacity");
+
+  assert.deepEqual(engine.getRunProofEvents(), [
+    [6, 10_000],
+    [3, 10_150, 1, active.decoy.cellIndex, 450],
+    [6, 10_151]
+  ]);
+});
+
 test("decoy lifetimes vary from 450 ms through the 750 ms hard cap", () => {
   const minimumEngine = makeEngine(() => 0);
   minimumEngine.start(0);
@@ -243,6 +325,22 @@ test("one expiry callback can settle several independently expired decoys", () =
   assert.deepEqual(result.decoyIds, [first.decoy.id, second.decoy.id]);
   assert.equal(result.dodgesAwarded, 2);
   assert.equal(result.pointsAwarded, 2 * GAME_CONFIG.dodgePoints);
+});
+
+test("run proof records decoy activations and grouped natural expiry", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(1_000);
+  engine.hits = 4;
+
+  const first = engine.activateDecoy(36_000);
+  const second = engine.activateDecoy(36_010);
+  engine.expireDecoys(second.decoy.expiresAt);
+
+  assert.deepEqual(engine.getRunProofEvents(), [
+    [3, 35_000, first.decoy.id, first.decoy.cellIndex, 450],
+    [3, 35_010, second.decoy.id, second.decoy.cellIndex, 450],
+    [4, 35_460, first.decoy.id, second.decoy.id]
+  ]);
 });
 
 test("a correct target tap clears live decoys without awarding dodge points", () => {
@@ -402,6 +500,42 @@ test("Normal mode is endless until the third mistake", () => {
   assert.equal(engine.isRunComplete(), true);
 });
 
+test("run proof distinguishes empty, wrong, and timer misses and finishes on the third Normal miss", () => {
+  const engine = makeEngine();
+  engine.start(1_000, GAME_MODES.NORMAL);
+
+  engine.tap(0, 1_100, 1_105);
+  const secondRound = engine.activateRound(3_000);
+  const wrongCell = secondRound.snapshot.targetIndex + 1;
+  engine.tap(wrongCell, 3_100, 3_102);
+  const finalRound = engine.activateRound(5_000);
+  assert.equal(finalRound.snapshot.difficulty.responseWindowMs, 1_000);
+  engine.expireRound(6_000);
+
+  assert.deepEqual(engine.getRunProofEvents(), [
+    [2, 100, 105, 0, 0],
+    [0, 2_000, secondRound.snapshot.targetIndex],
+    [2, 2_100, 2_102, 1, wrongCell],
+    [0, 4_000, finalRound.snapshot.targetIndex],
+    [2, 5_000, 5_000, 2, -1],
+    [5, 5_000, 5_000]
+  ]);
+});
+
+test("Arcade survival uses the same integer logical instant as the terminal proof", () => {
+  const engine = makeEngine();
+  engine.start(0.4, GAME_MODES.NORMAL);
+
+  engine.tap(0, 100.7, 101.2);
+  engine.tap(0, 201.1, 201.6);
+  const result = engine.tap(0, 301.2, 306.7);
+  const proof = engine.getRunProofEvents();
+  const finish = proof.at(-1);
+
+  assert.equal(result.snapshot.elapsedMs, finish[1]);
+  assert.deepEqual(finish, [5, 301, 306]);
+});
+
 test("Zen records mistakes without losing lives and ends at exactly three minutes", () => {
   const engine = makeEngine();
   engine.start(1_000, GAME_MODES.ZEN);
@@ -418,6 +552,31 @@ test("Zen records mistakes without losing lives and ends at exactly three minute
   assert.equal(result.snapshot.remainingMs, 0);
   assert.equal(result.snapshot.endReason, "time");
   assert.equal(engine.isRunComplete(), true);
+});
+
+test("Zen proof records its logical deadline separately from delayed handling", () => {
+  const engine = makeEngine();
+  engine.start(1_000, GAME_MODES.ZEN);
+
+  engine.finishTimedRun(181_010.4);
+  engine.finishTimedRun(181_020);
+
+  assert.deepEqual(engine.getRunProofEvents(), [[5, 180_000, 180_010]]);
+});
+
+test("Zen keeps an exact logical finish when a pre-deadline hit advances the handled clock", () => {
+  const engine = makeEngine();
+  engine.start(0.2, GAME_MODES.ZEN);
+  const active = engine.activateRound(179_901.0);
+  const hit = engine.tap(active.snapshot.targetIndex, 180_000.1, 180_001.2);
+  assert.equal(hit.type, "hit");
+
+  const result = engine.finishTimedRun(180_001.3);
+  assert.equal(result.type, "time-up");
+  assert.deepEqual(engine.getRunProofEvents().slice(-2), [
+    [1, 180_000, 180_001, active.snapshot.targetIndex],
+    [5, 180_000, 180_001]
+  ]);
 });
 
 test("Zen completion clears an expiring decoy without a post-deadline dodge", () => {
@@ -446,6 +605,20 @@ test("speed ratings classify the same rounded milliseconds shown to players", ()
   assert.equal(classifyReaction(449.49).id, SPEED_RATING_IDS.GREAT);
   assert.equal(classifyReaction(449.5).id, SPEED_RATING_IDS.GOOD);
   assert.equal(classifyReaction(-10).displayedMs, 0);
+});
+
+test("reaction score and statistics use the rounded displayed milliseconds", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+  const active = engine.activateRound(100);
+
+  const result = engine.tap(active.snapshot.targetIndex, 349.5, 350.4);
+
+  assert.equal(result.reactionMs, 249.5);
+  assert.equal(result.displayedReactionMs, 250);
+  assert.equal(result.basePointsAwarded, scoreReaction(250, 1_000));
+  assert.equal(result.snapshot.fastestReactionMs, 250);
+  assert.equal(result.snapshot.averageReactionMs, 250);
 });
 
 test("correct taps retain per-run speed rating counts with reaction statistics", () => {

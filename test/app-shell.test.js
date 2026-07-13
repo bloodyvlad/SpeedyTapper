@@ -4,12 +4,14 @@ import test from "node:test";
 
 const [
   indexHtml,
+  earlyBootstrapSource,
   mainSource,
   configSource,
   engineSource,
   mishaSource,
   musicSource,
   soundSource,
+  serviceWorkerRegistrationSource,
   workerSource,
   stylesSource,
   vercelIgnoreSource,
@@ -17,12 +19,14 @@ const [
   mishaSprite
 ] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
+  readFile(new URL("../src/early-bootstrap.js", import.meta.url), "utf8"),
   readFile(new URL("../src/main.js", import.meta.url), "utf8"),
   readFile(new URL("../src/config.js", import.meta.url), "utf8"),
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
   readFile(new URL("../src/misha-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/service-worker-registration.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
   readFile(new URL("../.vercelignore", import.meta.url), "utf8"),
@@ -33,13 +37,17 @@ const [
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-15");
+  assert.equal(buildId, "20260713-16");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
+  assert.match(indexHtml, new RegExp(`early-bootstrap\\.js\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`main\\.js\\?v=${buildId}`));
-  assert.match(indexHtml, new RegExp(`sw\\.js\\?v=\\$\\{buildId\\}`));
-  assert.match(indexHtml, new RegExp(`const buildId = "${buildId}";`));
+  assert.match(indexHtml, new RegExp(`service-worker-registration\\.js\\?v=${buildId}`));
+  assert.match(serviceWorkerRegistrationSource, new RegExp(`const buildId = "${buildId}";`));
+  assert.match(serviceWorkerRegistrationSource, /sw\.js\?v=\$\{buildId\}/);
+  assert.doesNotMatch(indexHtml, /<script(?![^>]*\bsrc=)[^>]*>/i);
+  assert.match(earlyBootstrapSource, /speedytapper\.theme\.v1/);
   assert.match(mainSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`game-engine\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
@@ -53,6 +61,8 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`early-bootstrap\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`service-worker-registration\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-climber\.png/);
@@ -370,7 +380,7 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(musicSource, /loopEnd/);
   assert.match(musicSource, /linearRampToValueAtTime/);
   assert.match(workerSource, /function cacheFirst\(request\)/);
-  assert.match(indexHtml, /speedyTapperWorkerReady/);
+  assert.match(serviceWorkerRegistrationSource, /speedyTapperWorkerReady/);
   assert.match(mainSource, /await globalThis\.speedyTapperWorkerReady/);
   assert.match(workerSource, /const MUSIC_ASSET_PATHS = new Set\(\[/);
   assert.match(
@@ -410,12 +420,26 @@ test("Google-only profiles replace local names and submit completed runs automat
   assert.match(mainSource, /profileClient\.loginWithGoogleCredential\(credential\)/);
   assert.match(mainSource, /profileClient\.updateNickname\(nickname\)/);
   assert.match(mainSource, /profileClient\.logout\(\)/);
+  assert.match(mainSource, /if \(hasConfirmedProfile\(\)\) \{[\s\S]*profileClient\.startRun\(mode, APP_BUILD_ID\)/);
   assert.match(mainSource, /profileClient\.submitResult\(\{/);
+  assert.match(mainSource, /\.\.\.submittedResult\.proof/);
+  assert.doesNotMatch(mainSource, /profileClient\.submitResult\(\{[\s\S]{0,500}score:/);
   assert.match(
     mainSource,
     /function finishGame\(snapshot, currentSession\)[\s\S]*void submitPendingResult\(\)/
   );
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /type="email"|type="password"|TikTok|Instagram|Facebook/i);
+});
+
+test("held and cloned proofs never claim a ranked result in Game Over copy", () => {
+  assert.match(mainSource, /verificationStatus === "review"[\s\S]*has not been ranked and no coins were awarded/);
+  assert.match(mainSource, /verificationStatus === "quarantined"[\s\S]*not ranked and no coins were awarded/);
+});
+
+test("pre-verification leaderboard rows are visibly labelled legacy", () => {
+  assert.match(mainSource, /entry\.verification === "legacy"/);
+  assert.match(mainSource, /legacyBadge\.textContent = "Legacy"/);
+  assert.match(stylesSource, /\.leaderboard-entry__verification/);
 });
 
 test("result leaderboard navigation preserves result context and renders compact absolute ranks", () => {

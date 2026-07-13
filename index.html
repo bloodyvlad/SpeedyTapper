@@ -10,29 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script>
-      (() => {
-        let theme = "classic";
-        let glyphs = "on";
-        try {
-          const storedTheme = window.localStorage.getItem("speedytapper.theme.v1");
-          if (storedTheme === "classic" || storedTheme === "disco") theme = storedTheme;
-          if (window.localStorage.getItem("speedytapper.colorBlindMode.v1") === "off") {
-            glyphs = "off";
-          }
-        } catch {
-          // Default display settings remain available when storage is restricted.
-        }
-        document.documentElement.dataset.theme = theme;
-        document.documentElement.dataset.glyphs = glyphs;
-        document.querySelector('meta[name="theme-color"]').content =
-          theme === "disco" ? "#050606" : "#0b0d18";
-      })();
-    </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-15" />
+    <script src="./src/early-bootstrap.js?v=20260713-16"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-16" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-15" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-16" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -448,69 +430,14 @@
             <p class="leaderboard-player-position" id="leaderboard-player-position" aria-live="polite" hidden></p>
             <p class="leaderboard-status" id="leaderboard-status" aria-live="polite">Loading scores…</p>
             <ol class="leaderboard-list" id="leaderboard-list"></ol>
-            <p class="leaderboard-note">Scores are not anti-cheat verified yet.</p>
+            <p class="leaderboard-note">New results are protocol-verified. Legacy results remain labelled until moderation.</p>
           </section>
         </div>
         <footer class="copyright-footer">Copyright © 2026 OTC Software</footer>
       </section>
     </div>
 
-    <script>
-      (() => {
-        const buildId = "20260713-15";
-        window.speedyTapperWorkerReady = Promise.resolve(false);
-        if (!("serviceWorker" in navigator)) return;
-
-        const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
-        let refreshing = false;
-        const hasCurrentWorker = () => {
-          const scriptUrl = navigator.serviceWorker.controller?.scriptURL;
-          if (!scriptUrl) return false;
-          try {
-            return new URL(scriptUrl).searchParams.get("v") === buildId;
-          } catch {
-            return false;
-          }
-        };
-        const waitForCurrentWorker = () => {
-          if (hasCurrentWorker()) return Promise.resolve(true);
-          return new Promise((resolve) => {
-            const handleControllerChange = () => {
-              if (!hasCurrentWorker()) return;
-              navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
-              resolve(true);
-            };
-            navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
-          });
-        };
-        navigator.serviceWorker.addEventListener("controllerchange", () => {
-          if (!replaceExistingWorker || refreshing) return;
-          const reloadKey = `speedytapper-worker-reload-${buildId}`;
-          try {
-            if (sessionStorage.getItem(reloadKey) === "1") return;
-            sessionStorage.setItem(reloadKey, "1");
-          } catch {
-            // A reload is still safe when session storage is unavailable.
-          }
-          refreshing = true;
-          window.location.reload();
-        });
-
-        window.speedyTapperWorkerReady = (async () => {
-          try {
-            const registration = await navigator.serviceWorker.register(`./sw.js?v=${buildId}`, {
-              updateViaCache: "none"
-            });
-            await registration.update();
-            await navigator.serviceWorker.ready;
-            return waitForCurrentWorker();
-          } catch {
-            // The online game remains playable if installation support is unavailable.
-            return false;
-          }
-        })();
-      })();
-    </script>
-    <script type="module" src="./src/main.js?v=20260713-15"></script>
+    <script src="./src/service-worker-registration.js?v=20260713-16"></script>
+    <script type="module" src="./src/main.js?v=20260713-16"></script>
   </body>
 </html>

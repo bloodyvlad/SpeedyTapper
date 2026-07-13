@@ -84,20 +84,32 @@ final class LeaderboardRepository
         });
     }
 
-    public function insertResultInTransaction(string $playerId, ScoreSubmission $score): bool
+    public function insertResultInTransaction(
+        string $playerId,
+        ScoreSubmission $score,
+        string $verificationStatus = 'verified',
+    ): bool
     {
         if (!$this->database->inTransaction()) {
             throw new LogicException('A leaderboard insert requires an active transaction.');
         }
+        if (!in_array($verificationStatus, ['verified', 'review', 'quarantined'], true)) {
+            throw new LogicException('A new result must be verified, held for review, or quarantined.');
+        }
 
-        return $this->insertResultRow($playerId, $score);
+        return $this->insertResultRow($playerId, $score, $verificationStatus);
     }
 
-    private function insertResultRow(string $playerId, ScoreSubmission $score): bool
+    private function insertResultRow(
+        string $playerId,
+        ScoreSubmission $score,
+        string $verificationStatus,
+    ): bool
     {
         $select = $this->database->prepare(
             'SELECT score, duration_ms, correct_taps FROM leaderboard_entries '
             . 'WHERE season_id = :season_id AND player_id = :player_id AND mode = :mode '
+            . "AND verification_status IN ('legacy', 'verified') "
             . 'ORDER BY ' . self::rankingOrderSql() . ' LIMIT 1 FOR UPDATE'
         );
         $select->execute([
@@ -106,17 +118,26 @@ final class LeaderboardRepository
             'mode' => $score->mode,
         ]);
         $current = $select->fetch();
-        $improved = !is_array($current) || $score->isBetterThan($current);
+        $improved = $verificationStatus === 'verified'
+            && (!is_array($current) || $score->isBetterThan($current));
         $parameters = $this->scoreParameters($playerId, $score);
         $parameters['id'] = $score->runId;
+        $parameters['verification_status'] = $verificationStatus;
+        $parameters['risk_score'] = $score->riskScore;
+        $parameters['risk_reasons'] = json_encode(
+            $score->riskFlags,
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+        );
         $statement = $this->database->prepare(
             'INSERT INTO leaderboard_entries '
             . '(id, season_id, player_id, mode, score, duration_ms, fastest_reaction_ms, '
             . 'average_reaction_ms, correct_taps, dodge_count, godlike_count, perfect_count, '
-            . 'great_count, good_count, achieved_at) VALUES '
+            . 'great_count, good_count, ruleset_id, proof_version, verified_at, verification_status, '
+            . 'risk_score, risk_reasons, achieved_at) VALUES '
             . '(:id, :season_id, :player_id, :mode, :score, :duration_ms, :fastest_reaction_ms, '
             . ':average_reaction_ms, :correct_taps, :dodge_count, :godlike_count, :perfect_count, '
-            . ':great_count, :good_count, UTC_TIMESTAMP(3))'
+            . ':great_count, :good_count, :ruleset_id, :proof_version, UTC_TIMESTAMP(3), '
+            . ':verification_status, :risk_score, :risk_reasons, UTC_TIMESTAMP(3))'
         );
         $statement->execute($parameters);
         return $improved;
@@ -138,13 +159,16 @@ final class LeaderboardRepository
             'perfect_count' => $score->perfectCount,
             'great_count' => $score->greatCount,
             'good_count' => $score->goodCount,
+            'ruleset_id' => RunProofValidator::RULESET_ID,
+            'proof_version' => RunProofValidator::PROOF_VERSION,
         ];
     }
 
     private function countEntries(string $mode): int
     {
         $statement = $this->database->prepare(
-            'SELECT COUNT(*) FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
+            'SELECT COUNT(*) FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode '
+            . "AND verification_status IN ('legacy', 'verified')"
         );
         $statement->execute(['season_id' => $this->seasonId, 'mode' => $mode]);
         return (int) $statement->fetchColumn();
@@ -155,7 +179,8 @@ final class LeaderboardRepository
         $statement = $this->database->prepare(
             'SELECT id, rank_position FROM ('
             . 'SELECT id, player_id, ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql() . ') AS rank_position '
-            . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
+            . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode '
+            . "AND verification_status IN ('legacy', 'verified')"
             . ') ranked WHERE player_id = :player_id ORDER BY rank_position ASC LIMIT 1'
         );
         $statement->execute([
@@ -174,7 +199,8 @@ final class LeaderboardRepository
         $statement = $this->database->prepare(
             'SELECT id, rank_position FROM ('
             . 'SELECT id, player_id, ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql() . ') AS rank_position '
-            . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
+            . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode '
+            . "AND verification_status IN ('legacy', 'verified')"
             . ') ranked WHERE id = :entry_id AND player_id = :player_id LIMIT 1'
         );
         $statement->execute([
@@ -199,9 +225,11 @@ final class LeaderboardRepository
             'WITH ranked AS (SELECT e.id, e.player_id, p.nickname, e.mode, e.score, e.duration_ms, '
             . 'e.fastest_reaction_ms, e.average_reaction_ms, e.correct_taps, e.dodge_count, '
             . 'e.godlike_count, e.perfect_count, e.great_count, e.good_count, e.achieved_at, '
+            . 'e.verification_status, '
             . 'ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql('e.') . ') AS rank_position '
             . 'FROM leaderboard_entries e INNER JOIN players p ON p.id = e.player_id '
-            . 'WHERE e.season_id = :season_id AND e.mode = :mode) '
+            . "WHERE e.season_id = :season_id AND e.mode = :mode "
+            . "AND e.verification_status IN ('legacy', 'verified')) "
             . 'SELECT * FROM ranked WHERE rank_position <= ' . LeaderboardWindow::TOP_COUNT
             . $contextClause . ' ORDER BY rank_position ASC'
         );
@@ -262,6 +290,7 @@ final class LeaderboardRepository
                 ->format('Y-m-d\TH:i:s.v\Z'),
             'isCurrentPlayer' => $playerId !== null && hash_equals((string) $row['player_id'], $playerId),
             'isContextResult' => $contextEntryId !== null && hash_equals((string) $row['id'], $contextEntryId),
+            'verification' => (string) $row['verification_status'],
         ];
     }
 

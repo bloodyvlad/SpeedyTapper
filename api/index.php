@@ -13,6 +13,8 @@ use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\RunSubmissionService;
+use SpeedyTapper\RunAttemptService;
+use SpeedyTapper\RunProofValidator;
 use SpeedyTapper\SessionStore;
 
 $projectRoot = dirname(__DIR__);
@@ -37,7 +39,8 @@ try {
         config: $config,
         players: new PlayerRepository($database),
         leaderboard: $leaderboard,
-        runs: new RunSubmissionService($database, $leaderboard),
+        attempts: new RunAttemptService($database),
+        runs: new RunSubmissionService($database, $leaderboard, new RunProofValidator()),
         session: new SessionStore($request->isSecure()),
         google: new GoogleClientIdentityVerifier($config->googleClientId),
     );

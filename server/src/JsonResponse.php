@@ -12,6 +12,9 @@ final class JsonResponse
         header('Cache-Control: no-store');
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: DENY');
+        header('Referrer-Policy: no-referrer');
+        header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()');
         foreach ($headers as $name => $value) {
             header($name . ': ' . $value);
         }
