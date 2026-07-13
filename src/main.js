@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-9";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-9";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-10";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-10";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-9";
+} from "./input-timing.js?v=20260713-10";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-9";
-import { createSoundController } from "./sound-controller.js?v=20260713-9";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-9";
+} from "./music-controller.js?v=20260713-10";
+import { createSoundController } from "./sound-controller.js?v=20260713-10";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-10";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -115,7 +115,6 @@ const elements = {
   speedSummarySegments: [...document.querySelectorAll("[data-speed-segment]")],
   speedSummaryTotal: document.querySelector("#speed-summary-total"),
   streakMeter: document.querySelector("#streak-meter"),
-  streakMeterCount: document.querySelector("#streak-meter-count"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
   themeInputs: [...document.querySelectorAll('input[name="theme"]')],
@@ -330,10 +329,8 @@ function renderStreak(snapshot) {
     ? 1
     : Math.max(0, Math.min(1, snapshot.streakProgress / snapshot.streakTarget));
   elements.streakMeter.style.setProperty("--streak-progress", String(progress));
-  elements.scoreMultiplier.textContent = `${snapshot.multiplier}×`;
-  elements.streakMeterCount.textContent = maximumReached
-    ? "MAX"
-    : `${snapshot.streakProgress} / ${snapshot.streakTarget}`;
+  elements.streakMeter.classList.toggle("streak-meter--full", maximumReached);
+  elements.scoreMultiplier.textContent = `x${snapshot.multiplier}`;
   const nextMultiplier = Math.min(snapshot.maximumMultiplier, snapshot.multiplier + 1);
   elements.streakMeter.setAttribute(
     "aria-label",

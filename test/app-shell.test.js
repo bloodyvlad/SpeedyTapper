@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-9");
+  assert.equal(buildId, "20260713-10");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -272,7 +272,8 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
     "Misses, dodges, and unready cues must never trigger or replay a melody note."
   );
   assert.match(mainSource, /resolveInteractiveMusicSection\(snapshot\)/);
-  assert.match(musicSource, /MAX_NOTE_VOICES = 4/);
+  assert.match(musicSource, /MUSIC_GAIN = 0\.45/);
+  assert.match(musicSource, /MAX_NOTE_VOICES = 2/);
   assert.match(musicSource, /latencyHint: interactive \? "interactive" : "playback"/);
   assert.match(musicSource, /prepareInteractiveTrack\(desiredTrackIndex/);
   assert.match(musicSource, /createBufferSource\(\)/);
@@ -451,10 +452,13 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(indexHtml, /id="speed-rating-overlay" aria-hidden="true"/);
   assert.match(indexHtml, /id="speed-summary-bar"/);
   assert.match(indexHtml, /id="streak-meter"/);
-  assert.match(indexHtml, /id="score-multiplier">1×</);
+  assert.match(indexHtml, /class="streak-meter__multiplier" id="score-multiplier">x1</);
+  assert.doesNotMatch(indexHtml, /streak-meter-count|0 \/ 5/);
   assert.match(configSource, /tapsPerMultiplier:\s*5/);
   assert.match(configSource, /maximumMultiplier:\s*5/);
   assert.match(mainSource, /function renderStreak\(snapshot\)/);
+  assert.match(mainSource, /classList\.toggle\("streak-meter--full", maximumReached\)/);
+  assert.match(mainSource, /textContent = `x\$\{snapshot\.multiplier\}`/);
   assert.match(mainSource, /multiplierBasePoints/);
   assert.match(mainSource, /runId:\s*submittedResult\.runId/);
   assert.match(mainSource, /createLeaderboardSpeedBar\(ratings\)/);
@@ -471,6 +475,8 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
     /elements\.speedRatingOverlay\.className = "speed-rating-overlay";\s*void elements\.speedRatingOverlay\.offsetWidth;/
   );
   assert.match(stylesSource, /\.speed-summary__segment--perfect/);
+  assert.match(stylesSource, /@keyframes streak-fill-sheen/);
+  assert.match(stylesSource, /\.streak-meter--full \.streak-meter__track/);
   assert.match(mainSource, /function hasConfirmedProfile\(\)/);
   assert.match(mainSource, /profile\?\.nicknameConfirmed === true/);
   assert.match(mainSource, /submittedResult\.improved = body\.improved === true/);

@@ -225,6 +225,7 @@ test("music preloads three tracks, loops their regions, and rotates atomically",
   await flushAsyncWork();
   await music.unlock();
   const context = FakeAudioContext.instances[0];
+  assert.equal(context.gains[0].gain.value, 0.45, "Music must use the normalized master mix.");
   assert.equal(fetchRecorder.calls.length, 3);
   assert.deepEqual(
     fetchRecorder.calls.map(({ url }) => url),
@@ -351,6 +352,10 @@ test("Interactive Music is opt-in and loads only one backing and note bank", asy
 
   assert.equal(music.playCorrectTap(1), true);
   assert.deepEqual(context.bufferSources[1].startCalls[0], [5, 0, 0.5]);
+  assert.ok(
+    Math.abs(context.bufferSources[1].connections[0].gain.value - 0.6264) < 0.000001,
+    "The accented tap note must retain its audible balance inside the normalized music bus."
+  );
   assert.equal(music.playCorrectTap(2), true);
   assert.deepEqual(context.bufferSources[2].startCalls[0], [5, 1.5, 0.5]);
 });
@@ -419,11 +424,12 @@ test("Interactive tap notes skip while unready and cap overlapping voices", asyn
   }
   await flushAsyncWork();
   assert.equal(context.bufferSources.length, 1, "Readiness must not replay the skipped note.");
-  for (let hit = 1; hit <= 5; hit += 1) assert.equal(music.playCorrectTap(hit), true);
-  assert.equal(context.bufferSources.length, 6);
-  assert.ok(
-    context.bufferSources.slice(1, 5).some((source) => source.stopCalls.length === 1),
-    "The fifth simultaneous note must fade and stop the oldest voice."
+  for (let hit = 1; hit <= 3; hit += 1) assert.equal(music.playCorrectTap(hit), true);
+  assert.equal(context.bufferSources.length, 4);
+  assert.equal(
+    context.bufferSources[1].stopCalls.length,
+    1,
+    "The third simultaneous note must fade and stop the oldest voice to preserve mix headroom."
   );
 });
 

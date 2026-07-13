@@ -77,7 +77,7 @@ test("the switch to 16 cells resets target lifetime and eases decoy capacity", (
   assert.equal(difficulty.phaseId, "four-by-four-reset");
   assert.equal(difficulty.responseWindowMs, 1_000);
   assert.equal(difficulty.maximumActiveDecoys, 1);
-  assert.deepEqual(difficulty.decoySpawnDelayRangeMs, [900, 1_400]);
+  assert.deepEqual(difficulty.decoySpawnDelayRangeMs, [1_100, 1_700]);
 });
 
 test("the endless challenge accelerates targets and independent decoy opportunities", () => {
@@ -88,16 +88,16 @@ test("the endless challenge accelerates targets and independent decoy opportunit
 
   assert.equal(start.responseWindowMs, 1_000);
   assert.equal(start.maximumActiveDecoys, 2);
-  assert.deepEqual(start.decoySpawnDelayRangeMs, [350, 700]);
+  assert.deepEqual(start.decoySpawnDelayRangeMs, [450, 850]);
   assert.equal(tenHits.responseWindowMs, 900);
   assert.equal(tenHits.maximumActiveDecoys, 3);
-  assert.deepEqual(tenHits.decoySpawnDelayRangeMs, [315, 650]);
+  assert.deepEqual(tenHits.decoySpawnDelayRangeMs, [415, 800]);
   assert.equal(fortyHits.responseWindowMs, 600);
   assert.equal(fortyHits.maximumActiveDecoys, 6);
-  assert.deepEqual(fortyHits.decoySpawnDelayRangeMs, [210, 500]);
+  assert.deepEqual(fortyHits.decoySpawnDelayRangeMs, [310, 650]);
   assert.equal(capped.responseWindowMs, 200);
   assert.equal(capped.maximumActiveDecoys, 6);
-  assert.deepEqual(capped.decoySpawnDelayRangeMs, [100, 250]);
+  assert.deepEqual(capped.decoySpawnDelayRangeMs, [300, 550]);
 });
 
 test("independent decoy scheduling wakes at the phase boundary and then uses its own range", () => {
@@ -106,8 +106,8 @@ test("independent decoy scheduling wakes at the phase boundary and then uses its
 
   assert.equal(engine.getNextDecoyDelayMs(2_500), 7_500);
   engine.hits = 4;
-  assert.equal(engine.getNextDecoyDelayMs(10_000), 900);
-  assert.equal(engine.getNextDecoyDelayMs(35_000), 600);
+  assert.equal(engine.getNextDecoyDelayMs(10_000), 1_100);
+  assert.equal(engine.getNextDecoyDelayMs(35_000), 750);
 });
 
 test("decoys can appear while waiting or during a target and can overlap", () => {
@@ -276,7 +276,7 @@ test("a lost life creates an engine-enforced quiet recovery for targets and deco
   assert.equal(miss.type, "miss");
   assert.equal(miss.snapshot.recoveryRemainingMs, GAME_CONFIG.lifeLossRecoveryMs);
   assert.equal(engine.getNextDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 475);
-  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 600);
+  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 750);
 
   const beforeRecoveryEnds = missedAt + GAME_CONFIG.lifeLossRecoveryMs - 1;
   assert.equal(engine.activateRound(beforeRecoveryEnds).reason, "recovering");
@@ -328,7 +328,7 @@ test("recovery delays use the difficulty in effect after the quiet period", () =
   engine.tap(0, missedAt);
 
   assert.equal(engine.getNextDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 550);
-  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 900);
+  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 1_100);
 });
 
 test("Normal mode is endless until the third mistake", () => {
@@ -379,16 +379,16 @@ test("Zen completion clears an expiring decoy without a post-deadline dodge", ()
 });
 
 test("speed ratings classify the same rounded milliseconds shown to players", () => {
-  assert.deepEqual(classifyReaction(199.49), {
+  assert.deepEqual(classifyReaction(249.49), {
     id: SPEED_RATING_IDS.GODLIKE,
     label: "Godlike",
-    displayedMs: 199
+    displayedMs: 249
   });
-  assert.equal(classifyReaction(199.5).id, SPEED_RATING_IDS.PERFECT);
-  assert.equal(classifyReaction(299.49).id, SPEED_RATING_IDS.PERFECT);
-  assert.equal(classifyReaction(299.5).id, SPEED_RATING_IDS.GREAT);
-  assert.equal(classifyReaction(399.49).id, SPEED_RATING_IDS.GREAT);
-  assert.equal(classifyReaction(399.5).id, SPEED_RATING_IDS.GOOD);
+  assert.equal(classifyReaction(249.5).id, SPEED_RATING_IDS.PERFECT);
+  assert.equal(classifyReaction(349.49).id, SPEED_RATING_IDS.PERFECT);
+  assert.equal(classifyReaction(349.5).id, SPEED_RATING_IDS.GREAT);
+  assert.equal(classifyReaction(449.49).id, SPEED_RATING_IDS.GREAT);
+  assert.equal(classifyReaction(449.5).id, SPEED_RATING_IDS.GOOD);
   assert.equal(classifyReaction(-10).displayedMs, 0);
 });
 
@@ -441,7 +441,7 @@ test("five Godlike or Perfect taps unlock the next multiplier for the following 
   assert.equal(multipliedHit.snapshot.multiplier, 2);
 });
 
-test("Great preserves streak progress while Good resets before scoring", () => {
+test("Great and Good preserve streak progress and the current multiplier", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
@@ -457,12 +457,14 @@ test("Great preserves streak progress while Good resets before scoring", () => {
   const unlock = hitRound(engine, 5_100, 150);
   assert.equal(unlock.snapshot.multiplier, 2);
 
-  const good = hitRound(engine, 6_100, 450);
+  const nextFastTap = hitRound(engine, 6_100, 150);
+  assert.equal(nextFastTap.snapshot.streakProgress, 1);
+  const good = hitRound(engine, 7_100, 450);
   assert.equal(good.speedRating.id, SPEED_RATING_IDS.GOOD);
-  assert.equal(good.multiplierUsed, 1);
-  assert.equal(good.pointsAwarded, good.basePointsAwarded);
-  assert.equal(good.snapshot.multiplier, 1);
-  assert.equal(good.snapshot.streakProgress, 0);
+  assert.equal(good.multiplierUsed, 2);
+  assert.equal(good.pointsAwarded, good.basePointsAwarded * 2);
+  assert.equal(good.snapshot.multiplier, 2);
+  assert.equal(good.snapshot.streakProgress, 1);
 });
 
 test("mistakes reset the multiplier in both game modes while dodges are neutral", () => {

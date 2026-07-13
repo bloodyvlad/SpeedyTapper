@@ -94,10 +94,10 @@ const TRANSITION_BY_PAIR = new Map(
     transition
   ])
 );
-const MUSIC_GAIN = 0.22;
+const MUSIC_GAIN = 0.45;
 const NOTE_GAIN = 0.58;
 const NOTE_SLOT_SECONDS = 24_000 / SAMPLE_RATE;
-const MAX_NOTE_VOICES = 4;
+const MAX_NOTE_VOICES = 2;
 const CROSSFADE_SECONDS = 0.12;
 const TRANSITION_CROSSFADE_SECONDS = 0.024;
 const NOTE_RELEASE_SECONDS = 0.012;

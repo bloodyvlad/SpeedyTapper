@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-9";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-10";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -19,9 +19,9 @@ export const SPEED_RATING_IDS = Object.freeze({
 });
 
 export const SPEED_RATINGS = Object.freeze([
-  Object.freeze({ id: SPEED_RATING_IDS.GODLIKE, label: "Godlike", maximumExclusiveMs: 200 }),
-  Object.freeze({ id: SPEED_RATING_IDS.PERFECT, label: "Perfect", maximumExclusiveMs: 300 }),
-  Object.freeze({ id: SPEED_RATING_IDS.GREAT, label: "Great", maximumExclusiveMs: 400 }),
+  Object.freeze({ id: SPEED_RATING_IDS.GODLIKE, label: "Godlike", maximumExclusiveMs: 250 }),
+  Object.freeze({ id: SPEED_RATING_IDS.PERFECT, label: "Perfect", maximumExclusiveMs: 350 }),
+  Object.freeze({ id: SPEED_RATING_IDS.GREAT, label: "Great", maximumExclusiveMs: 450 }),
   Object.freeze({ id: SPEED_RATING_IDS.GOOD, label: "Good", maximumExclusiveMs: Infinity })
 ]);
 
@@ -496,9 +496,6 @@ export class GameEngine {
     }
 
     const speedRating = classifyReaction(reactionMs);
-    if (speedRating.id === SPEED_RATING_IDS.GOOD) {
-      this.#resetStreak();
-    }
     const multiplierUsed = this.multiplier;
     this.maximumMultiplierUsed = Math.max(this.maximumMultiplierUsed, multiplierUsed);
     const basePointsAwarded = scoreReaction(

@@ -3,8 +3,8 @@ const SOUND_FILES = Object.freeze({
   oops: "./assets/audio/oops.wav"
 });
 
-const HUM_GAIN = 0.3;
-const OOPS_GAIN = 0.68;
+const HUM_GAIN = 0.75;
+const OOPS_GAIN = 0.55;
 const HUM_ATTACK_TIME_CONSTANT = 0.008;
 const HUM_RELEASE_TIME_CONSTANT = 0.012;
 const MASTER_ATTACK_TIME_CONSTANT = 0.012;

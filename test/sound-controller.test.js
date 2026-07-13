@@ -450,7 +450,7 @@ test("an unmanaged iOS interruption closes stale gates before resuming", async (
   const humGain = hum.connections.find((node) => node instanceof FakeGainNode);
 
   sound.tileOn();
-  assert.equal(humGain.gain.value, 0.3);
+  assert.equal(humGain.gain.value, 0.75);
   context.changeState("interrupted");
   const restarting = sound.startRun();
 
@@ -580,6 +580,7 @@ test("the hum is one persistent loop controlled by smooth click-resistant target
     (event) => event.method === "setTargetAtTime" && event.value > 0
   );
   assert.ok(onTarget, "tileOn should smoothly approach an audible gain.");
+  assert.equal(onTarget.value, 0.75, "The ambient cue must use the normalized SFX mix.");
   assert.equal(onTarget.time, 10);
   assert.ok(
     onTarget.timeConstant >= 0.006 && onTarget.timeConstant <= 0.01,
@@ -622,6 +623,12 @@ test("life-loss cues cannot overlap and clip the output", async () => {
   assert.equal(oneShots[0].startCalls.length, 1);
   const oneShotGain = oneShots[0].connections.find((node) => node instanceof FakeGainNode);
   assert.equal(oneShotGain.gain.events[0]?.value, 0);
+  assert.ok(
+    oneShotGain.gain.events.some(
+      (event) => event.method === "linearRampToValueAtTime" && event.value === 0.55
+    ),
+    "The life-loss cue must peak at the normalized SFX level."
+  );
 
   oneShots[0].onended();
   sound.lifeLost();
@@ -656,7 +663,7 @@ test("starting a new run fades and stops a stale failure cue", async () => {
   );
   assert.ok(fadeTarget);
   assert.ok(
-    Math.abs(heldReleaseGain.value - 0.34) < 0.001,
+    Math.abs(heldReleaseGain.value - 0.275) < 0.001,
     "Restart must hold the cue's instantaneous release value before fading."
   );
   assert.ok(

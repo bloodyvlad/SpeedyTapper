@@ -158,8 +158,7 @@ $throwsApi(
     ]),
     'Maximum multiplier cannot exceed the milestone allowed by elite taps.',
 );
-$throwsApi(
-    static fn () => ScoreSubmission::fromArray([
+$goodAtMultiplierRun = ScoreSubmission::fromArray([
         'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0461',
         'mode' => 'normal',
         'score' => 7_000,
@@ -174,8 +173,12 @@ $throwsApi(
         'fastestReactionMs' => 100,
         'averageReactionMs' => 400,
         'speedRatings' => ['godlike' => 5, 'perfect' => 0, 'great' => 0, 'good' => 1],
-    ]),
-    'Good reactions cannot occupy a multiplied hit after the five elite unlock taps.',
+    ]);
+$assert(
+    $goodAtMultiplierRun->goodCount === 1
+        && $goodAtMultiplierRun->multiplierTwoHits === 1
+        && $goodAtMultiplierRun->multiplierBonusPoints === 1_000,
+    'Good reactions preserve and use the multiplier unlocked by five elite taps.',
 );
 
 $maxMultiplierRun = ScoreSubmission::fromArray([

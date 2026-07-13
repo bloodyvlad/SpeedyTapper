@@ -63,8 +63,8 @@ export const GAME_CONFIG = Object.freeze({
     spawnMaximumDecreasePerTierMs: 25,
     minimumSpawnDelayMs: 250,
     maximumSpawnDelayFloorMs: 500,
-    decoyMinimumDelayMs: 100,
-    decoyMaximumDelayFloorMs: 250,
+    decoyMinimumDelayMs: 300,
+    decoyMaximumDelayFloorMs: 550,
     decoyMinimumDecreasePerTierMs: 35,
     decoyMaximumDecreasePerTierMs: 50
   }),
@@ -81,11 +81,11 @@ export const GAME_CONFIG = Object.freeze({
     lifetimeRangeMs: Object.freeze([300, 500]),
     retryDelayMs: 150,
     spawnDelayRangesMs: Object.freeze({
-      colorPatience: Object.freeze([900, 1_500]),
-      gentleRamp: Object.freeze([800, 1_300]),
-      rareDecoys: Object.freeze([600, 1_000]),
-      fourByFourReset: Object.freeze([900, 1_400]),
-      fourByFourChallenge: Object.freeze([350, 700])
+      colorPatience: Object.freeze([1_100, 1_800]),
+      gentleRamp: Object.freeze([1_000, 1_600]),
+      rareDecoys: Object.freeze([750, 1_250]),
+      fourByFourReset: Object.freeze([1_100, 1_700]),
+      fourByFourChallenge: Object.freeze([450, 850])
     })
   }),
   dodgePoints: 550,

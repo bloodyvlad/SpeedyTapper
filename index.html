@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-9" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-10" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-9" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-10" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -115,14 +115,11 @@
           <div class="speed-rating-overlay" id="speed-rating-overlay" aria-hidden="true"></div>
         </div>
         <section class="streak-meter" id="streak-meter" aria-label="Fast-reaction streak: 0 of 5 toward 2 times score">
-          <div class="streak-meter__heading">
-            <span>Fast streak</span>
-            <strong id="score-multiplier">1×</strong>
-          </div>
           <div class="streak-meter__track" aria-hidden="true">
             <span class="streak-meter__fill" id="streak-meter-fill"></span>
+            <span class="streak-meter__label">Speed streak</span>
           </div>
-          <span class="streak-meter__count" id="streak-meter-count">0 / 5</span>
+          <strong class="streak-meter__multiplier" id="score-multiplier">x1</strong>
         </section>
       </main>
     </div>
@@ -436,7 +433,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-9";
+        const buildId = "20260713-10";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -490,6 +487,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-9"></script>
+    <script type="module" src="./src/main.js?v=20260713-10"></script>
   </body>
 </html>

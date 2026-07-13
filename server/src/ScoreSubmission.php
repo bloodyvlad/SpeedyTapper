@@ -146,11 +146,6 @@ final readonly class ScoreSubmission
         if ($godlike + $perfect < 5 * ($maxMultiplier - 1)) {
             throw new ApiException(400, 'Maximum multiplier does not match the speed ratings.');
         }
-        $requiredEliteHitsAtOne = $maxMultiplier > 1 ? 5 : 0;
-        if ($good > $multiplierOneHits - $requiredEliteHitsAtOne) {
-            throw new ApiException(400, 'Good reactions cannot be scored above the one-times multiplier.');
-        }
-
         $fastest = self::nullableInteger($input['fastestReactionMs'] ?? null, 'Fastest reaction', self::MAX_REACTION_MS);
         $average = self::nullableInteger($input['averageReactionMs'] ?? null, 'Average reaction', self::MAX_REACTION_MS);
         if (($fastest === null) !== ($average === null)) {

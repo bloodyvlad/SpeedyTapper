@@ -325,3 +325,29 @@ Decision: Give every started run a client-generated UUID retained through Game O
 Consequences: Lower non-best runs still earn play-time coins. Unsigned runs can be credited after Google sign-in and nickname confirmation while their Game Over result remains pending. The client remains browser-authoritative, so coins are farmable and must not be sold, redeemed, or treated as secure value without server-verifiable gameplay.
 
 Revisit when: Coins gain spending, rewards, purchases, fraud incentives, offline earning, account deletion/export requirements, or server-authoritative run evidence.
+
+## D-025 — Normalize the runtime mix without replacing approved masters
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Objective loudness measurement shows that the approved music and Interactive note assets are already normally mastered around −15 to −13 LUFS, but the runtime music bus attenuates them by about 13 dB. Phone playtesting consequently requires excessive hardware volume, while the life-loss cue sits much closer to a normal audible level.
+
+Decision: Preserve every approved runtime file and rollback master. Raise the shared music master from `0.22` to `0.45`, retain `0.58` relative gain for tap notes, and cap simultaneous tap-note voices at two. Raise the subtle target hum from `0.30` to `0.75` and rebalance the life-loss cue from `0.68` to `0.55`. Do not add a limiter or destructively normalize/re-encode source assets in this pass.
+
+Consequences: Music becomes about 6.2 dB louder, the ambient cue becomes audible without competing with targets, and the failure cue remains clear without dominating the raised soundtrack. The two-note cap retains conservative headroom for the worst supported backing-plus-note mix. Automated gain tests cannot replace physical-iPhone Safari and installed-PWA listening before production validation.
+
+Revisit when: Physical-device listening finds the soundtrack still too quiet, note attacks become masked, the hum distracts from play, a user volume control is added, or a proper output limiter permits a hotter mix.
+
+## D-026 — Relax speed bands and decoy cadence without removing mastery
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Playtesting finds the prior 200/300/400 ms rating bands unnecessarily strict, late decoys can begin only 100 ms apart, and a merely Good correct tap erases too much earned streak progress. The compact five-pixel streak line also hides the mechanic.
+
+Decision: Classify the same rounded reaction value as Godlike below 250 ms, Perfect below 350 ms, Great below 450 ms, and Good otherwise. Godlike and Perfect continue to advance the five-hit meter; Great and Good preserve the current progress and multiplier without advancing it; mistakes remain the only reset. Raise decoy phase intervals and enforce a 300 ms late-game onset floor while retaining 300–500 ms lifetimes and occasional overlap. Replace the thin progress line and visible fraction with a large animated gradient fill, an explicit `x1`–`x5` label, and a glow at full charge. This supersedes D-019 and D-023 where their thresholds, Good reset, cadence, or meter presentation conflict.
+
+Consequences: More correct taps retain earned multiplier progress, ratings better match current phone playtests, and decoys remain independent without clustering into unreadable bursts. Scores produced under these rules are not directly comparable with older rows; production deployment needs an explicit leaderboard-retention or reset decision because this change does not itself authorize data deletion.
+
+Revisit when: Telemetry or playtesting supports different bands, Good should advance rather than preserve, a 300 ms decoy gap feels sparse, the meter competes with the board on small screens, or leaderboard continuity is resolved another way.
