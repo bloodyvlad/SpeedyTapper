@@ -80,6 +80,9 @@ final class App
         if ($request->path === '/api/leaderboard' && $request->method === 'POST') {
             $request->guardSameOriginMutation();
             $profile = $this->requirePlayer();
+            if (($profile['nicknameConfirmed'] ?? false) !== true) {
+                throw new ApiException(409, 'Choose a public nickname before saving a score.');
+            }
             $this->session->enforceScoreRateLimit();
             $score = ScoreSubmission::fromArray($request->json());
             JsonResponse::send(201, $this->leaderboard->submit($profile['id'], $score));

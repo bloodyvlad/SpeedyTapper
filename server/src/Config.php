@@ -20,8 +20,36 @@ final readonly class Config
 
     public static function load(string $projectRoot): self
     {
-        $localPath = $projectRoot . '/server/config.local.php';
-        $local = is_file($localPath) ? require $localPath : [];
+        $explicitPath = getenv('SPEEDYTAPPER_CONFIG_PATH');
+        $home = getenv('HOME');
+        if (($home === false || trim($home) === '') && isset($_SERVER['HOME'])) {
+            $home = (string) $_SERVER['HOME'];
+        }
+        if (($home === false || trim((string) $home) === '') && isset($_SERVER['DOCUMENT_ROOT'])) {
+            $documentRoot = str_replace('\\', '/', (string) $_SERVER['DOCUMENT_ROOT']);
+            if (preg_match('#^(/home/[^/]+)/domains/[^/]+/public_html(?:/|$)#', $documentRoot, $matches)) {
+                $home = $matches[1];
+            }
+        }
+        $candidatePaths = [];
+        if (is_string($explicitPath) && trim($explicitPath) !== '') {
+            $candidatePaths[] = trim($explicitPath);
+        }
+        if (is_string($home) && trim($home) !== '') {
+            $candidatePaths[] = rtrim(trim($home), '/') . '/.config/speedytapper/config.php';
+        }
+        // This ignored in-project fallback is for local development only. Production uses
+        // SPEEDYTAPPER_CONFIG_PATH or the private file under the hosting account home.
+        $candidatePaths[] = $projectRoot . '/server/config.local.php';
+
+        $local = [];
+        foreach ($candidatePaths as $candidatePath) {
+            if (!is_file($candidatePath)) {
+                continue;
+            }
+            $local = require $candidatePath;
+            break;
+        }
         if (!is_array($local)) {
             throw new ApiException(503, 'Server configuration is invalid.');
         }

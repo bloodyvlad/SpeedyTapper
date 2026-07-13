@@ -22,21 +22,23 @@ Codex tasks share the filesystem but not their transcripts. Assume an unexplaine
 | Concern | Source of truth |
 | --- | --- |
 | Code and release contents | Git commit |
-| Production runtime | Vercel deployment attached to that commit |
+| PHP production runtime | Hostinger deployment of the exact `php-main` commit |
+| Legacy rollback runtime | Immutable Vercel deployment attached to its commit |
 | Current setup and committed target behavior | `README.md` at the target commit |
 | Durable product and architecture decisions | `docs/DECISIONS.md` |
 | Task status and backlog | One issue tracker, preferably GitHub Issues once a remote exists |
 | Visual review evidence | `design-qa.md` and referenced screenshots |
 | Audio provenance and masters | `assets/audio/SOURCES.md` and retained source assets |
 
-Do not use README files, QA notes, or conversation history as proof of what is deployed. Verify the production alias and its immutable Vercel deployment.
+Do not use README files, QA notes, or conversation history as proof of what is deployed. Verify the Hostinger alias and exact Git commit; retain the immutable Vercel deployment as the legacy rollback generation.
 
 Proposed decisions and uncommitted experiments must not appear under README committed/current rules or be described as released. Keep them in a clearly labelled unreleased section until the decision is accepted and the implementation is committed.
 
 ## Setup and required checks
 
-- Node.js 20 or newer is required.
+- Node.js 20 or newer and PHP 8.2 or newer are required.
 - Install exact dependencies with `npm ci` when setup is needed.
+- Install PHP dependencies with `composer install` when backend setup is needed.
 - Start the local app with `npm run dev`; it listens on port 4173 by default.
 - Run `npm run check` before every implementation handoff.
 - Run `git diff --check` before staging or committing.
@@ -51,8 +53,11 @@ Proposed decisions and uncommitted experiments must not appear under README comm
 - `src/main.js`: DOM rendering, input wiring, navigation, persistence, and controller coordination.
 - `src/sound-controller.js`: optional low-latency Sound FX lifecycle.
 - `src/music-controller.js`: adaptive music lifecycle when present in an accepted release.
-- `lib/leaderboard-model.js`: shared validation and deterministic ranking.
-- `api/leaderboard.js`: storage adapter and HTTP boundary.
+- `src/profile-client.js`: same-origin Google profile and leaderboard client.
+- `server/src/`: PHP identity, session, validation, and MySQL repository rules.
+- `api/index.php`: PHP HTTP boundary for extensionless `/api/*` routes.
+- `server/migrations/`: reviewed, repeatable MySQL schema migrations.
+- `lib/leaderboard-model.js` and `api/leaderboard.js`: retained legacy Vercel rollback generation.
 - `sw.js`: PWA release graph and cache behavior.
 - `test/`: deterministic coverage mirroring behavior and release wiring.
 
@@ -61,13 +66,13 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 ## Gameplay and data invariants
 
 - Normal mode is endless and ends only after all three lives are lost.
-- Zen mode lasts exactly 60 seconds and never removes lives.
+- Zen mode lasts exactly 180 seconds and never removes lives.
 - Wrong colors, inactive cells, empty-board taps, and expired correct targets remain mistakes in Normal mode.
-- Leaderboards are mode-specific and retain at most 1,000 entries. Public reads show the top five; a successful submission may additionally return that run with two neighboring ranks on each side.
-- Production leaderboard data uses Vercel Blob; local development uses ignored `.data/leaderboard.json`.
-- Preserve compatibility with legacy leaderboard rows when changing validation.
-- There are no player profiles, personal best records, or local score histories.
-- Only the last validated leaderboard name may be remembered locally to prefill the form.
+- Independent decoys never use the player's color, live for at most 500 ms, and may overlap. Natural expiry awards a dodge; a correct target tap or any failed/ended round clears live decoys without awarding a dodge.
+- Speed ratings use the same rounded milliseconds shown to the player: under 200 Godlike, under 300 Perfect, under 400 Great, otherwise Good.
+- Hostinger leaderboards are mode- and season-specific and store one best row per Google profile. Public reads show the top five and an authenticated player with two neighboring ranks on each side.
+- Google ID tokens are verified server-side. Require an explicitly confirmed public nickname before score submission; never import or publish the Google display name. Store only the internal UUID, public nickname, confirmation flag, and one-way Google-subject digest—never raw Google subjects, tokens, email addresses, or passwords.
+- PHP production data uses Hostinger MariaDB/MySQL. The Vercel Blob board is a separate read-only rollback generation and is not imported into the clean season.
 - The browser-authoritative prototype is not anti-cheat secure; do not describe it as competitive integrity.
 
 ## Audio invariants
@@ -112,10 +117,11 @@ Production deployment requires explicit user authorization.
 3. Commit the exact release contents.
 4. Confirm the source tree for deployment is clean.
 5. Prefer merged `main`; for a manual release, deploy from an isolated worktree checked out at the exact commit.
-6. Run `vercel deploy --prod --yes` only from that clean commit checkout.
-7. Smoke-test the production alias, build ID, service worker, required assets, and leaderboard API.
-8. Record the commit SHA, build ID, Vercel deployment ID, immutable URL, and previous rollback deployment.
-9. Retain the previous immutable deployment until the new release is verified.
+6. Deploy that exact commit to the isolated `speedytapper.otcsoft.com` document root through Hostinger Git, or an explicitly configured SSH/SFTP release path.
+7. Run the reviewed MySQL migration and keep runtime credentials in `~/.config/speedytapper/config.php`, outside Git and the web root.
+8. Smoke-test HTTPS, build ID, service worker, required assets, PHP health/session routes, Google sign-in, and both leaderboard modes.
+9. Record the commit SHA, build ID, Hostinger target/path, migration/season ID, and previous immutable Vercel rollback deployment.
+10. Retain the previous immutable Vercel deployment until the Hostinger release is verified.
 
 Never deploy a dirty shared checkout, even when unrelated files appear harmless.
 

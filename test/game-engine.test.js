@@ -204,7 +204,7 @@ test("a correct target tap clears live decoys without awarding dodge points", ()
   assert.equal(engine.expireDecoys(decoy.decoy.expiresAt).reason, "not-expired");
 });
 
-test("an already expired decoy earns its dodge even when its timer callback is delayed", () => {
+test("a visually present decoy cleared by a correct tap never earns a delayed dodge", () => {
   const engine = makeEngine(() => 0);
   engine.start(0);
   engine.hits = 4;
@@ -214,9 +214,10 @@ test("an already expired decoy earns its dodge even when its timer callback is d
 
   const result = engine.tap(active.snapshot.targetIndex, inputAt);
   assert.equal(result.type, "hit");
-  assert.equal(result.dodgesAwarded, 1);
-  assert.equal(result.dodgePointsAwarded, GAME_CONFIG.dodgePoints);
-  assert.equal(result.snapshot.dodges, 1);
+  assert.equal(result.dodgesAwarded, 0);
+  assert.equal(result.dodgePointsAwarded, 0);
+  assert.equal(result.snapshot.dodges, 0);
+  assert.equal(result.snapshot.activeDecoys.length, 0);
 });
 
 test("tapping a live decoy is a mistake and clears it without a dodge", () => {
@@ -295,6 +296,20 @@ test("Zen records mistakes without losing lives and ends at exactly three minute
   assert.equal(result.snapshot.remainingMs, 0);
   assert.equal(result.snapshot.endReason, "time");
   assert.equal(engine.isRunComplete(), true);
+});
+
+test("Zen completion clears an expiring decoy without a post-deadline dodge", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.ZEN);
+  engine.hits = 4;
+  const decoy = engine.activateDecoy(179_700);
+  assert.equal(decoy.decoy.expiresAt, 180_000);
+
+  const result = engine.finishTimedRun(180_010);
+  assert.equal(result.type, "time-up");
+  assert.equal(result.dodgesAwarded, 0);
+  assert.equal(result.snapshot.dodges, 0);
+  assert.equal(result.snapshot.points, 0);
 });
 
 test("speed ratings classify the same rounded milliseconds shown to players", () => {

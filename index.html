@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-3" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-4" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-4" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -112,16 +112,50 @@
         <div class="board-shell">
           <div class="board" id="board" role="group" aria-label="Reaction grid"></div>
           <div class="feedback" id="feedback" aria-live="polite"></div>
+          <div class="speed-rating-overlay" id="speed-rating-overlay" aria-live="polite"></div>
         </div>
       </main>
     </div>
 
     <div class="overlay" id="overlay">
       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <div class="brand-logo" aria-label="SpeedyTapper">
-          <span class="brand-logo__speedy">Speedy</span><span class="brand-logo__tapper">Tapper</span>
-          <span class="brand-logo__pulse" aria-hidden="true"></span>
-        </div>
+        <header class="dialog-utility" id="dialog-utility">
+          <div class="brand-logo" aria-label="SpeedyTapper">
+            <span class="brand-logo__speedy">Speedy</span><span class="brand-logo__tapper">Tapper</span>
+            <span class="brand-logo__pulse" aria-hidden="true"></span>
+          </div>
+          <nav class="dialog-utility__actions" aria-label="Player shortcuts">
+            <button
+              class="leaderboard-shortcut"
+              id="leaderboard-toggle"
+              type="button"
+              aria-controls="leaderboard-view"
+              aria-label="Open leaderboard"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M8 4h8v4a4 4 0 0 1-8 0V4Z"></path>
+                <path d="M8 6H5v1a4 4 0 0 0 4 4"></path>
+                <path d="M16 6h3v1a4 4 0 0 1-4 4"></path>
+                <path d="M12 12v5"></path>
+                <path d="M8 20h8"></path>
+              </svg>
+              <span>Leaderboard</span>
+              <span class="utility-rank" id="leaderboard-rank" hidden>—</span>
+            </button>
+            <button
+              class="game-utility__button profile-shortcut"
+              id="profile-toggle"
+              type="button"
+              aria-label="Open player profile"
+              aria-controls="profile-view"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="8" r="3.5"></circle>
+                <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+              </svg>
+            </button>
+          </nav>
+        </header>
         <h1 id="dialog-title">Ready to react?</h1>
         <p class="dialog__lead" id="dialog-message">
           Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
@@ -145,32 +179,29 @@
               <strong id="result-dodges-value">0</strong>
             </div>
           </div>
-          <form class="score-form" id="score-form" hidden>
+          <section class="speed-summary" id="speed-summary" aria-labelledby="speed-summary-title">
             <div class="section-heading">
-              <h2>Save your run</h2>
-              <span>Top 1,000</span>
+              <h2 id="speed-summary-title">Reaction speeds</h2>
+              <span id="speed-summary-total">0 taps</span>
             </div>
-            <label for="player-name">Player name</label>
-            <div class="score-form__row">
-              <input
-                id="player-name"
-                name="playerName"
-                type="text"
-                maxlength="20"
-                autocomplete="off"
-                autocapitalize="words"
-                enterkeyhint="done"
-                required
-              />
-              <button class="primary-button score-submit" id="score-submit" type="submit">Save score</button>
+            <div class="speed-summary__bar" id="speed-summary-bar" role="img" aria-label="No rated taps yet">
+              <span class="speed-summary__segment speed-summary__segment--godlike" data-speed-segment="godlike"></span>
+              <span class="speed-summary__segment speed-summary__segment--perfect" data-speed-segment="perfect"></span>
+              <span class="speed-summary__segment speed-summary__segment--great" data-speed-segment="great"></span>
+              <span class="speed-summary__segment speed-summary__segment--good" data-speed-segment="good"></span>
             </div>
-            <button class="secondary-button result-restart-button" id="result-restart-button" type="button">
-              Restart
-            </button>
-            <p class="form-status" id="score-status" aria-live="polite"></p>
-          </form>
+            <div class="speed-summary__legend" id="speed-summary-legend"></div>
+          </section>
+          <section class="result-save-panel" id="result-save-panel">
+            <div class="section-heading">
+              <h2>Season result</h2>
+              <span>Google profile</span>
+            </div>
+            <p class="form-status" id="result-save-status" aria-live="polite"></p>
+            <div class="google-signin" id="result-google-signin" hidden></div>
+          </section>
           <div class="result-navigation">
-            <button class="secondary-button" id="result-leaderboard-button" type="button">Leaderboard</button>
+            <button class="secondary-button result-restart-button" id="result-restart-button" type="button">Restart</button>
             <button class="secondary-button main-menu-button" id="main-menu-button" type="button">Main menu</button>
           </div>
         </div>
@@ -180,9 +211,10 @@
               <legend>Game mode</legend>
               <div class="mode-actions">
                 <button class="primary-button" id="normal-button" type="button">Normal</button>
-                <button class="secondary-button" id="zen-button" type="button">1-min Zen</button>
+                <button class="secondary-button" id="zen-button" type="button">3-min Zen</button>
               </div>
             </fieldset>
+            <div class="menu-spacer" aria-hidden="true"></div>
             <button
               class="secondary-button settings-toggle"
               id="settings-toggle"
@@ -191,14 +223,6 @@
             >
               <span>Settings</span>
               <span class="settings-toggle__value" id="settings-current">Classic · FX off · Music on</span>
-            </button>
-            <button
-              class="secondary-button leaderboard-toggle"
-              id="leaderboard-toggle"
-              type="button"
-              aria-controls="leaderboard-view"
-            >
-              Leaderboard
             </button>
           </div>
           <button class="install-button" id="install-button" type="button" hidden>Install app</button>
@@ -279,6 +303,67 @@
             </div>
           </fieldset>
         </div>
+        <div class="overlay-view" id="profile-view" hidden>
+          <nav class="leaderboard-utility" aria-label="Profile navigation">
+            <button
+              class="game-utility__button"
+              id="profile-back-button"
+              type="button"
+              aria-label="Go back"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M19 12H5"></path>
+                <path d="m12 19-7-7 7-7"></path>
+              </svg>
+            </button>
+            <button
+              class="game-utility__button"
+              id="profile-menu-button"
+              type="button"
+              aria-label="Return to main menu"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 6h16"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 18h16"></path>
+              </svg>
+            </button>
+          </nav>
+          <section class="profile-panel">
+            <div class="profile-signed-out" id="profile-signed-out">
+              <h2>Player profile</h2>
+              <p>Sign in with Google to keep one nickname and your best seasonal rank across devices.</p>
+              <div class="google-signin" id="profile-google-signin"></div>
+              <p class="form-status" id="profile-auth-status" aria-live="polite"></p>
+            </div>
+            <div class="profile-signed-in" id="profile-signed-in" hidden>
+              <form class="profile-form" id="profile-form">
+                <label for="profile-nickname">Public nickname</label>
+                <div class="profile-form__row">
+                  <input
+                    id="profile-nickname"
+                    name="nickname"
+                    type="text"
+                    maxlength="20"
+                    autocomplete="nickname"
+                    autocapitalize="words"
+                    enterkeyhint="done"
+                    required
+                  />
+                  <button class="primary-button" id="profile-save" type="submit">Save</button>
+                </div>
+              </form>
+              <div class="profile-mode-tabs" role="group" aria-label="Profile leaderboard mode">
+                <button class="leaderboard-tab is-active" type="button" data-profile-mode="normal" aria-pressed="true">Normal</button>
+                <button class="leaderboard-tab" type="button" data-profile-mode="zen" aria-pressed="false">Zen</button>
+              </div>
+              <div class="profile-rank-card" id="profile-rank-card"></div>
+              <ol class="leaderboard-list profile-neighbors" id="profile-neighbors"></ol>
+              <p class="form-status" id="profile-status" aria-live="polite"></p>
+              <button class="secondary-button profile-logout" id="profile-logout" type="button">Log out</button>
+            </div>
+          </section>
+        </div>
         <div class="overlay-view" id="leaderboard-view" hidden>
           <nav class="leaderboard-utility" aria-label="Leaderboard navigation">
             <button
@@ -308,7 +393,7 @@
           <section class="leaderboard-panel" id="leaderboard-panel">
             <div class="section-heading">
               <h2>Leaderboard</h2>
-              <span>Top 1,000</span>
+              <span>Current season</span>
             </div>
             <div class="leaderboard-tabs" role="group" aria-label="Leaderboard mode">
               <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" aria-pressed="true">Normal</button>
@@ -324,7 +409,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-3";
+        const buildId = "20260713-4";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -378,6 +463,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-3"></script>
+    <script type="module" src="./src/main.js?v=20260713-4"></script>
   </body>
 </html>

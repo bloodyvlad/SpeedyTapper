@@ -1,4 +1,4 @@
-const BUILD_ID = "20260713-3";
+const BUILD_ID = "20260713-4";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const MUSIC_ASSET_PATHS = new Set([
@@ -21,8 +21,8 @@ const APP_SHELL = [
   `./src/input-timing.js?v=${BUILD_ID}`,
   `./src/music-controller.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
+  `./src/profile-client.js?v=${BUILD_ID}`,
   `./src/sound-controller.js?v=${BUILD_ID}`,
-  `./lib/leaderboard-model.js?v=${BUILD_ID}`,
   "./assets/icon.svg",
   "./assets/icon-192.png",
   "./assets/icon-512.png",

@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-// Copy to server/config.local.php on the server and fill in the values there.
-// config.local.php is ignored by Git and blocked from HTTP access by .htaccess.
+// Production: copy to ~/.config/speedytapper/config.php outside the web root.
+// Local development may copy this to ignored server/config.local.php instead.
 return [
     'SPEEDYTAPPER_DB_HOST' => 'localhost',
     'SPEEDYTAPPER_DB_PORT' => '3306',

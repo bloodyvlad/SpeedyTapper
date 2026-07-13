@@ -31,13 +31,8 @@ final class Nickname
         return $normalized;
     }
 
-    public static function suggested(mixed $value): string
+    public static function anonymous(): string
     {
-        try {
-            $candidate = is_string($value) ? mb_substr($value, 0, self::MAX_LENGTH, 'UTF-8') : '';
-            return self::normalize($candidate);
-        } catch (ApiException) {
-            return 'Player ' . random_int(1000, 9999);
-        }
+        return 'Player ' . random_int(1000, 9999);
     }
 }

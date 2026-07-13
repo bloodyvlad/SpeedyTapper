@@ -4,12 +4,12 @@ This document describes the backend target on the PHP branch. It does not descri
 
 ## Runtime and setup
 
-- PHP 8.3 or newer with PDO MySQL, JSON, mbstring, OpenSSL, and Intl.
+- PHP 8.2 or newer with PDO MySQL, JSON, mbstring, OpenSSL, and Intl.
 - MySQL 8 or a current MariaDB release with window-function support.
 - Composer dependencies installed with `composer install --no-dev --optimize-autoloader`.
 - Apache `mod_rewrite` enabled so the repository `.htaccess` can route extensionless `/api/*` requests to `api/index.php`.
 
-Copy `server/config.local.example.php` to the ignored `server/config.local.php` on the server and set the database credentials and Google Web client ID. Environment variables with the same names take precedence. Never commit the real file.
+For production, copy `server/config.local.example.php` to `~/.config/speedytapper/config.php` under the private hosting-account home and fill in the database credentials and Google Web client ID. `SPEEDYTAPPER_CONFIG_PATH` can point to a different private path; individual environment variables with the same names take precedence. The ignored `server/config.local.php` fallback is only for local development. Never commit the real file or place production credentials under the public document root.
 
 ```bash
 composer install
@@ -35,6 +35,7 @@ Always public. The Google client ID is intentionally public configuration.
   "profile": {
     "id": "internal-uuid",
     "nickname": "Player",
+    "nicknameConfirmed": true,
     "createdAt": "2026-07-13T12:00:00.000Z",
     "updatedAt": "2026-07-13T12:00:00.000Z"
   },
@@ -49,7 +50,7 @@ When signed out, `authenticated` is false and `profile` and `ranks` are null.
 
 ### `POST /api/auth/google`
 
-Body: `{ "credential": "GOOGLE_ID_TOKEN" }`. Finds or creates the internal UUID profile, regenerates the session ID, and returns the same body as `GET /api/session`. No email is persisted.
+Body: `{ "credential": "GOOGLE_ID_TOKEN" }`. Finds or creates the internal UUID profile, regenerates the session ID, and returns the same body as `GET /api/session`. No email or Google display name is persisted. A new profile receives a neutral placeholder and `nicknameConfirmed: false`; the player must explicitly save a public nickname before a result can be submitted.
 
 ### `POST /api/logout`
 
@@ -57,7 +58,7 @@ Clears and expires the server session. Returns the signed-out session shape.
 
 ### `GET` or `PATCH /api/profile`
 
-Authentication required. `PATCH` body: `{ "nickname": "Public name" }`. The response contains `profile`, `ranks`, and `leaderboard`; use `?mode=normal` or `?mode=zen` to choose the ±2 context shown in `leaderboard`.
+Authentication required. `PATCH` body: `{ "nickname": "Public name" }`. Saving it sets `nicknameConfirmed: true`. The response contains `profile`, `ranks`, and `leaderboard`; use `?mode=normal` or `?mode=zen` to choose the ±2 context shown in `leaderboard`.
 
 ### `GET /api/leaderboard?mode=normal|zen`
 
@@ -92,7 +93,7 @@ Returns the top five and, when signed in and ranked, the player's row with up to
 
 ### `POST /api/leaderboard`
 
-Authentication required. The server supplies identity, nickname, entry ID, season, and timestamps; the body never contains a player name.
+Authentication and a confirmed public nickname are required. The server supplies identity, nickname, entry ID, season, and timestamps; the body never contains a player name.
 
 ```json
 {

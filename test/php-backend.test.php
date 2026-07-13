@@ -20,6 +20,11 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
     }
 };
 
+$devRouter = file_get_contents(dirname(__DIR__) . '/server/dev-router.php');
+$assert(is_string($devRouter), 'PHP development router must be readable.');
+$assert(str_contains($devRouter, "require \$projectRoot . '/api/index.php'"), 'PHP development router must dispatch API requests.');
+$assert(str_contains($devRouter, '(?:server|vendor|\\.git)'), 'PHP development router must deny internal directories.');
+
 $throwsApi = static function (callable $callback, string $message) use ($assert): void {
     try {
         $callback();
@@ -32,6 +37,7 @@ $throwsApi = static function (callable $callback, string $message) use ($assert)
 
 $assert(Nickname::normalize("  Speedy\n  Player  ") === 'Speedy Player', 'Nickname whitespace is normalized.');
 $throwsApi(static fn () => Nickname::normalize(str_repeat('x', 21)), 'Long nicknames are rejected.');
+$assert((bool) preg_match('/^Player [0-9]{4}$/', Nickname::anonymous()), 'New profiles receive a neutral nickname.');
 $assert((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', Uuid::v4()), 'UUIDs are RFC 4122 version 4.');
 
 $valid = ScoreSubmission::fromArray([
@@ -98,9 +104,18 @@ $throwsApi(
     ], '{}'))->guardSameOriginMutation(),
     'A mutation from the wrong origin scheme is rejected.',
 );
+$throwsApi(
+    static fn () => (new HttpRequest('POST', '/api/profile', [], [
+        'HTTP_ORIGIN' => 'https://speedytapper.otcsoft.com:8443',
+        'HTTP_HOST' => 'speedytapper.otcsoft.com',
+        'HTTP_X_FORWARDED_PROTO' => 'https',
+    ], '{}'))->guardSameOriginMutation(),
+    'A mutation from a different origin port is rejected.',
+);
 
-$schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_and_leaderboard.sql');
-foreach (['google_subject_hash', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique'] as $needle) {
+$schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_and_leaderboard.sql')
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql');
+foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique'] as $needle) {
     $assert(is_string($schema) && str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 
@@ -108,5 +123,18 @@ $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
 foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
+$assert(
+    is_string($app) && str_contains($app, "profile['nicknameConfirmed']"),
+    'Score submission requires a user-confirmed public nickname.',
+);
+
+$configSource = file_get_contents(dirname(__DIR__) . '/server/src/Config.php');
+$assert(
+    is_string($configSource)
+    && str_contains($configSource, 'SPEEDYTAPPER_CONFIG_PATH')
+    && str_contains($configSource, '/.config/speedytapper/config.php')
+    && str_contains($configSource, 'public_html'),
+    'Production configuration is resolved from a private path outside the web root.',
+);
 
 fwrite(STDOUT, 'PHP backend tests passed (' . $assertions . ' assertions).' . PHP_EOL);

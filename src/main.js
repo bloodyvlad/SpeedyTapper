@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-3";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-3";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-4";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-4";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-3";
+} from "./input-timing.js?v=20260713-4";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-3";
-import { createSoundController } from "./sound-controller.js?v=20260713-3";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260713-3";
+} from "./music-controller.js?v=20260713-4";
+import { createSoundController } from "./sound-controller.js?v=20260713-4";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-4";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -25,7 +25,13 @@ const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
 const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
 const INTERACTIVE_MUSIC_STORAGE_KEY = "speedytapper.interactiveMusic.v1";
-const REMEMBERED_NAME_STORAGE_KEY = "speedytapper.leaderboardName.v1";
+const SPEED_RATING_ORDER = Object.freeze(["godlike", "perfect", "great", "good"]);
+const SPEED_RATING_LABELS = Object.freeze({
+  godlike: "Godlike",
+  perfect: "Perfect",
+  great: "Great",
+  good: "Good"
+});
 
 const elements = {
   app: document.querySelector("#app"),
@@ -36,6 +42,7 @@ const elements = {
   colorName: document.querySelector("#color-name"),
   colorSwatch: document.querySelector("#color-swatch"),
   dialog: document.querySelector(".dialog"),
+  dialogUtility: document.querySelector("#dialog-utility"),
   dialogMessage: document.querySelector("#dialog-message"),
   dialogTitle: document.querySelector("#dialog-title"),
   feedback: document.querySelector("#feedback"),
@@ -45,6 +52,7 @@ const elements = {
   highScore: document.querySelector("#high-score"),
   installButton: document.querySelector("#install-button"),
   interactiveMusicToggle: document.querySelector("#interactive-music-toggle"),
+  leaderboardRank: document.querySelector("#leaderboard-rank"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardBackButton: document.querySelector("#leaderboard-back-button"),
   leaderboardMenuButton: document.querySelector("#leaderboard-menu-button"),
@@ -60,8 +68,23 @@ const elements = {
   musicToggle: document.querySelector("#music-toggle"),
   normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
-  playerName: document.querySelector("#player-name"),
   points: document.querySelector("#points"),
+  profileAuthStatus: document.querySelector("#profile-auth-status"),
+  profileBackButton: document.querySelector("#profile-back-button"),
+  profileForm: document.querySelector("#profile-form"),
+  profileGoogleSignin: document.querySelector("#profile-google-signin"),
+  profileLogout: document.querySelector("#profile-logout"),
+  profileMenuButton: document.querySelector("#profile-menu-button"),
+  profileModeTabs: [...document.querySelectorAll("[data-profile-mode]")],
+  profileNeighbors: document.querySelector("#profile-neighbors"),
+  profileNickname: document.querySelector("#profile-nickname"),
+  profileRankCard: document.querySelector("#profile-rank-card"),
+  profileSave: document.querySelector("#profile-save"),
+  profileSignedIn: document.querySelector("#profile-signed-in"),
+  profileSignedOut: document.querySelector("#profile-signed-out"),
+  profileStatus: document.querySelector("#profile-status"),
+  profileToggle: document.querySelector("#profile-toggle"),
+  profileView: document.querySelector("#profile-view"),
   responseProgress: document.querySelector("#response-progress"),
   responseProgressFill: document.querySelector("#response-progress-fill"),
   resultRestartButton: document.querySelector("#result-restart-button"),
@@ -71,17 +94,21 @@ const elements = {
   resultDurationLabel: document.querySelector("#result-duration-label"),
   resultDurationValue: document.querySelector("#result-duration-value"),
   resultFastestValue: document.querySelector("#result-fastest-value"),
-  resultLeaderboardButton: document.querySelector("#result-leaderboard-button"),
+  resultGoogleSignin: document.querySelector("#result-google-signin"),
+  resultSavePanel: document.querySelector("#result-save-panel"),
+  resultSaveStatus: document.querySelector("#result-save-status"),
   resultStats: document.querySelector("#result-stats"),
-  scoreForm: document.querySelector("#score-form"),
-  scoreStatus: document.querySelector("#score-status"),
-  scoreSubmit: document.querySelector("#score-submit"),
   settingsCurrent: document.querySelector("#settings-current"),
   settingsBackButton: document.querySelector("#settings-back-button"),
   settingsPanel: document.querySelector("#settings-panel"),
   settingsToggle: document.querySelector("#settings-toggle"),
   settingsView: document.querySelector("#settings-view"),
   soundFxToggle: document.querySelector("#sound-fx-toggle"),
+  speedRatingOverlay: document.querySelector("#speed-rating-overlay"),
+  speedSummaryBar: document.querySelector("#speed-summary-bar"),
+  speedSummaryLegend: document.querySelector("#speed-summary-legend"),
+  speedSummarySegments: [...document.querySelectorAll("[data-speed-segment]")],
+  speedSummaryTotal: document.querySelector("#speed-summary-total"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
   themeInputs: [...document.querySelectorAll('input[name="theme"]')],
@@ -90,6 +117,7 @@ const elements = {
 };
 
 const engine = new GameEngine();
+const profileClient = createProfileClient();
 const topScores = {
   [GAME_MODES.NORMAL]: null,
   [GAME_MODES.ZEN]: null
@@ -99,6 +127,8 @@ const topScoreRevisions = {
   [GAME_MODES.ZEN]: 0
 };
 let spawnTimer = null;
+let decoySpawnTimer = null;
+let decoyExpiryTimer = null;
 let deadlineTimer = null;
 let runEndTimer = null;
 let clockTimer = null;
@@ -107,6 +137,7 @@ let completionTimer = null;
 let progressFrame = null;
 let runStartFrame = null;
 let roundActivationFrame = null;
+let decoyActivationFrame = null;
 let runEndCommit = null;
 let deadlineCommit = null;
 let sessionId = 0;
@@ -124,6 +155,19 @@ let leaderboardRequestId = 0;
 let leaderboardReturnView = "menu";
 let leaderboardReturnScrollTop = 0;
 let dialogView = "menu";
+let profileReturnView = "menu";
+let profileMode = GAME_MODES.NORMAL;
+let profileRequestId = 0;
+let profileSession = Object.freeze({
+  authenticated: false,
+  googleClientId: null,
+  profile: null,
+  ranks: Object.freeze({})
+});
+let googleIdentityPromise = null;
+let googleIdentityClientId = null;
+let speedRatingTimer = null;
+let speedRatingPlacementRight = false;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = false;
@@ -163,6 +207,76 @@ function formatReaction(milliseconds) {
   return milliseconds === null || milliseconds === undefined
     ? "—"
     : `${Math.round(milliseconds)} ms`;
+}
+
+function normalizeSpeedRatings(value) {
+  return Object.fromEntries(
+    SPEED_RATING_ORDER.map((rating) => [
+      rating,
+      Number.isInteger(value?.[rating]) && value[rating] >= 0 ? value[rating] : 0
+    ])
+  );
+}
+
+function hideSpeedRating() {
+  if (!elements.speedRatingOverlay) return;
+  elements.speedRatingOverlay.className = "speed-rating-overlay";
+  elements.speedRatingOverlay.textContent = "";
+}
+
+function showSpeedRating(speedRating) {
+  if (!speedRating?.id || !SPEED_RATING_LABELS[speedRating.id]) return;
+  window.clearTimeout(speedRatingTimer);
+  speedRatingPlacementRight = Math.random() >= 0.5;
+  const placement = speedRatingPlacementRight ? "right" : "left";
+  elements.speedRatingOverlay.textContent = SPEED_RATING_LABELS[speedRating.id];
+  elements.speedRatingOverlay.className = [
+    "speed-rating-overlay",
+    `speed-rating-overlay--${placement}`,
+    `speed-rating-overlay--${speedRating.id}`,
+    "speed-rating-overlay--visible"
+  ].join(" ");
+  speedRatingTimer = window.setTimeout(hideSpeedRating, 640);
+}
+
+function renderSpeedSummary(speedRatings) {
+  const ratings = normalizeSpeedRatings(speedRatings);
+  const total = SPEED_RATING_ORDER.reduce((sum, rating) => sum + ratings[rating], 0);
+  elements.speedSummaryTotal.textContent = `${total.toLocaleString()} ${total === 1 ? "tap" : "taps"}`;
+  elements.speedSummaryLegend.replaceChildren();
+
+  for (const segment of elements.speedSummarySegments) {
+    const rating = segment.dataset.speedSegment;
+    const percentage = total > 0 ? (ratings[rating] / total) * 100 : 0;
+    segment.style.flexBasis = `${percentage}%`;
+  }
+
+  const summary = SPEED_RATING_ORDER.map(
+    (rating) => `${SPEED_RATING_LABELS[rating]} ${ratings[rating].toLocaleString()}`
+  ).join(", ");
+  elements.speedSummaryBar.setAttribute(
+    "aria-label",
+    total > 0 ? `${summary}.` : "No rated taps yet."
+  );
+
+  const fragment = document.createDocumentFragment();
+  for (const rating of SPEED_RATING_ORDER) {
+    const item = document.createElement("div");
+    item.className = `speed-summary__item speed-summary__item--${rating}`;
+    const label = document.createElement("span");
+    label.className = "speed-summary__label";
+    const dot = document.createElement("span");
+    dot.className = "speed-summary__dot";
+    dot.setAttribute("aria-hidden", "true");
+    const labelText = document.createElement("span");
+    labelText.textContent = SPEED_RATING_LABELS[rating];
+    label.append(dot, labelText);
+    const count = document.createElement("strong");
+    count.textContent = ratings[rating].toLocaleString();
+    item.append(label, count);
+    fragment.append(item);
+  }
+  elements.speedSummaryLegend.append(fragment);
 }
 
 function readStoredPreference(key) {
@@ -316,22 +430,30 @@ function startResponseProgress(currentSession, initialSnapshot) {
 
 function clearTimers() {
   window.clearTimeout(spawnTimer);
+  window.clearTimeout(decoySpawnTimer);
+  window.clearTimeout(decoyExpiryTimer);
   window.clearTimeout(deadlineTimer);
   window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
   window.clearTimeout(completionTimer);
+  window.clearTimeout(speedRatingTimer);
   window.cancelAnimationFrame(runStartFrame);
   window.cancelAnimationFrame(roundActivationFrame);
+  window.cancelAnimationFrame(decoyActivationFrame);
   runEndCommit?.cancel();
   deadlineCommit?.cancel();
   stopResponseProgress();
   spawnTimer = null;
+  decoySpawnTimer = null;
+  decoyExpiryTimer = null;
   deadlineTimer = null;
   runEndTimer = null;
   clockTimer = null;
   completionTimer = null;
+  speedRatingTimer = null;
   runStartFrame = null;
   roundActivationFrame = null;
+  decoyActivationFrame = null;
   runEndCommit = null;
   deadlineCommit = null;
   activeRoundVisibleAt = null;
@@ -339,6 +461,7 @@ function clearTimers() {
   roundPresentationExpired = false;
   runDeadlineAt = null;
   sound.tileOff();
+  hideSpeedRating();
 }
 
 function startGame(mode) {
@@ -376,7 +499,70 @@ function startGame(mode) {
     }
 
     scheduleRound(currentSession);
+    scheduleDecoySpawn(currentSession);
   });
+}
+
+function showDodgeAward(result) {
+  const dodgesAwarded = Number.isInteger(result?.dodgesAwarded) ? result.dodgesAwarded : 0;
+  if (dodgesAwarded <= 0) return false;
+  const pointsAwarded = result.pointsAwarded ?? result.dodgePointsAwarded ?? 0;
+  const label = dodgesAwarded === 1 ? "Dodged that!" : `${dodgesAwarded} dodged!`;
+  showFeedback(`${label} +${pointsAwarded.toLocaleString()}`, false);
+  return true;
+}
+
+function scheduleDecoyExpiry(currentSession) {
+  window.clearTimeout(decoyExpiryTimer);
+  decoyExpiryTimer = null;
+  if (currentSession !== sessionId || engine.state === GAME_STATES.GAME_OVER) return;
+  const expiryAt = engine.getSnapshot(now()).nextDecoyExpiryAt;
+  if (expiryAt === null) return;
+
+  decoyExpiryTimer = window.setTimeout(() => {
+    decoyExpiryTimer = null;
+    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) {
+      return;
+    }
+    const expiredAt = now();
+    if (engine.mode === GAME_MODES.ZEN && reachedDeadline(expiredAt, runDeadlineAt)) return;
+    const result = engine.expireDecoys(expiredAt);
+    if (result.type === "decoys-dodged") {
+      showDodgeAward(result);
+      render();
+    }
+    scheduleDecoyExpiry(currentSession);
+  }, remainingUntilDeadline(expiryAt, now()));
+}
+
+function scheduleDecoySpawn(currentSession) {
+  window.clearTimeout(decoySpawnTimer);
+  decoySpawnTimer = null;
+  if (currentSession !== sessionId || engine.state === GAME_STATES.GAME_OVER) return;
+  const delayMs = engine.getNextDecoyDelayMs(now());
+  if (delayMs === null) return;
+
+  decoySpawnTimer = window.setTimeout(() => {
+    decoySpawnTimer = null;
+    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) {
+      return;
+    }
+    decoyActivationFrame = window.requestAnimationFrame((visibleAt) => {
+      decoyActivationFrame = null;
+      if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) {
+        return;
+      }
+      if (engine.mode === GAME_MODES.ZEN && reachedDeadline(visibleAt, runDeadlineAt)) {
+        finishZenRun(currentSession, visibleAt);
+        return;
+      }
+      const result = engine.activateDecoy(visibleAt);
+      showDodgeAward(result);
+      render();
+      scheduleDecoyExpiry(currentSession);
+      scheduleDecoySpawn(currentSession);
+    });
+  }, delayMs);
 }
 
 function scheduleRound(currentSession, additionalDelayMs = 0) {
@@ -395,8 +581,15 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
       ) {
         return;
       }
+      if (engine.mode === GAME_MODES.ZEN && reachedDeadline(visibleAt, runDeadlineAt)) return;
       const result = engine.activateRound(visibleAt);
-      if (result.type !== "round-active") return;
+      showDodgeAward(result);
+      if (result.type !== "round-active") {
+        render();
+        scheduleDecoyExpiry(currentSession);
+        scheduleRound(currentSession, engine.config.decoys.retryDelayMs);
+        return;
+      }
       const roundId = nextRoundId + 1;
       nextRoundId = roundId;
       activeRoundId = roundId;
@@ -445,10 +638,13 @@ function scheduleDeadline(currentSession, roundId, deadlineAt) {
         return;
       }
       const resolvedAt = now();
+      if (engine.mode === GAME_MODES.ZEN && reachedDeadline(resolvedAt, runDeadlineAt)) return;
       const result = engine.expireRound(resolvedAt);
+      showDodgeAward(result);
       if (result.type === "ignored" && result.reason === "not-expired") {
         roundPresentationExpired = false;
         render();
+        scheduleDecoyExpiry(currentSession);
         scheduleDeadline(currentSession, roundId, deadlineAt);
         return;
       }
@@ -456,12 +652,8 @@ function scheduleDeadline(currentSession, roundId, deadlineAt) {
       activeRoundVisibleAt = null;
       activeRoundId = null;
       roundPresentationExpired = false;
-      if (result.type === "ignored-color") {
-        showFeedback(`Dodged that! +${result.pointsAwarded}`, false);
-        render();
-        scheduleRound(currentSession);
-        return;
-      }
+      window.clearTimeout(decoyExpiryTimer);
+      decoyExpiryTimer = null;
       if (result.type === "miss") {
         handleMiss(result, currentSession);
       }
@@ -501,6 +693,8 @@ function handleTileTap(event) {
   spawnTimer = null;
   window.clearTimeout(deadlineTimer);
   deadlineTimer = null;
+  window.clearTimeout(decoyExpiryTimer);
+  decoyExpiryTimer = null;
   window.cancelAnimationFrame(roundActivationFrame);
   roundActivationFrame = null;
   deadlineCommit?.cancel();
@@ -516,7 +710,11 @@ function handleTileTap(event) {
   if (result.type === "hit") {
     music.playCorrectTap(result.snapshot.hits);
     updateMusicForSnapshot(result.snapshot);
-    showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
+    showSpeedRating(result.speedRating);
+    const dodgeCopy = result.dodgesAwarded > 0
+      ? ` · ${result.dodgesAwarded} ${result.dodgesAwarded === 1 ? "dodge" : "dodges"}`
+      : "";
+    showFeedback(`+${result.pointsAwarded} · ${result.displayedReactionMs} ms${dodgeCopy}`, false);
     render();
     scheduleRound(sessionId);
     return;
@@ -582,13 +780,14 @@ function finishGame(snapshot, currentSession) {
   clearTimers();
   music.advanceTrack(MUSIC_STAGES.MENU);
   const isZen = snapshot.mode === GAME_MODES.ZEN;
-  elements.dialogTitle.textContent = isZen ? "Minute complete" : "Game Over";
+  elements.dialogTitle.textContent = isZen ? "Three minutes complete" : "Game Over";
   elements.resultStats.hidden = false;
   elements.resultDurationLabel.textContent = isZen ? "Duration" : "Survived";
   elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
   elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
   elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
   elements.resultDodgesValue.textContent = snapshot.dodges.toLocaleString();
+  renderSpeedSummary(snapshot.speedRatings);
   elements.resultRestartButton.setAttribute(
     "aria-label",
     `Restart ${isZen ? "Zen" : "Normal"} mode`
@@ -604,39 +803,25 @@ function finishGame(snapshot, currentSession) {
     averageReactionMs:
       snapshot.averageReactionMs === null ? null : Math.round(snapshot.averageReactionMs),
     survivalMs: Math.round(snapshot.elapsedMs),
+    speedRatings: normalizeSpeedRatings(snapshot.speedRatings),
     submitted: false
   };
+  selectLeaderboardMode(snapshot.mode);
   renderResultMessage(pendingResult);
   void refreshTopScore(snapshot.mode);
   closeLeaderboard();
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = false;
-  elements.scoreForm.hidden = false;
-  elements.playerName.disabled = false;
-  elements.playerName.value = readStoredPreference(REMEMBERED_NAME_STORAGE_KEY) ?? "";
-  elements.playerName.readOnly = false;
-  elements.scoreSubmit.disabled = false;
-  elements.scoreSubmit.textContent = "Save score";
-  elements.resultLeaderboardButton.disabled = false;
-  setScoreStatus("Enter your name to submit this run to the Top 1,000.");
+  elements.dialogUtility.hidden = false;
+  renderResultSaveState();
+  void submitPendingResult();
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
       elements.gameUtility.hidden = true;
       setOverlayVisible(true);
       elements.dialog.scrollTop = 0;
-      elements.playerName.focus({ preventScroll: true });
-      const keepPromptVisible = () => {
-        if (elements.scoreForm.hidden || elements.overlay.hidden) return;
-        const viewportTop = window.visualViewport?.offsetTop ?? 0;
-        const viewportBottom =
-          viewportTop + (window.visualViewport?.height ?? window.innerHeight);
-        const formBounds = elements.scoreForm.getBoundingClientRect();
-        if (formBounds.top < viewportTop + 8 || formBounds.bottom > viewportBottom - 8) {
-          elements.scoreForm.scrollIntoView({ behavior: "smooth", block: "end" });
-        }
-      };
-      window.visualViewport?.addEventListener("resize", keepPromptVisible, { once: true });
-      window.setTimeout(keepPromptVisible, 250);
+      elements.resultRestartButton.focus({ preventScroll: true });
+      if (!profileSession.authenticated) void renderGoogleButtons();
     }
   }, 400);
 }
@@ -648,24 +833,21 @@ function resetResultUi() {
   elements.gameUtility.hidden = true;
   elements.resultContent.hidden = true;
   elements.resultStats.hidden = true;
-  elements.scoreForm.hidden = true;
   elements.mainMenuContent.hidden = false;
-  elements.playerName.disabled = false;
-  elements.playerName.readOnly = false;
-  elements.playerName.value = "";
-  elements.scoreSubmit.disabled = false;
-  elements.scoreSubmit.textContent = "Save score";
-  elements.resultLeaderboardButton.disabled = false;
-  setScoreStatus("");
+  elements.dialogUtility.hidden = false;
+  elements.resultSaveStatus.textContent = "";
+  elements.resultGoogleSignin.hidden = true;
+  renderSpeedSummary(null);
   closeSettings();
   closeLeaderboard();
+  closeProfile();
 }
 
 function renderResultMessage(result) {
   if (!result) return;
   const isZen = result.mode === GAME_MODES.ZEN;
   const modeName = isZen ? "Zen" : "Normal";
-  const completionReason = isZen ? "The one-minute timer ended." : "You are out of lives.";
+  const completionReason = isZen ? "The three-minute timer ended." : "You are out of lives.";
   const topScore = topScores[result.mode];
   const bestScore = topScore === null
     ? "<strong>unavailable right now</strong>"
@@ -696,11 +878,6 @@ function restartCurrentMode() {
   startGame(mode);
 }
 
-function setScoreStatus(message, isError = false) {
-  elements.scoreStatus.textContent = message;
-  elements.scoreStatus.classList.toggle("is-error", isError);
-}
-
 function setLeaderboardStatus(message, isError = false) {
   elements.leaderboardStatus.textContent = message;
   elements.leaderboardStatus.classList.toggle("is-error", isError);
@@ -713,15 +890,18 @@ function selectLeaderboardMode(mode) {
     tab.classList.toggle("is-active", selected);
     tab.setAttribute("aria-pressed", String(selected));
   }
+  renderUtilityRank();
 }
 
 function showMenuView(focusTarget = null) {
   closeSettings();
   closeLeaderboard();
+  closeProfile();
   dialogView = "menu";
   leaderboardReturnView = "menu";
   elements.resultContent.hidden = true;
   elements.mainMenuContent.hidden = false;
+  elements.dialogUtility.hidden = false;
   elements.dialogTitle.textContent = "Ready to react?";
   elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
   elements.dialog.scrollTop = 0;
@@ -730,10 +910,12 @@ function showMenuView(focusTarget = null) {
 
 function openSettings() {
   closeLeaderboard();
+  closeProfile();
   dialogView = "settings";
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.settingsView.hidden = false;
+  elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Settings";
   elements.dialogMessage.textContent = "Choose how SpeedyTapper looks and sounds.";
   elements.dialog.scrollTop = 0;
@@ -745,14 +927,52 @@ function closeSettings() {
   elements.settingsView.hidden = true;
 }
 
+function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
+  closeSettings();
+  closeLeaderboard();
+  profileReturnView = returnView;
+  dialogView = "profile";
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.profileView.hidden = false;
+  elements.dialogUtility.hidden = true;
+  elements.dialogTitle.textContent = "Profile";
+  elements.dialogMessage.textContent = profileSession.authenticated
+    ? "Manage your public nickname and view your current seasonal position."
+    : "Use Google to keep one SpeedyTapper identity across devices.";
+  elements.dialog.scrollTop = 0;
+  renderProfile();
+  if (profileSession.authenticated) {
+    void loadProfileContext(profileMode);
+  } else {
+    void renderGoogleButtons();
+  }
+  elements.profileBackButton.focus({ preventScroll: true });
+}
+
+function closeProfile() {
+  profileRequestId += 1;
+  elements.profileView.hidden = true;
+}
+
+function returnFromProfile() {
+  if (profileReturnView === "result" && pendingResult) {
+    showResultView(elements.profileToggle);
+    return;
+  }
+  showMenuView(elements.profileToggle);
+}
+
 function openLeaderboard(returnView = "menu") {
   closeSettings();
+  closeProfile();
   leaderboardReturnView = returnView;
   leaderboardReturnScrollTop = elements.dialog.scrollTop;
   dialogView = "leaderboard";
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.leaderboardView.hidden = false;
+  elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Leaderboard";
   elements.dialogMessage.textContent = "Compare the best Normal and Zen runs.";
   elements.dialog.scrollTop = 0;
@@ -773,32 +993,41 @@ function showResultView(focusTarget = null) {
 
   closeSettings();
   closeLeaderboard();
+  closeProfile();
   dialogView = "result";
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = false;
+  elements.dialogUtility.hidden = false;
   elements.dialogTitle.textContent =
-    pendingResult.mode === GAME_MODES.ZEN ? "Minute complete" : "Game Over";
+    pendingResult.mode === GAME_MODES.ZEN ? "Three minutes complete" : "Game Over";
   renderResultMessage(pendingResult);
+  renderResultSaveState();
+  if (!profileSession.authenticated) void renderGoogleButtons();
   elements.dialog.scrollTop = leaderboardReturnScrollTop;
   focusTarget?.focus({ preventScroll: true });
 }
 
 function returnFromLeaderboard() {
   if (leaderboardReturnView === "result" && pendingResult) {
-    showResultView(elements.resultLeaderboardButton);
+    showResultView(elements.leaderboardToggle);
     return;
   }
   showMenuView(elements.leaderboardToggle);
 }
 
-function renderLeaderboard(entries, mode, playerRank = null) {
-  elements.leaderboardList.replaceChildren();
+function renderLeaderboard(
+  entries,
+  mode,
+  playerRank = null,
+  listElement = elements.leaderboardList
+) {
+  listElement.replaceChildren();
 
   if (!Array.isArray(entries) || entries.length === 0) {
     const empty = document.createElement("li");
     empty.className = "leaderboard-empty";
     empty.textContent = "No scores yet — the first place is waiting.";
-    elements.leaderboardList.append(empty);
+    listElement.append(empty);
     return;
   }
 
@@ -816,7 +1045,8 @@ function renderLeaderboard(entries, mode, playerRank = null) {
 
     const row = document.createElement("li");
     row.className = "leaderboard-entry";
-    const isPlayerResult = entryRank === playerRank;
+    const isPlayerResult =
+      entry.isCurrent === true || entry.isCurrentPlayer === true || entryRank === playerRank;
     row.classList.toggle("is-current", isPlayerResult);
 
     const rank = document.createElement("span");
@@ -829,12 +1059,12 @@ function renderLeaderboard(entries, mode, playerRank = null) {
     nameLine.className = "leaderboard-entry__name-line";
     const name = document.createElement("div");
     name.className = "leaderboard-entry__name";
-    name.textContent = entry.name;
+    name.textContent = entry.nickname ?? entry.name ?? "Player";
     nameLine.append(name);
     if (isPlayerResult) {
       const currentBadge = document.createElement("span");
       currentBadge.className = "leaderboard-entry__current";
-      currentBadge.textContent = "This run";
+      currentBadge.textContent = "You";
       nameLine.append(currentBadge);
     }
     const meta = document.createElement("div");
@@ -845,7 +1075,12 @@ function renderLeaderboard(entries, mode, playerRank = null) {
     } · ${entry.hits.toLocaleString()} taps · ${(entry.dodges ?? 0).toLocaleString()} dodged`;
     const reactionMeta = document.createElement("span");
     reactionMeta.textContent = `Fastest ${formatReaction(entry.fastestReactionMs)} · Average ${formatReaction(entry.averageReactionMs)}`;
-    meta.append(runMeta, reactionMeta);
+    const ratingMeta = document.createElement("span");
+    const ratings = normalizeSpeedRatings(entry.speedRatings ?? entry);
+    ratingMeta.textContent = SPEED_RATING_ORDER.map(
+      (rating) => `${SPEED_RATING_LABELS[rating]} ${ratings[rating]}`
+    ).join(" · ");
+    meta.append(runMeta, reactionMeta, ratingMeta);
     player.append(nameLine, meta);
 
     const score = document.createElement("strong");
@@ -856,29 +1091,23 @@ function renderLeaderboard(entries, mode, playerRank = null) {
     fragment.append(row);
     previousRank = entryRank;
   }
-  elements.leaderboardList.append(fragment);
+  listElement.append(fragment);
 }
 
-function setLeaderboardSummary(totalEntries, playerRank = null, hasSubmittedResult = false) {
+function setLeaderboardSummary(totalEntries, playerRank = null) {
   const safeTotal = Number.isInteger(totalEntries) ? totalEntries : 0;
   if (safeTotal === 0) {
     setLeaderboardStatus("No ranked results yet.");
     return;
   }
-  if (hasSubmittedResult && playerRank === null) {
-    setLeaderboardStatus(
-      `${safeTotal.toLocaleString()} ranked results · This run is outside the Top 1,000.`
-    );
-    return;
-  }
   if (playerRank !== null) {
     setLeaderboardStatus(
-      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "result" : "results"} · This run is #${playerRank.toLocaleString()}.`
+      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "player" : "players"} · You are #${playerRank.toLocaleString()}.`
     );
     return;
   }
   setLeaderboardStatus(
-    `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "result" : "results"} · Showing the top ${Math.min(5, safeTotal)}.`
+    `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "player" : "players"} · Showing the top ${Math.min(5, safeTotal)}.`
   );
 }
 
@@ -893,11 +1122,7 @@ function renderSubmittedLeaderboard(mode) {
   leaderboardRequestId += 1;
   selectLeaderboardMode(mode);
   renderLeaderboard(pendingResult.leaderboardEntries, mode, pendingResult.rank);
-  setLeaderboardSummary(
-    pendingResult.leaderboardTotalEntries,
-    pendingResult.rank,
-    pendingResult.submitted
-  );
+  setLeaderboardSummary(pendingResult.leaderboardTotalEntries, pendingResult.rank);
   return true;
 }
 
@@ -912,12 +1137,89 @@ function openResultLeaderboard() {
   showLeaderboardMode(pendingResult.mode);
 }
 
-async function readApiResponse(response) {
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(body.error || "Leaderboard is temporarily unavailable.");
+function normalizeRank(value) {
+  if (!value || typeof value !== "object") return null;
+  const rank = Number.isInteger(value.rank) && value.rank > 0 ? value.rank : null;
+  const totalEntries = Number.isInteger(value.totalEntries) && value.totalEntries >= 0
+    ? value.totalEntries
+    : 0;
+  const topPercent = Number.isFinite(value.topPercent)
+    ? Math.max(0, Math.min(100, value.topPercent))
+    : rank !== null && totalEntries > 0
+      ? (rank / totalEntries) * 100
+      : null;
+  return Object.freeze({
+    ...value,
+    rank,
+    totalEntries,
+    topPercent,
+    entries: Array.isArray(value.entries) ? value.entries : []
+  });
+}
+
+function normalizeProfileSession(body = {}) {
+  const authenticated = body.authenticated === undefined
+    ? profileSession.authenticated
+    : body.authenticated === true;
+  const rawRanks = authenticated
+    ? body.ranks === undefined
+      ? profileSession.ranks ?? {}
+      : body.ranks ?? {}
+    : {};
+  const ranks = Object.fromEntries(
+    Object.values(GAME_MODES).map((mode) => [mode, normalizeRank(rawRanks[mode])])
+  );
+  const leaderboard = body.leaderboard;
+  if (leaderboard && Object.values(GAME_MODES).includes(leaderboard.mode)) {
+    ranks[leaderboard.mode] = normalizeRank({
+      ...(ranks[leaderboard.mode] ?? {}),
+      rank: leaderboard.playerRank,
+      totalEntries: leaderboard.totalEntries,
+      topPercent: leaderboard.topPercent,
+      entries: leaderboard.entries
+    });
   }
-  return body;
+  return Object.freeze({
+    authenticated,
+    googleClientId:
+      typeof body.googleClientId === "string" && body.googleClientId.length > 0
+        ? body.googleClientId
+        : profileSession.googleClientId,
+    profile: body.profile === undefined
+      ? authenticated ? profileSession.profile : null
+      : body.profile && typeof body.profile === "object" ? body.profile : null,
+    ranks: Object.freeze(ranks)
+  });
+}
+
+function hasConfirmedProfile() {
+  return profileSession.authenticated && profileSession.profile?.nicknameConfirmed === true;
+}
+
+function currentRank(mode = leaderboardMode) {
+  return normalizeRank(profileSession.ranks?.[mode]);
+}
+
+function renderUtilityRank() {
+  const rank = currentRank(leaderboardMode)?.rank ?? null;
+  elements.leaderboardRank.hidden = rank === null;
+  elements.leaderboardRank.textContent = rank === null ? "" : `#${rank.toLocaleString()}`;
+  elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
+}
+
+async function refreshProfileSession() {
+  try {
+    profileSession = normalizeProfileSession(await profileClient.getSession());
+  } catch {
+    profileSession = normalizeProfileSession({ authenticated: false });
+  }
+  renderUtilityRank();
+  renderProfile();
+  renderResultSaveState();
+  if (hasConfirmedProfile() && pendingResult && !pendingResult.submitted) {
+    void submitPendingResult();
+  }
+  return profileSession;
 }
 
 function updateTopScore(mode, entries, revision = null) {
@@ -936,11 +1238,7 @@ async function refreshTopScore(mode) {
   const revision = topScoreRevisions[mode] + 1;
   topScoreRevisions[mode] = revision;
   try {
-    const response = await fetch(`/api/leaderboard?mode=${encodeURIComponent(mode)}`, {
-      cache: "no-store",
-      headers: { Accept: "application/json" }
-    });
-    const body = await readApiResponse(response);
+    const body = await profileClient.getLeaderboard(mode);
     updateTopScore(mode, body.entries, revision);
   } catch {
     // Gameplay stays available if the shared leaderboard is temporarily offline.
@@ -958,15 +1256,28 @@ async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardR
   elements.leaderboardList.replaceChildren();
 
   try {
-    const response = await fetch(`/api/leaderboard?mode=${encodeURIComponent(mode)}`, {
-      cache: "no-store",
-      headers: { Accept: "application/json" }
-    });
-    const body = await readApiResponse(response);
+    const body = await profileClient.getLeaderboard(mode);
     updateTopScore(mode, body.entries, topScoreRevision);
     if (requestId !== leaderboardRequestId) return;
-    renderLeaderboard(body.entries, mode);
-    setLeaderboardSummary(body.totalEntries);
+    const playerRank = body.playerRank ?? body.rank ?? null;
+    renderLeaderboard(body.entries, mode, playerRank);
+    setLeaderboardSummary(body.totalEntries, playerRank);
+    if (profileSession.authenticated) {
+      profileSession = normalizeProfileSession({
+        ...profileSession,
+        ranks: {
+          ...profileSession.ranks,
+          [mode]: {
+            ...(profileSession.ranks?.[mode] ?? {}),
+            rank: playerRank,
+            totalEntries: body.totalEntries,
+            topPercent: body.topPercent,
+            entries: body.playerEntries ?? body.entries
+          }
+        }
+      });
+      renderUtilityRank();
+    }
   } catch (error) {
     if (requestId !== leaderboardRequestId) return;
     renderLeaderboard([], mode);
@@ -974,69 +1285,322 @@ async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardR
   }
 }
 
-async function submitScore(event) {
-  event.preventDefault();
-  if (!pendingResult || pendingResult.submitted) return;
-  const submittedResult = pendingResult;
+function setResultSaveStatus(message, isError = false) {
+  elements.resultSaveStatus.textContent = message;
+  elements.resultSaveStatus.classList.toggle("is-error", isError);
+}
 
-  let name;
-  try {
-    name = sanitizePlayerName(elements.playerName.value);
-  } catch (error) {
-    setScoreStatus(error.message, true);
-    elements.playerName.focus();
+function renderResultSaveState() {
+  if (!pendingResult) return;
+  if (pendingResult.submitting) {
+    elements.resultGoogleSignin.hidden = true;
+    setResultSaveStatus("Saving this run to your profile…");
     return;
   }
+  if (pendingResult.submitted) {
+    elements.resultGoogleSignin.hidden = true;
+    if (pendingResult.improved === false) {
+      setResultSaveStatus("Your best seasonal result is unchanged.");
+      return;
+    }
+    const rankCopy = pendingResult.rank === null
+      ? ""
+      : ` Your seasonal position is #${pendingResult.rank.toLocaleString()}.`;
+    setResultSaveStatus(`New personal best saved.${rankCopy}`);
+    return;
+  }
+  if (!profileSession.authenticated) {
+    elements.resultGoogleSignin.hidden = false;
+    setResultSaveStatus("Sign in with Google to save this run and keep a seasonal position.");
+    return;
+  }
+  if (!hasConfirmedProfile()) {
+    elements.resultGoogleSignin.hidden = true;
+    setResultSaveStatus("Choose a public nickname in Profile before this run can be ranked.");
+    return;
+  }
+  elements.resultGoogleSignin.hidden = true;
+  setResultSaveStatus("Ready to save this run.");
+}
 
-  elements.playerName.value = name;
-  writeStoredPreference(REMEMBERED_NAME_STORAGE_KEY, name);
-
-  elements.scoreSubmit.disabled = true;
-  elements.playerName.disabled = true;
-  elements.resultLeaderboardButton.disabled = true;
-  setScoreStatus("Saving score…");
+async function submitPendingResult() {
+  if (
+    !pendingResult ||
+    pendingResult.submitted ||
+    pendingResult.submitting ||
+    !hasConfirmedProfile()
+  ) {
+    renderResultSaveState();
+    return;
+  }
+  const submittedResult = pendingResult;
+  submittedResult.submitting = true;
+  renderResultSaveState();
 
   try {
-    const response = await fetch("/api/leaderboard", {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        name,
-        mode: submittedResult.mode,
-        score: submittedResult.score,
-        hits: submittedResult.hits,
-        dodges: submittedResult.dodges,
-        fastestReactionMs: submittedResult.fastestReactionMs,
-        averageReactionMs: submittedResult.averageReactionMs,
-        survivalMs: submittedResult.survivalMs
-      })
+    const body = await profileClient.submitResult({
+      mode: submittedResult.mode,
+      score: submittedResult.score,
+      hits: submittedResult.hits,
+      dodges: submittedResult.dodges,
+      fastestReactionMs: submittedResult.fastestReactionMs,
+      averageReactionMs: submittedResult.averageReactionMs,
+      survivalMs: submittedResult.survivalMs,
+      speedRatings: submittedResult.speedRatings
     });
-    const body = await readApiResponse(response);
+    submittedResult.submitting = false;
     submittedResult.submitted = true;
-    submittedResult.rank = body.rank;
+    submittedResult.improved = body.improved === true;
+    submittedResult.rank = body.playerRank ?? body.rank ?? null;
     submittedResult.leaderboardEntries = body.entries;
     submittedResult.leaderboardTotalEntries = body.totalEntries;
     topScoreRevisions[body.mode] += 1;
     updateTopScore(body.mode, body.entries);
     if (pendingResult === submittedResult) {
-      elements.scoreSubmit.textContent = body.rank === null ? "Not ranked" : "Saved";
-      setScoreStatus(
-        body.rank === null
-          ? "This result did not reach the current Top 1,000."
-          : `Score saved at #${body.rank}.`
-      );
-      elements.resultLeaderboardButton.disabled = false;
+      renderResultSaveState();
+      await refreshProfileSession();
     }
   } catch (error) {
+    submittedResult.submitting = false;
     if (pendingResult === submittedResult) {
-      elements.scoreSubmit.disabled = false;
-      elements.playerName.disabled = false;
-      elements.resultLeaderboardButton.disabled = false;
-      setScoreStatus(error.message, true);
+      if (error instanceof ProfileApiError && error.status === 401) {
+        profileSession = normalizeProfileSession({ authenticated: false });
+        renderUtilityRank();
+        renderResultSaveState();
+        void renderGoogleButtons();
+      } else {
+        setResultSaveStatus(error.message, true);
+      }
     }
+  }
+}
+
+function loadGoogleIdentity() {
+  if (globalThis.google?.accounts?.id) return Promise.resolve(globalThis.google);
+  if (googleIdentityPromise) return googleIdentityPromise;
+  googleIdentityPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-google-identity="true"]');
+    existing?.remove();
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleIdentity = "true";
+    script.addEventListener("load", () => {
+      if (!globalThis.google?.accounts?.id) {
+        script.remove();
+        reject(new Error("Google sign-in did not initialize."));
+        return;
+      }
+      resolve(globalThis.google);
+    }, { once: true });
+    script.addEventListener("error", () => reject(new Error("Google sign-in could not be loaded.")), {
+      once: true
+    });
+    document.head.append(script);
+  }).catch((error) => {
+    document.querySelector('script[data-google-identity="true"]')?.remove();
+    googleIdentityPromise = null;
+    throw error;
+  });
+  return googleIdentityPromise;
+}
+
+async function renderGoogleButtons() {
+  if (profileSession.authenticated) return;
+  const clientId = profileSession.googleClientId;
+  if (!clientId) {
+    elements.profileAuthStatus.textContent = "Google sign-in is not configured yet.";
+    return;
+  }
+
+  try {
+    const google = await loadGoogleIdentity();
+    if (googleIdentityClientId !== clientId) {
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleGoogleCredential,
+        auto_select: false,
+        cancel_on_tap_outside: true
+      });
+      googleIdentityClientId = clientId;
+    }
+    for (const container of [elements.profileGoogleSignin, elements.resultGoogleSignin]) {
+      if (container.hidden || container.offsetParent === null) continue;
+      container.replaceChildren();
+      google.accounts.id.renderButton(container, {
+        type: "standard",
+        theme: "filled_black",
+        size: "large",
+        shape: "pill",
+        text: "continue_with",
+        width: Math.min(320, Math.max(220, container.clientWidth || 260))
+      });
+    }
+  } catch (error) {
+    elements.profileAuthStatus.textContent = error.message;
+    if (pendingResult && !elements.resultGoogleSignin.hidden) {
+      setResultSaveStatus(error.message, true);
+    }
+  }
+}
+
+async function handleGoogleCredential(response) {
+  const credential = response?.credential;
+  if (!credential) return;
+  elements.profileAuthStatus.textContent = "Signing in…";
+  try {
+    profileSession = normalizeProfileSession(
+      await profileClient.loginWithGoogleCredential(credential)
+    );
+    renderUtilityRank();
+    renderProfile();
+    renderResultSaveState();
+    if (!hasConfirmedProfile()) {
+      const returnView = dialogView === "profile"
+        ? profileReturnView
+        : dialogView === "result" ? "result" : "menu";
+      openProfile(returnView);
+      elements.profileStatus.textContent = "Choose a public nickname before saving scores.";
+      elements.profileNickname.focus({ preventScroll: true });
+      return;
+    }
+    if (dialogView === "profile") await loadProfileContext(profileMode);
+    await submitPendingResult();
+  } catch (error) {
+    elements.profileAuthStatus.textContent = error.message;
+    if (pendingResult) setResultSaveStatus(error.message, true);
+  }
+}
+
+async function loadProfileContext(mode) {
+  if (!profileSession.authenticated) return;
+  const requestId = profileRequestId + 1;
+  profileRequestId = requestId;
+  elements.profileStatus.classList.remove("is-error");
+  elements.profileStatus.textContent = "Loading seasonal position…";
+  try {
+    const body = await profileClient.getProfile(mode);
+    if (requestId !== profileRequestId) return;
+    profileSession = normalizeProfileSession({
+      ...profileSession,
+      ...body,
+      authenticated: true,
+      googleClientId: profileSession.googleClientId
+    });
+    renderUtilityRank();
+    renderProfile();
+    elements.profileStatus.textContent = "";
+  } catch (error) {
+    if (requestId !== profileRequestId) return;
+    if (error instanceof ProfileApiError && error.status === 401) {
+      await refreshProfileSession();
+      void renderGoogleButtons();
+      return;
+    }
+    elements.profileStatus.classList.add("is-error");
+    elements.profileStatus.textContent = error.message;
+  }
+}
+
+function selectProfileMode(mode) {
+  profileMode = mode;
+  for (const tab of elements.profileModeTabs) {
+    const selected = tab.dataset.profileMode === mode;
+    tab.classList.toggle("is-active", selected);
+    tab.setAttribute("aria-pressed", String(selected));
+  }
+  renderProfileRank();
+}
+
+function renderProfileRank() {
+  if (!profileSession.authenticated) return;
+  const rank = currentRank(profileMode);
+  elements.profileRankCard.replaceChildren();
+  const metrics = [
+    ["Position", rank?.rank === null || !rank ? "Unranked" : `#${rank.rank.toLocaleString()}`],
+    ["Top", rank?.topPercent === null || !rank ? "—" : `${Math.max(0.1, rank.topPercent).toFixed(1)}%`]
+  ];
+  for (const [labelText, valueText] of metrics) {
+    const metric = document.createElement("div");
+    metric.className = "profile-rank-card__metric";
+    const label = document.createElement("span");
+    label.textContent = labelText;
+    const value = document.createElement("strong");
+    value.textContent = valueText;
+    metric.append(label, value);
+    elements.profileRankCard.append(metric);
+  }
+  const neighboringEntries = rank?.rank === null || !rank
+    ? []
+    : (rank.entries ?? []).filter(
+        (entry) => Number.isInteger(entry.rank) && Math.abs(entry.rank - rank.rank) <= 2
+      );
+  renderLeaderboard(
+    neighboringEntries,
+    profileMode,
+    rank?.rank ?? null,
+    elements.profileNeighbors
+  );
+}
+
+function renderProfile() {
+  if (!elements.profileView) return;
+  elements.profileSignedIn.hidden = !profileSession.authenticated;
+  elements.profileSignedOut.hidden = profileSession.authenticated;
+  if (!profileSession.authenticated) {
+    elements.profileAuthStatus.textContent = profileSession.googleClientId
+      ? ""
+      : "Google sign-in is not configured yet.";
+    return;
+  }
+  elements.profileNickname.value = profileSession.profile?.nickname ?? "";
+  selectProfileMode(profileMode);
+}
+
+async function saveProfileNickname(event) {
+  event.preventDefault();
+  const nickname = elements.profileNickname.value.trim();
+  elements.profileSave.disabled = true;
+  elements.profileStatus.classList.remove("is-error");
+  elements.profileStatus.textContent = "Saving nickname…";
+  try {
+    const body = await profileClient.updateNickname(nickname);
+    profileSession = normalizeProfileSession({
+      ...profileSession,
+      ...body,
+      authenticated: true,
+      googleClientId: profileSession.googleClientId
+    });
+    elements.profileStatus.textContent = "Nickname saved.";
+    renderProfile();
+    if (pendingResult && !pendingResult.submitted) await submitPendingResult();
+    await loadProfileContext(profileMode);
+  } catch (error) {
+    elements.profileStatus.textContent = error.message;
+    elements.profileStatus.classList.add("is-error");
+  } finally {
+    elements.profileSave.disabled = false;
+  }
+}
+
+async function logoutProfile() {
+  elements.profileLogout.disabled = true;
+  elements.profileStatus.classList.remove("is-error");
+  elements.profileStatus.textContent = "Logging out…";
+  try {
+    const body = await profileClient.logout();
+    globalThis.google?.accounts?.id?.disableAutoSelect?.();
+    profileSession = normalizeProfileSession(body);
+    renderUtilityRank();
+    renderProfile();
+    renderResultSaveState();
+    void renderGoogleButtons();
+  } catch (error) {
+    elements.profileStatus.textContent = error.message;
+    elements.profileStatus.classList.add("is-error");
+  } finally {
+    elements.profileLogout.disabled = false;
   }
 }
 
@@ -1067,8 +1631,10 @@ function renderHud(snapshot) {
   const topScore = topScores[snapshot.mode];
   elements.highScore.textContent = topScore === null ? "—" : topScore.toLocaleString();
   if (snapshot.mode === GAME_MODES.ZEN) {
-    elements.modeLabel.textContent = "Mode";
-    elements.modeName.textContent = "Zen";
+    elements.modeLabel.textContent = "Time";
+    elements.modeName.textContent = formatDuration(
+      snapshot.remainingMs ?? engine.config.zenDurationMs
+    );
   } else {
     elements.modeLabel.textContent = "Survived";
     elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
@@ -1083,10 +1649,10 @@ function renderHud(snapshot) {
 
   elements.statusValue.className = "stat__value status-value";
   if (snapshot.mode === GAME_MODES.ZEN) {
-    const secondsRemaining = Math.ceil((snapshot.remainingMs ?? engine.config.zenDurationMs) / 1_000);
-    elements.statusLabel.textContent = "Time";
-    elements.statusValue.textContent = `${secondsRemaining}s`;
-    elements.statusValue.setAttribute("aria-label", `${secondsRemaining} seconds remaining`);
+    elements.statusLabel.textContent = "Lives";
+    elements.statusValue.classList.add("lives");
+    elements.statusValue.textContent = "∞";
+    elements.statusValue.setAttribute("aria-label", "Unlimited lives");
   } else {
     elements.statusLabel.textContent = "Lives";
     elements.statusValue.classList.add("lives");
@@ -1108,7 +1674,9 @@ function render() {
 
   const tiles = [...elements.board.children];
   for (const [index, tile] of tiles.entries()) {
-    const cell = roundPresentationExpired && snapshot.state === GAME_STATES.ACTIVE
+    const cell = roundPresentationExpired &&
+      snapshot.state === GAME_STATES.ACTIVE &&
+      index === snapshot.targetIndex
       ? { kind: "idle", colorIndex: null }
       : snapshot.cells[index] ?? { kind: "idle", colorIndex: null };
     const glyph = tile.querySelector(".tile__glyph");
@@ -1182,9 +1750,7 @@ elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
 elements.gameRestartButton.addEventListener("click", restartCurrentMode);
 elements.gameMenuButton.addEventListener("click", showMainMenu);
 elements.resultRestartButton.addEventListener("click", restartCurrentMode);
-elements.resultLeaderboardButton.addEventListener("click", openResultLeaderboard);
 elements.mainMenuButton.addEventListener("click", showMainMenu);
-elements.scoreForm.addEventListener("submit", submitScore);
 elements.settingsToggle.addEventListener("click", openSettings);
 elements.settingsBackButton.addEventListener("click", () => showMenuView(elements.settingsToggle));
 for (const input of elements.themeInputs) {
@@ -1207,11 +1773,28 @@ elements.interactiveMusicToggle.addEventListener("change", () => {
   applyInteractiveMusic(elements.interactiveMusicToggle.checked);
   if (musicEnabled) void music.unlock();
 });
-elements.leaderboardToggle.addEventListener("click", () => loadLeaderboard(leaderboardMode, "menu"));
+elements.leaderboardToggle.addEventListener("click", () => {
+  if (dialogView === "result" && pendingResult) {
+    openResultLeaderboard();
+    return;
+  }
+  void loadLeaderboard(leaderboardMode, "menu");
+});
 elements.leaderboardBackButton.addEventListener("click", returnFromLeaderboard);
 elements.leaderboardMenuButton.addEventListener("click", showMainMenu);
 for (const tab of elements.leaderboardTabs) {
   tab.addEventListener("click", () => showLeaderboardMode(tab.dataset.leaderboardMode));
+}
+elements.profileToggle.addEventListener("click", () => openProfile());
+elements.profileBackButton.addEventListener("click", returnFromProfile);
+elements.profileMenuButton.addEventListener("click", showMainMenu);
+elements.profileForm.addEventListener("submit", saveProfileNickname);
+elements.profileLogout.addEventListener("click", logoutProfile);
+for (const tab of elements.profileModeTabs) {
+  tab.addEventListener("click", () => {
+    selectProfileMode(tab.dataset.profileMode);
+    void loadProfileContext(tab.dataset.profileMode);
+  });
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 document.addEventListener("pointerdown", () => {
@@ -1227,6 +1810,9 @@ initializeDisplaySettings();
 engine.reset();
 resetResultUi();
 render();
+void refreshProfileSession().then(() => {
+  if (!profileSession.authenticated && dialogView === "profile") void renderGoogleButtons();
+});
 for (const mode of Object.values(GAME_MODES)) {
   void refreshTopScore(mode);
 }

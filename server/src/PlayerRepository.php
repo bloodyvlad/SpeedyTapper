@@ -16,7 +16,7 @@ final class PlayerRepository
     public function find(string $playerId): ?array
     {
         $statement = $this->database->prepare(
-            'SELECT id, nickname, created_at, updated_at FROM players WHERE id = :id LIMIT 1'
+            'SELECT id, nickname, nickname_confirmed, created_at, updated_at FROM players WHERE id = :id LIMIT 1'
         );
         $statement->execute(['id' => $playerId]);
         $row = $statement->fetch();
@@ -27,7 +27,7 @@ final class PlayerRepository
     {
         $subjectHash = hash('sha256', "google\0" . $identity->subject, true);
         $statement = $this->database->prepare(
-            'SELECT id, nickname, created_at, updated_at FROM players WHERE google_subject_hash = :subject_hash LIMIT 1'
+            'SELECT id, nickname, nickname_confirmed, created_at, updated_at FROM players WHERE google_subject_hash = :subject_hash LIMIT 1'
         );
         $statement->bindValue('subject_hash', $subjectHash, PDO::PARAM_LOB);
         $statement->execute();
@@ -47,7 +47,7 @@ final class PlayerRepository
             );
             $insert->bindValue('id', $id);
             $insert->bindValue('subject_hash', $subjectHash, PDO::PARAM_LOB);
-            $insert->bindValue('nickname', $identity->suggestedNickname);
+            $insert->bindValue('nickname', Nickname::anonymous());
             $insert->execute();
         } catch (PDOException $error) {
             if ($error->getCode() !== '23000') {
@@ -64,11 +64,12 @@ final class PlayerRepository
         return $this->find($id) ?? throw new \RuntimeException('Created profile could not be loaded.');
     }
 
-    public function updateNickname(string $playerId, string $nickname): array
+    public function updateNickname(string $playerId, mixed $nickname): array
     {
         $normalized = Nickname::normalize($nickname);
         $statement = $this->database->prepare(
-            'UPDATE players SET nickname = :nickname, updated_at = UTC_TIMESTAMP(3) WHERE id = :id'
+            'UPDATE players SET nickname = :nickname, nickname_confirmed = 1, '
+            . 'updated_at = UTC_TIMESTAMP(3) WHERE id = :id'
         );
         $statement->execute(['nickname' => $normalized, 'id' => $playerId]);
         if ($statement->rowCount() === 0 && $this->find($playerId) === null) {
@@ -82,6 +83,7 @@ final class PlayerRepository
         return [
             'id' => (string) $row['id'],
             'nickname' => (string) $row['nickname'],
+            'nicknameConfirmed' => (bool) $row['nickname_confirmed'],
             'createdAt' => self::isoDate((string) $row['created_at']),
             'updatedAt' => self::isoDate((string) $row['updated_at']),
         ];

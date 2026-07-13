@@ -74,14 +74,23 @@ final readonly class HttpRequest
         if (!is_string($origin) || $origin === '') {
             return;
         }
-        $originHost = parse_url($origin, PHP_URL_HOST);
-        $originScheme = strtolower((string) parse_url($origin, PHP_URL_SCHEME));
-        $requestHost = strtolower(explode(':', (string) ($this->server['HTTP_HOST'] ?? ''))[0]);
         $expectedScheme = $this->isSecure() ? 'https' : 'http';
+        $originParts = parse_url($origin);
+        $requestParts = parse_url(
+            $expectedScheme . '://' . (string) ($this->server['HTTP_HOST'] ?? '')
+        );
+        $originScheme = strtolower((string) ($originParts['scheme'] ?? ''));
+        $originHost = strtolower((string) ($originParts['host'] ?? ''));
+        $requestHost = strtolower((string) ($requestParts['host'] ?? ''));
+        $originPort = (int) ($originParts['port'] ?? ($originScheme === 'https' ? 443 : 80));
+        $requestPort = (int) ($requestParts['port'] ?? ($expectedScheme === 'https' ? 443 : 80));
         if (
-            !is_string($originHost)
-            || strtolower($originHost) !== $requestHost
+            !is_array($originParts)
+            || !is_array($requestParts)
+            || $originHost === ''
+            || $originHost !== $requestHost
             || $originScheme !== $expectedScheme
+            || $originPort !== $requestPort
         ) {
             throw new ApiException(403, 'Cross-site requests are not allowed.');
         }

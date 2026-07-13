@@ -42,7 +42,6 @@ final class GoogleClientIdentityVerifier implements GoogleIdentityVerifier
 
         return new GoogleIdentity(
             subject: $subject,
-            suggestedNickname: Nickname::suggested($claims['name'] ?? $claims['given_name'] ?? null),
         );
     }
 }

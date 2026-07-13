@@ -208,3 +208,55 @@ Decision: Retain D-012's approved soundtrack as the default and add **Interactiv
 Consequences: The legacy and Interactive variants remain parallel and cannot sound simultaneously because one controller replaces its audio context when the setting changes. Pre-recorded states keep playback CPU low and make richness deterministic, but their discrete tempo choices approximate rather than continuously reproduce each player's hit-dependent opportunity curve. A future slowdown mechanic can select a lower authored state through the retained reverse bridges, but no such power-up is part of this decision. Runtime music remains outside the install-time app shell and is cached only after a service-worker-controlled request. Retain the original legacy assets, all new PCM masters, the generated cue manifest, and provenance. Automated AAC/PCM checks do not replace physical iPhone Safari and installed-PWA listening.
 
 Revisit when: Playtesting establishes preferred Interactive defaults, motif balance, transition latency, tempo thresholds, or backing richness; decoded memory proves too high; a slowdown power-up is designed; or native audio makes more continuous tempo control practical.
+
+## D-016 — Host the profile prototype on PHP and MySQL
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Cross-device profiles, one stable leaderboard identity, and neighboring-rank queries do not fit the name-only Vercel Blob document. The existing Hostinger Premium plan provides PHP 8.2 and MariaDB/MySQL but not the managed Node.js runtime used by higher hosting tiers.
+
+Decision: Keep the browser PWA and its deterministic JavaScript engine, but serve its account and leaderboard boundary from a same-origin PHP 8.2+ API backed by Hostinger MariaDB/MySQL at `speedytapper.otcsoft.com`. Retain the current Vercel deployment and Blob data as a read-only rollback generation rather than importing those unverified names or scores. Keep credentials outside the repository and web root.
+
+Consequences: The PHP branch has its own schema, migrations, configuration example, deployment instructions, and automated checks. PWA installation preferences do not automatically migrate between the Vercel and Hostinger origins. A production migration requires a clean committed release, database backup/rollback notes, HTTPS, same-origin cookie checks, and a physical-iPhone smoke test.
+
+Revisit when: Traffic, server-authoritative gameplay, real-time multiplayer, or operational load justifies a managed application platform or a dedicated service.
+
+## D-017 — Use Google-only profiles and seasonal personal ranks
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: A public nickname alone cannot identify one player across browsers, while password recovery, email collection, and several social providers would expand a mechanics prototype into a general account system.
+
+Decision: Authenticate profiles only with Google Identity Services. Verify every Google ID token on the PHP server, key an internal random player UUID to a one-way digest of the verified Google `sub`, and expose only a nickname the player explicitly confirms. Never persist or publish the Google display name. Do not collect or store an email address, a local password, or TikTok, Facebook, or Instagram credentials. Maintain one best leaderboard result per authenticated player, game mode, and clean season. Submit completed runs automatically only after the player has confirmed a public nickname; unsigned players may play but must sign in and choose one before a result can be ranked. This supersedes D-005 and D-014 for the Hostinger profile generation; the retained Vercel rollback remains governed by those earlier decisions.
+
+Consequences: The profile can show its current rank, top percentage, and two neighboring places without ambiguous duplicate identities. A new clean season intentionally starts with no imported Blob records. Logout clears only the local authenticated session; the server profile remains linked to Google. The browser-authoritative scores are still not anti-cheat secure.
+
+Revisit when: Account recovery independent of Google, account deletion/export, child-safety requirements, additional identity providers, or verified competition becomes necessary.
+
+## D-018 — Extend Zen to a three-minute score run
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: One minute ends before many players experience the mature 4×4 pressure and late soundtrack states.
+
+Decision: Zen mode lasts exactly 180 seconds, never removes lives, and represents its unlimited lives with an infinity symbol. Normal remains endless and ends only when all three lives are lost. This supersedes D-004 only where it specified a 60-second Zen duration.
+
+Consequences: UI copy, timers, deterministic tests, result records, service-worker release wiring, and music playtesting must use the new duration. Existing one-minute Zen results are not imported into the clean profile season.
+
+Revisit when: Completion and replay data shows that three minutes is too fatiguing or prevents useful late-game exposure.
+
+## D-019 — Classify reaction speed and run decoys independently
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Round-bound decoys always appearing beside a target are predictable and disappear too slowly. Players also need a readable summary of how their speed was distributed, not only one fastest and one average value.
+
+Decision: Classify each correct reaction by the same rounded millisecond value shown to the player: under 200 ms is **Godlike**, under 300 ms is **Perfect**, under 400 ms is **Great**, and 400 ms or slower is **Good**. Show brief non-blocking overlays and a proportional four-category result bar; persist the four counts with the leaderboard result. Decoys are independent non-player-color entities that may appear at random positions and times, overlap one another, and live no longer than 500 ms. A decoy that expires by itself awards one dodge and the configured average dodge score. Correctly tapping the active target clears every visible decoy without awarding those dodges; a miss, target expiry, restart, or run end also clears them without a dodge.
+
+Consequences: Reaction classification, decoy creation, expiry, clearing, scoring, and statistics remain deterministic engine rules. Browser timers only request engine transitions and render snapshots. Playtesting must tune independent spawn intervals and visible duration without moving those rules into DOM code.
+
+Revisit when: Overlapping decoys obscure the target, dodge scoring dominates reaction scoring, or player data supports different rating boundaries.

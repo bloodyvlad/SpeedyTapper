@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-3");
+  assert.equal(buildId, "20260713-4");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -29,12 +29,12 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`leaderboard-model\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`profile-client\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(workerSource, new RegExp(`input-timing\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, new RegExp(`leaderboard-model\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
 
@@ -107,7 +107,8 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /<html lang="en" data-theme="classic" data-glyphs="on">/);
   assert.match(indexHtml, /<div id="app" inert>/);
   assert.doesNotMatch(indexHtml, /id="phase"|id="hint"|id="rules"/);
-  assert.doesNotMatch(indexHtml, /player-profile|player profile|for this device/i);
+  assert.match(indexHtml, /id="profile-view" hidden/);
+  assert.match(indexHtml, /id="profile-toggle"/);
   assert.match(indexHtml, /id="result-stats"/);
   assert.match(indexHtml, /id="result-content"/);
   assert.match(indexHtml, /id="result-fastest-value"/);
@@ -120,8 +121,9 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
     indexHtml,
     /<div class="color-hero" id="color-hero">[\s\S]*id="response-progress"[\s\S]*?<\/div>\s*<div class="hud-side">/
   );
-  assert.match(indexHtml, /id="score-form"/);
-  assert.match(indexHtml, /id="player-name"/);
+  assert.match(indexHtml, /id="result-save-panel"/);
+  assert.match(indexHtml, /id="speed-summary-bar"/);
+  assert.match(indexHtml, /data-speed-segment="godlike"/);
   assert.doesNotMatch(indexHtml, /id="themes-toggle"|id="themes-panel"/);
   assert.match(indexHtml, /id="settings-toggle"[^>]+aria-controls="settings-view"/s);
   assert.match(indexHtml, /id="settings-view" hidden/);
@@ -139,9 +141,10 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(settingsPanel, /id="color-blind-toggle"[^>]+role="switch" checked/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);
   assert.ok(
-    indexHtml.indexOf('id="settings-toggle"') < indexHtml.indexOf('id="leaderboard-toggle"'),
-    "Settings must appear above Leaderboard."
+    indexHtml.indexOf('id="leaderboard-toggle"') < indexHtml.indexOf('id="settings-toggle"'),
+    "The leaderboard shortcut must sit in the utility header above the menu controls."
   );
+  assert.match(indexHtml, /id="leaderboard-rank" hidden/);
 
   assert.match(mainSource, /speedytapper\.theme\.v1/);
   assert.match(mainSource, /speedytapper\.colorBlindMode\.v1/);
@@ -185,7 +188,9 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
     /:root\[data-theme="disco"\] \.tile--lit::before\s*\{[^}]+opacity:/s
   );
   assert.match(stylesSource, /data-glyphs="off"[^}]+theme-preview__glyph/s);
-  assert.doesNotMatch(mainSource, /PLAYER_NAME_KEY|PROFILE_SCORE_PREFIX|Profile best|My best/);
+  assert.doesNotMatch(indexHtml, /type="password"|type="email"|TikTok|Instagram|Facebook/i);
+  assert.match(mainSource, /loginWithGoogleCredential/);
+  assert.match(mainSource, /submitPendingResult/);
 });
 
 test("Music is an adaptive Web Audio soundtrack with an independent setting", () => {
@@ -288,49 +293,39 @@ test("reaction timing is anchored to presentation and original pointer contact",
   );
 });
 
-test("the leaderboard form remembers only the last validated name", () => {
+test("Google-only profiles replace local names and submit completed runs automatically", () => {
+  assert.doesNotMatch(mainSource, /REMEMBERED_NAME_STORAGE_KEY|leaderboardName|playerName/);
+  assert.match(indexHtml, /id="profile-google-signin"/);
+  assert.match(indexHtml, /id="result-google-signin"/);
+  assert.match(indexHtml, /id="profile-nickname"/);
+  assert.match(indexHtml, /id="profile-logout"/);
+  assert.match(mainSource, /https:\/\/accounts\.google\.com\/gsi\/client/);
+  assert.match(mainSource, /profileClient\.loginWithGoogleCredential\(credential\)/);
+  assert.match(mainSource, /profileClient\.updateNickname\(nickname\)/);
+  assert.match(mainSource, /profileClient\.logout\(\)/);
+  assert.match(mainSource, /profileClient\.submitResult\(\{/);
   assert.match(
     mainSource,
-    /const REMEMBERED_NAME_STORAGE_KEY = "speedytapper\.leaderboardName\.v1";/
+    /function finishGame\(snapshot, currentSession\)[\s\S]*void submitPendingResult\(\)/
   );
-  assert.match(
-    mainSource,
-    /elements\.playerName\.value = readStoredPreference\(REMEMBERED_NAME_STORAGE_KEY\) \?\? "";/
-  );
-
-  const submitStart = mainSource.indexOf("async function submitScore(event)");
-  const submitEnd = mainSource.indexOf("function ensureBoard", submitStart);
-  const submitBody = mainSource.slice(submitStart, submitEnd);
-  const sanitizeAt = submitBody.indexOf("sanitizePlayerName(elements.playerName.value)");
-  const rememberAt = submitBody.indexOf(
-    "writeStoredPreference(REMEMBERED_NAME_STORAGE_KEY, name)"
-  );
-  const requestAt = submitBody.indexOf('fetch("/api/leaderboard"');
-
-  assert.ok(sanitizeAt >= 0, "The submitted name must be validated first.");
-  assert.ok(rememberAt > sanitizeAt, "Only a validated name may be remembered.");
-  assert.ok(requestAt > rememberAt, "The valid entry should be remembered even if the network save fails.");
-  assert.doesNotMatch(
-    mainSource,
-    /player profile|personal best|profile score|PROFILE_SCORE_PREFIX/i,
-    "Remembering a form value must not reintroduce profile or personal-best semantics."
-  );
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /type="email"|type="password"|TikTok|Instagram|Facebook/i);
 });
 
 test("result leaderboard navigation preserves result context and renders compact absolute ranks", () => {
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Top 20|of 20 places/i);
-  assert.match(indexHtml, /id="result-leaderboard-button"[^>]*>Leaderboard</);
+  assert.match(indexHtml, /class="dialog-utility" id="dialog-utility"/);
+  assert.match(indexHtml, /id="leaderboard-toggle"[\s\S]*<span>Leaderboard<\/span>/);
   assert.match(indexHtml, /class="leaderboard-utility"/);
   assert.match(indexHtml, /class="leaderboard-tabs" role="group" aria-label="Leaderboard mode"/);
   assert.doesNotMatch(indexHtml, /role="tab"|role="tablist"|aria-selected/);
   assert.match(mainSource, /let leaderboardReturnView = "menu";/);
   assert.match(mainSource, /function openResultLeaderboard\(\)/);
   assert.match(mainSource, /openLeaderboard\("result"\)/);
-  assert.match(mainSource, /function returnFromLeaderboard\(\)[\s\S]*showResultView\(elements\.resultLeaderboardButton\)/);
+  assert.match(mainSource, /function returnFromLeaderboard\(\)[\s\S]*showResultView\(elements\.leaderboardToggle\)/);
   assert.match(mainSource, /dialogView === "result" && pendingResult\?\.mode === mode/);
   assert.match(mainSource, /const entryRank = Number\.isInteger\(entry\.rank\) \? entry\.rank : index \+ 1/);
   assert.match(mainSource, /entryRank > previousRank \+ 1/);
-  assert.match(mainSource, /currentBadge\.textContent = "This run"/);
+  assert.match(mainSource, /currentBadge\.textContent = "You"/);
   assert.match(stylesSource, /\.leaderboard-entry\.is-current/);
   assert.match(stylesSource, /\.leaderboard-gap/);
   assert.match(
@@ -350,13 +345,13 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
   assert.match(indexHtml, /id="game-menu-button"[\s\S]*aria-label="Return to main menu"/);
   assert.match(
     indexHtml,
-    /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="result-leaderboard-button"[\s\S]*id="main-menu-button"/
+    /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="main-menu-button"/
   );
+  assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="leaderboard-toggle"[\s\S]*id="profile-toggle"/);
 
   assert.match(mainSource, /gameRestartButton:\s*document\.querySelector\("#game-restart-button"\)/);
   assert.match(mainSource, /gameMenuButton:\s*document\.querySelector\("#game-menu-button"\)/);
   assert.match(mainSource, /resultRestartButton:\s*document\.querySelector\("#result-restart-button"\)/);
-  assert.match(mainSource, /resultLeaderboardButton:\s*document\.querySelector\("#result-leaderboard-button"\)/);
   const restartBody = mainSource.match(/function restartCurrentMode\(\)\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(restartBody, /pendingResult\?\.mode\s*\?\?\s*engine\.mode/);
   assert.match(restartBody, /startGame\([^)]+\);/);
@@ -374,10 +369,34 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
 
   assertClickHandler("gameRestartButton", "restartCurrentMode");
   assertClickHandler("resultRestartButton", "restartCurrentMode");
-  assertClickHandler("resultLeaderboardButton", "openResultLeaderboard");
   assertClickHandler("gameMenuButton", "showMainMenu");
   assertClickHandler("mainMenuButton", "showMainMenu");
   assert.match(mainSource, /function showMainMenu\(\)[\s\S]*elements\.normalButton\.focus\(\{ preventScroll: true \}\)/);
+});
+
+test("three-minute Zen, independent decoys, and speed feedback are wired into the shell", () => {
+  assert.match(configSource, /zenDurationMs:\s*180_000/);
+  assert.match(indexHtml, /id="zen-button"[^>]*>3-min Zen</);
+  assert.match(mainSource, /elements\.statusValue\.textContent = "∞"/);
+  assert.match(mainSource, /engine\.getNextDecoyDelayMs\(now\(\)\)/);
+  assert.match(mainSource, /engine\.activateDecoy\(visibleAt\)/);
+  assert.match(mainSource, /engine\.expireDecoys\(expiredAt\)/);
+  assert.match(mainSource, /reachedDeadline\(expiredAt, runDeadlineAt\)/);
+  assert.match(mainSource, /reachedDeadline\(visibleAt, runDeadlineAt\)/);
+  assert.match(mainSource, /scheduleDecoySpawn\(currentSession\)/);
+  assert.match(mainSource, /scheduleDecoyExpiry\(currentSession\)/);
+  assert.match(mainSource, /result\.displayedReactionMs/);
+  assert.match(mainSource, /showSpeedRating\(result\.speedRating\)/);
+  assert.match(indexHtml, /id="speed-rating-overlay"/);
+  assert.match(indexHtml, /id="speed-summary-bar"/);
+  assert.match(stylesSource, /\.speed-rating-overlay--godlike/);
+  assert.match(stylesSource, /\.speed-summary__segment--perfect/);
+  assert.match(mainSource, /function hasConfirmedProfile\(\)/);
+  assert.match(mainSource, /profile\?\.nicknameConfirmed === true/);
+  assert.match(mainSource, /submittedResult\.improved = body\.improved === true/);
+  assert.match(mainSource, /document\.querySelector\('script\[data-google-identity="true"\]'\)\?\.remove\(\)/);
+  assert.match(mainSource, /if \(!globalThis\.google\?\.accounts\?\.id\) \{[\s\S]*script\.remove\(\);[\s\S]*reject\(/);
+  assert.match(mainSource, /function showResultView\([\s\S]*renderResultSaveState\(\);[\s\S]*renderGoogleButtons\(\)/);
 });
 
 test("Classic and Disco gameplay tiles keep distinct material treatments", () => {

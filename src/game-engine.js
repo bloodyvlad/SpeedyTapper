@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-3";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-4";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -439,7 +439,9 @@ export class GameEngine {
   }
 
   tap(cellIndex, now) {
-    const settled = this.#settleExpiredDecoys(now);
+    // A decoy earns a dodge only when its own expiry transition removes it.
+    // If a still-present decoy is cleared by input, it was not visibly dodged.
+    const settled = { count: 0, pointsAwarded: 0, decoyIds: [] };
 
     if (this.state === GAME_STATES.WAITING) {
       return this.#miss("empty", now, null, settled);
@@ -498,7 +500,8 @@ export class GameEngine {
       return Object.freeze({ type: "ignored", reason: "not-active", snapshot: this.getSnapshot(now) });
     }
 
-    const settled = this.#settleExpiredDecoys(now);
+    // Target expiry clears every visible decoy as part of the failed round.
+    const settled = { count: 0, pointsAwarded: 0, decoyIds: [] };
     const reactionMs = Math.max(0, now - this.activeAt);
     if (reactionMs < this.roundDifficulty.responseWindowMs) {
       return Object.freeze({
@@ -529,7 +532,6 @@ export class GameEngine {
     }
 
     const runDeadlineAt = this.startedAt + this.config.zenDurationMs;
-    const settled = this.#settleExpiredDecoys(runDeadlineAt);
     this.state = GAME_STATES.GAME_OVER;
     this.endedAt = runDeadlineAt;
     this.endReason = "time";
@@ -540,8 +542,8 @@ export class GameEngine {
     this.roundDifficulty = null;
     return Object.freeze({
       type: "time-up",
-      dodgesAwarded: settled.count,
-      dodgePointsAwarded: settled.pointsAwarded,
+      dodgesAwarded: 0,
+      dodgePointsAwarded: 0,
       snapshot: this.getSnapshot(now)
     });
   }

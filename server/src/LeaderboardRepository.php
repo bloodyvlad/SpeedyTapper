@@ -29,36 +29,41 @@ final class LeaderboardRepository
     public function payload(string $mode, ?string $playerId): array
     {
         self::validateMode($mode);
-        $rankedRows = $this->rankedRows($mode);
-        $window = LeaderboardWindow::select($rankedRows, $playerId);
-        $entries = array_map(
-            fn (array $row): array => $this->publicEntry($row, $playerId),
-            $window['rows'],
-        );
-        $total = count($rankedRows);
+        return $this->consistentRead(function () use ($mode, $playerId): array {
+            $total = $this->countEntries($mode);
+            $playerRank = $playerId === null ? null : $this->rankForPlayer($mode, $playerId);
+            $rankedRows = $this->rankedRows($mode, $playerRank);
+            $entries = array_map(
+                fn (array $row): array => $this->publicEntry($row, $playerId),
+                $rankedRows,
+            );
 
-        return [
-            'season' => ['id' => $this->seasonId, 'name' => $this->seasonName],
-            'mode' => $mode,
-            'entries' => $entries,
-            'totalEntries' => $total,
-            'playerRank' => $window['playerRank'],
-            'topPercent' => LeaderboardWindow::topPercent($window['playerRank'], $total),
-        ];
+            return [
+                'season' => ['id' => $this->seasonId, 'name' => $this->seasonName],
+                'mode' => $mode,
+                'entries' => $entries,
+                'totalEntries' => $total,
+                'playerRank' => $playerRank,
+                'topPercent' => LeaderboardWindow::topPercent($playerRank, $total),
+            ];
+        });
     }
 
     public function rankings(string $playerId): array
     {
-        $rankings = [];
-        foreach (['normal', 'zen'] as $mode) {
-            $payload = $this->payload($mode, $playerId);
-            $rankings[$mode] = [
-                'rank' => $payload['playerRank'],
-                'totalEntries' => $payload['totalEntries'],
-                'topPercent' => $payload['topPercent'],
-            ];
-        }
-        return $rankings;
+        return $this->consistentRead(function () use ($playerId): array {
+            $rankings = [];
+            foreach (['normal', 'zen'] as $mode) {
+                $total = $this->countEntries($mode);
+                $rank = $this->rankForPlayer($mode, $playerId);
+                $rankings[$mode] = [
+                    'rank' => $rank,
+                    'totalEntries' => $total,
+                    'topPercent' => LeaderboardWindow::topPercent($rank, $total),
+                ];
+            }
+            return $rankings;
+        });
     }
 
     public function submit(string $playerId, ScoreSubmission $score): array
@@ -152,21 +157,77 @@ final class LeaderboardRepository
         ];
     }
 
-    private function rankedRows(string $mode): array
+    private function countEntries(string $mode): int
     {
         $statement = $this->database->prepare(
-            'SELECT e.id, e.player_id, p.nickname, e.mode, e.score, e.duration_ms, '
+            'SELECT COUNT(*) FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
+        );
+        $statement->execute(['season_id' => $this->seasonId, 'mode' => $mode]);
+        return (int) $statement->fetchColumn();
+    }
+
+    private function rankForPlayer(string $mode, string $playerId): ?int
+    {
+        $statement = $this->database->prepare(
+            'SELECT rank_position FROM ('
+            . 'SELECT player_id, ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql() . ') AS rank_position '
+            . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
+            . ') ranked WHERE player_id = :player_id LIMIT 1'
+        );
+        $statement->execute([
+            'season_id' => $this->seasonId,
+            'mode' => $mode,
+            'player_id' => $playerId,
+        ]);
+        $rank = $statement->fetchColumn();
+        return $rank === false ? null : (int) $rank;
+    }
+
+    private function rankedRows(string $mode, ?int $playerRank): array
+    {
+        $contextClause = $playerRank === null
+            ? ''
+            : ' OR rank_position BETWEEN ' . max(1, $playerRank - LeaderboardWindow::CONTEXT_RADIUS)
+                . ' AND ' . ($playerRank + LeaderboardWindow::CONTEXT_RADIUS);
+        $statement = $this->database->prepare(
+            'WITH ranked AS (SELECT e.id, e.player_id, p.nickname, e.mode, e.score, e.duration_ms, '
             . 'e.fastest_reaction_ms, e.average_reaction_ms, e.correct_taps, e.dodge_count, '
             . 'e.godlike_count, e.perfect_count, e.great_count, e.good_count, e.achieved_at, '
-            . 'ROW_NUMBER() OVER (ORDER BY e.score DESC, '
-            . "CASE WHEN e.mode = 'normal' THEN e.duration_ms ELSE 0 END DESC, "
-            . 'e.correct_taps DESC, e.achieved_at ASC, e.id ASC) AS rank_position '
+            . 'ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql('e.') . ') AS rank_position '
             . 'FROM leaderboard_entries e INNER JOIN players p ON p.id = e.player_id '
-            . 'WHERE e.season_id = :season_id AND e.mode = :mode '
-            . 'ORDER BY rank_position ASC'
+            . 'WHERE e.season_id = :season_id AND e.mode = :mode) '
+            . 'SELECT * FROM ranked WHERE rank_position <= ' . LeaderboardWindow::TOP_COUNT
+            . $contextClause . ' ORDER BY rank_position ASC'
         );
         $statement->execute(['season_id' => $this->seasonId, 'mode' => $mode]);
         return $statement->fetchAll();
+    }
+
+    private static function rankingOrderSql(string $prefix = ''): string
+    {
+        return $prefix . 'score DESC, '
+            . "CASE WHEN " . $prefix . "mode = 'normal' THEN " . $prefix . 'duration_ms ELSE 0 END DESC, '
+            . $prefix . 'correct_taps DESC, ' . $prefix . 'achieved_at ASC, ' . $prefix . 'id ASC';
+    }
+
+    private function consistentRead(callable $callback): mixed
+    {
+        $ownsTransaction = !$this->database->inTransaction();
+        if ($ownsTransaction) {
+            $this->database->beginTransaction();
+        }
+        try {
+            $result = $callback();
+            if ($ownsTransaction) {
+                $this->database->commit();
+            }
+            return $result;
+        } catch (Throwable $error) {
+            if ($ownsTransaction && $this->database->inTransaction()) {
+                $this->database->rollBack();
+            }
+            throw $error;
+        }
     }
 
     private function publicEntry(array $row, ?string $playerId): array
