@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-6");
+  assert.equal(buildId, "20260713-7");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -53,7 +53,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
 });
 
-test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", () => {
+test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audio", () => {
   const settingsPanel = indexHtml.match(
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0] ?? "";
@@ -65,11 +65,11 @@ test("Sound FX is an opt-in Beta implemented with standards-based Web Audio", ()
   assert.match(soundSetting, /Sound FX/);
   assert.match(soundSetting, />\s*Beta\s*</i);
   assert.match(soundToggle, /role="switch"/);
-  assert.doesNotMatch(soundToggle, /\bchecked\b/);
-  assert.match(indexHtml, /id="settings-current">Classic · FX off · Music on</);
+  assert.match(soundToggle, /\bchecked\b/);
+  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music interactive</);
   assert.match(mainSource, /speedytapper\.soundFx\.v1/);
-  assert.match(mainSource, /let soundFxEnabled = false;/);
-  assert.match(mainSource, /soundFxEnabled = storedSoundFx === "on";/);
+  assert.match(mainSource, /let soundFxEnabled = true;/);
+  assert.match(mainSource, /soundFxEnabled = storedSoundFx !== "off";/);
   assert.match(mainSource, /soundFxToggle/);
   assert.match(mainSource, /sound\.setEnabled\(soundFxEnabled\)/);
   assert.match(
@@ -110,6 +110,7 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /id="profile-view" hidden/);
   assert.match(indexHtml, /id="profile-toggle"/);
   assert.match(indexHtml, /id="result-stats"/);
+  assert.match(indexHtml, /id="result-score-value"/);
   assert.match(indexHtml, /id="result-content"/);
   assert.match(indexHtml, /id="result-fastest-value"/);
   assert.match(indexHtml, /id="result-average-value"/);
@@ -154,6 +155,11 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
     "The leaderboard shortcut must sit in the utility header above the menu controls."
   );
   assert.match(indexHtml, /id="leaderboard-rank" hidden/);
+  assert.match(indexHtml, /id="coin-balance"[^>]+aria-label="0 coins"/);
+  assert.ok(
+    indexHtml.indexOf('id="coin-balance"') < indexHtml.indexOf('id="leaderboard-toggle"'),
+    "The coin balance must sit immediately left of the leaderboard shortcut."
+  );
 
   assert.match(mainSource, /speedytapper\.theme\.v1/);
   assert.match(mainSource, /speedytapper\.colorBlindMode\.v1/);
@@ -200,6 +206,8 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.doesNotMatch(indexHtml, /type="password"|type="email"|TikTok|Instagram|Facebook/i);
   assert.match(mainSource, /loginWithGoogleCredential/);
   assert.match(mainSource, /submitPendingResult/);
+  assert.match(mainSource, /theme: "outline"/);
+  assert.match(stylesSource, /\.google-signin\s*\{[^}]+background:\s*transparent !important/s);
 });
 
 test("Music is an adaptive Web Audio soundtrack with an independent setting", () => {
@@ -217,13 +225,13 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(interactiveMusicSetting, />\s*Beta\s*</i);
   assert.match(interactiveMusicSetting, /Correct taps play the melody/);
   assert.match(interactiveMusicSetting, /id="interactive-music-toggle"[^>]+role="switch"/);
-  assert.doesNotMatch(interactiveMusicSetting, /\bchecked\b/);
+  assert.match(interactiveMusicSetting, /\bchecked\b/);
   assert.match(mainSource, /speedytapper\.music\.v1/);
   assert.match(mainSource, /speedytapper\.interactiveMusic\.v1/);
   assert.match(mainSource, /let musicEnabled = true;/);
-  assert.match(mainSource, /let interactiveMusicEnabled = false;/);
+  assert.match(mainSource, /let interactiveMusicEnabled = true;/);
   assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
-  assert.match(mainSource, /interactiveMusicEnabled = storedInteractiveMusic === "on";/);
+  assert.match(mainSource, /interactiveMusicEnabled = storedInteractiveMusic !== "off";/);
   assert.match(mainSource, /music\.setInteractive\(interactiveMusicEnabled\)/);
   assert.match(mainSource, /musicStageFor\(snapshot\)/);
   assert.match(musicSource, /MUSIC_STAGES\.GRID_2/);
@@ -416,6 +424,15 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(mainSource, /showSpeedRating\(result\.speedRating\)/);
   assert.match(indexHtml, /id="speed-rating-overlay" aria-hidden="true"/);
   assert.match(indexHtml, /id="speed-summary-bar"/);
+  assert.match(indexHtml, /id="streak-meter"/);
+  assert.match(indexHtml, /id="score-multiplier">1×</);
+  assert.match(configSource, /tapsPerMultiplier:\s*5/);
+  assert.match(configSource, /maximumMultiplier:\s*5/);
+  assert.match(mainSource, /function renderStreak\(snapshot\)/);
+  assert.match(mainSource, /multiplierBasePoints/);
+  assert.match(mainSource, /runId:\s*submittedResult\.runId/);
+  assert.match(mainSource, /createLeaderboardSpeedBar\(ratings\)/);
+  assert.match(stylesSource, /\.leaderboard-entry__speed-bar/);
   assert.match(stylesSource, /\.speed-rating-overlay--godlike/);
   assert.match(stylesSource, /\.speed-rating-overlay--left\s*\{[^}]+--speed-rating-tilt:\s*-6deg/s);
   assert.match(stylesSource, /\.speed-rating-overlay--right\s*\{[^}]+--speed-rating-tilt:\s*6deg/s);

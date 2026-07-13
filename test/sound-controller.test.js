@@ -276,16 +276,16 @@ test("the controller is Web Audio based and contains no browser sniffing or medi
   assert.match(source, /latencyHint\s*:\s*["']interactive["']/);
 });
 
-test("Sound FX defaults off in the browser shell", async () => {
+test("Sound FX defaults on in the browser shell while preserving an explicit opt-out", async () => {
   const [mainSource, indexHtml] = await Promise.all([
     readFile(new URL("../src/main.js", import.meta.url), "utf8"),
     readFile(new URL("../index.html", import.meta.url), "utf8")
   ]);
 
-  assert.match(mainSource, /let soundFxEnabled = false;/);
-  assert.match(mainSource, /soundFxEnabled = storedSoundFx === ["']on["'];/);
+  assert.match(mainSource, /let soundFxEnabled = true;/);
+  assert.match(mainSource, /soundFxEnabled = storedSoundFx !== ["']off["'];/);
   assert.match(indexHtml, /id="sound-fx-toggle"[^>]+role="switch"/);
-  assert.doesNotMatch(indexHtml, /id="sound-fx-toggle"[^>]+checked/);
+  assert.match(indexHtml, /id="sound-fx-toggle"[^>]+checked/);
 });
 
 test("disabled Sound FX creates no context and performs no fetch, decode, or playback work", async () => {

@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-6";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-7";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -188,6 +188,12 @@ function emptySpeedRatingCounts() {
   };
 }
 
+function emptyMultiplierHitCounts(maximumMultiplier) {
+  return Object.fromEntries(
+    Array.from({ length: maximumMultiplier }, (_, index) => [index + 1, 0])
+  );
+}
+
 export class GameEngine {
   constructor({ config = GAME_CONFIG, colors = COLORS, random = Math.random } = {}) {
     if (colors.length < 2) {
@@ -211,6 +217,17 @@ export class GameEngine {
     this.reactionTotalMs = 0;
     this.fastestReactionMs = null;
     this.speedRatings = emptySpeedRatingCounts();
+    this.multiplier = 1;
+    this.maximumMultiplierUsed = 1;
+    this.streakProgress = 0;
+    this.reactionBasePoints = 0;
+    this.multiplierBonusPoints = 0;
+    this.multiplierHitCounts = emptyMultiplierHitCounts(
+      this.config.streak.maximumMultiplier
+    );
+    this.multiplierBasePoints = emptyMultiplierHitCounts(
+      this.config.streak.maximumMultiplier
+    );
     this.startedAt = null;
     this.endedAt = null;
     this.endReason = null;
@@ -478,20 +495,38 @@ export class GameEngine {
       return this.#miss("wrong", now, reactionMs, settled, resolvedAt);
     }
 
-    const pointsAwarded = scoreReaction(
+    const speedRating = classifyReaction(reactionMs);
+    if (speedRating.id === SPEED_RATING_IDS.GOOD) {
+      this.#resetStreak();
+    }
+    const multiplierUsed = this.multiplier;
+    this.maximumMultiplierUsed = Math.max(this.maximumMultiplierUsed, multiplierUsed);
+    const basePointsAwarded = scoreReaction(
       reactionMs,
       this.roundDifficulty.responseWindowMs,
       this.config
     );
+    const pointsAwarded = basePointsAwarded * multiplierUsed;
     this.points += pointsAwarded;
+    this.reactionBasePoints += basePointsAwarded;
+    this.multiplierBonusPoints += pointsAwarded - basePointsAwarded;
+    this.multiplierHitCounts[multiplierUsed] += 1;
+    this.multiplierBasePoints[multiplierUsed] += basePointsAwarded;
     this.hits += 1;
     this.reactionTotalMs += reactionMs;
     this.fastestReactionMs =
       this.fastestReactionMs === null
         ? reactionMs
         : Math.min(this.fastestReactionMs, reactionMs);
-    const speedRating = classifyReaction(reactionMs);
     this.speedRatings[speedRating.id] += 1;
+    const multiplierBeforeAdvance = this.multiplier;
+    if (
+      speedRating.id === SPEED_RATING_IDS.GODLIKE ||
+      speedRating.id === SPEED_RATING_IDS.PERFECT
+    ) {
+      this.#advanceStreak();
+    }
+    const multiplierRaised = this.multiplier > multiplierBeforeAdvance;
     this.#finishRound();
 
     const shouldChangeColor =
@@ -502,6 +537,10 @@ export class GameEngine {
 
     return Object.freeze({
       type: "hit",
+      basePointsAwarded,
+      multiplierUsed,
+      multiplierAfter: this.multiplier,
+      multiplierRaised,
       pointsAwarded,
       reactionMs,
       displayedReactionMs: speedRating.displayedMs,
@@ -605,6 +644,15 @@ export class GameEngine {
       fastestReactionMs: this.fastestReactionMs,
       averageReactionMs: this.hits > 0 ? this.reactionTotalMs / this.hits : null,
       speedRatings: Object.freeze({ ...this.speedRatings }),
+      multiplier: this.multiplier,
+      streakProgress: this.streakProgress,
+      streakTarget: this.config.streak.tapsPerMultiplier,
+      maximumMultiplier: this.config.streak.maximumMultiplier,
+      maximumMultiplierUsed: this.maximumMultiplierUsed,
+      reactionBasePoints: this.reactionBasePoints,
+      multiplierBonusPoints: this.multiplierBonusPoints,
+      multiplierHitCounts: Object.freeze({ ...this.multiplierHitCounts }),
+      multiplierBasePoints: Object.freeze({ ...this.multiplierBasePoints }),
       reactionProgress,
       recoveryRemainingMs: this.getRecoveryRemainingMs(now),
       elapsedMs,
@@ -626,6 +674,28 @@ export class GameEngine {
     return (this.playerColorIndex + offset) % this.colors.length;
   }
 
+  #advanceStreak() {
+    if (this.multiplier >= this.config.streak.maximumMultiplier) {
+      this.streakProgress = this.config.streak.tapsPerMultiplier;
+      return;
+    }
+
+    this.streakProgress += 1;
+    if (this.streakProgress < this.config.streak.tapsPerMultiplier) return;
+    this.multiplier = Math.min(
+      this.config.streak.maximumMultiplier,
+      this.multiplier + 1
+    );
+    this.streakProgress = this.multiplier >= this.config.streak.maximumMultiplier
+      ? this.config.streak.tapsPerMultiplier
+      : 0;
+  }
+
+  #resetStreak() {
+    this.multiplier = 1;
+    this.streakProgress = 0;
+  }
+
   #finishRound() {
     this.state = GAME_STATES.WAITING;
     this.activeDecoys = [];
@@ -643,6 +713,7 @@ export class GameEngine {
     settled = { count: 0, pointsAwarded: 0 },
     resolvedAt = now
   ) {
+    this.#resetStreak();
     const lifeLost = this.mode === GAME_MODES.NORMAL;
     if (lifeLost) {
       this.lives = Math.max(0, this.lives - 1);

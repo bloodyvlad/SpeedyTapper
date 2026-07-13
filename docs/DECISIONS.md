@@ -286,3 +286,42 @@ Decision: Keep the existing `season_id` as an internal storage and API implement
 Consequences: No schema migration or API contract change is required. Technical documentation and server tests may continue to use season terminology where it describes the partitioning model, but browser UI copy must not expose it as a gameplay concept.
 
 Revisit when: SpeedyTapper intentionally launches scheduled competitive seasons, reset rewards, archived rankings, or an all-time leaderboard alongside time-limited rankings.
+
+## D-022 — Default the tested Web Audio variants on
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Sound feedback and tap-driven music are important to the intended reaction loop, but default-off switches leave most first-time playtests silent. The controllers already preload bounded Web Audio resources, resume audible output only from trusted gestures, and retain explicit opt-outs.
+
+Decision: Default both Sound FX and Interactive Music on for a device with no stored preference. Preserve any explicit `off` preference. Keep Music as the master switch and retain every lifecycle, caching, late-cue, backgrounding, and rollback constraint from D-006, D-012, and D-015. This supersedes D-006 and D-015 only for their default states.
+
+Consequences: A first visit may create contexts and prepare enabled audio before gameplay, while audible resume still requires a trusted gesture. Switching Sound FX off must continue to close its context and prevent further fetch, decode, cache, or playback work. Physical-iPhone Safari and installed-PWA testing remains required before calling this default device-validated.
+
+Revisit when: Opt-out data, latency, memory, accessibility feedback, browser autoplay changes, or physical-device tests show that either audio path should return to opt-in.
+
+## D-023 — Reward fast streaks with score multipliers
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Reaction ratings are visible but do not currently create a longer performance arc. A compact meter can reward sustained fast play without changing target rules or adding another input.
+
+Decision: Godlike and Perfect taps advance a five-step boost meter. Each completed group of five unlocks the next multiplier for subsequent correct taps: 2×, 3×, 4×, then a 5× cap. The threshold tap uses the multiplier that was active when it appeared; the newly unlocked level begins on the next tap. Great scores at and preserves the current multiplier without advancing the meter. Good resets to 1× before it scores. Every mistake resets immediately in both modes. Decoy expiry is neutral and its fixed dodge points are never multiplied. Keep deterministic per-tier hit and base-point totals so the PHP boundary can exactly reconcile base score, multiplier bonus, dodges, and total score.
+
+Consequences: The meter appears directly below the board and shows progress toward the next tier or `MAX`. Multiplied scores are not comparable with pre-multiplier leaderboard rows, so this candidate must not be promoted into the existing ranking generation until a separately approved preservation or generation-change plan exists.
+
+Revisit when: Playtesting shows that Great should break or advance the meter, the threshold tap should receive the new multiplier, five hits is the wrong cadence, or multiplied scores overwhelm reaction readability.
+
+## D-024 — Credit profile coins from idempotent completed runs
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Coins need to accrue from total play time even when a completed run does not improve the player's leaderboard best. Adding currency directly to the one-best leaderboard upsert would lose lower runs and retrying a request could credit the same run more than once.
+
+Decision: Give every started run a client-generated UUID retained through Game Over, sign-in, nickname confirmation, and retries. For authenticated accepted runs, store a completed-run ledger row and transactionally add its duration to the profile's carried sub-minute remainder. Award one coin for each cumulative 60,000 ms and retain the new remainder. Repeating an identical run UUID returns its original result without another credit; reusing that UUID with a different payload is a conflict. Expose the lifetime balance in the utility header immediately left of Leaderboard.
+
+Consequences: Lower non-best runs still earn play-time coins. Unsigned runs can be credited after Google sign-in and nickname confirmation while their Game Over result remains pending. The client remains browser-authoritative, so coins are farmable and must not be sold, redeemed, or treated as secure value without server-verifiable gameplay.
+
+Revisit when: Coins gain spending, rewards, purchases, fraud incentives, offline earning, account deletion/export requirements, or server-authoritative run evidence.

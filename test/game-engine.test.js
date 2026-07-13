@@ -414,7 +414,122 @@ test("correct taps retain per-run speed rating counts with reaction statistics",
   assert.equal(finalHit.displayedReactionMs, 450);
 });
 
-test("reset clears dodge, reaction, and speed-rating statistics", () => {
+test("five Godlike or Perfect taps unlock the next multiplier for the following hit", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+
+  let thresholdHit;
+  for (let hit = 0; hit < 5; hit += 1) {
+    thresholdHit = hitRound(engine, 100 + hit * 1_000, 150);
+  }
+
+  assert.equal(thresholdHit.multiplierUsed, 1);
+  assert.equal(thresholdHit.multiplierAfter, 2);
+  assert.equal(thresholdHit.multiplierRaised, true);
+  assert.equal(thresholdHit.snapshot.streakProgress, 0);
+
+  const multipliedHit = hitRound(engine, 5_500, 350);
+  assert.equal(multipliedHit.speedRating.id, SPEED_RATING_IDS.GREAT);
+  assert.equal(multipliedHit.multiplierUsed, 2);
+  assert.equal(multipliedHit.pointsAwarded, multipliedHit.basePointsAwarded * 2);
+  assert.equal(multipliedHit.snapshot.multiplier, 2);
+});
+
+test("Great preserves streak progress while Good resets before scoring", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+
+  hitRound(engine, 100, 150);
+  hitRound(engine, 1_100, 250);
+  const great = hitRound(engine, 2_100, 350);
+  assert.equal(great.snapshot.streakProgress, 2);
+  assert.equal(great.snapshot.multiplier, 1);
+
+  hitRound(engine, 3_100, 150);
+  const fourthFastTap = hitRound(engine, 4_100, 250);
+  assert.equal(fourthFastTap.snapshot.streakProgress, 4);
+  const unlock = hitRound(engine, 5_100, 150);
+  assert.equal(unlock.snapshot.multiplier, 2);
+
+  const good = hitRound(engine, 6_100, 450);
+  assert.equal(good.speedRating.id, SPEED_RATING_IDS.GOOD);
+  assert.equal(good.multiplierUsed, 1);
+  assert.equal(good.pointsAwarded, good.basePointsAwarded);
+  assert.equal(good.snapshot.multiplier, 1);
+  assert.equal(good.snapshot.streakProgress, 0);
+});
+
+test("mistakes reset the multiplier in both game modes while dodges are neutral", () => {
+  for (const mode of Object.values(GAME_MODES)) {
+    const engine = makeEngine(() => 0);
+    engine.start(0, mode);
+    for (let hit = 0; hit < 5; hit += 1) {
+      hitRound(engine, 100 + hit * 1_000, 150);
+    }
+    engine.hits = Math.max(engine.hits, 4);
+    const decoy = engine.activateDecoy(10_100);
+    const dodge = engine.expireDecoys(decoy.decoy.expiresAt);
+    assert.equal(dodge.snapshot.multiplier, 2);
+
+    const miss = engine.tap(0, decoy.decoy.expiresAt + 10);
+    assert.equal(miss.type, "miss");
+    assert.equal(miss.snapshot.multiplier, 1);
+    assert.equal(miss.snapshot.streakProgress, 0);
+  }
+});
+
+test("score accounting and multiplier hit buckets reconcile through the 5x cap", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+  let result;
+  const milestones = new Map();
+  for (let hit = 0; hit < 21; hit += 1) {
+    result = hitRound(engine, 100 + hit * 1_900, 150);
+    if ([5, 10, 15, 20].includes(hit + 1)) milestones.set(hit + 1, result);
+  }
+
+  assert.deepEqual(
+    [...milestones].map(([hit, milestone]) => [
+      hit,
+      milestone.multiplierUsed,
+      milestone.multiplierAfter
+    ]),
+    [
+      [5, 1, 2],
+      [10, 2, 3],
+      [15, 3, 4],
+      [20, 4, 5]
+    ]
+  );
+  assert.equal(result.multiplierUsed, 5);
+  assert.equal(result.snapshot.multiplier, 5);
+  assert.equal(result.snapshot.maximumMultiplierUsed, 5);
+  assert.equal(result.snapshot.streakProgress, GAME_CONFIG.streak.tapsPerMultiplier);
+  assert.deepEqual(result.snapshot.multiplierHitCounts, {
+    1: 5,
+    2: 5,
+    3: 5,
+    4: 5,
+    5: 1
+  });
+  assert.equal(
+    Object.values(result.snapshot.multiplierBasePoints).reduce((sum, points) => sum + points, 0),
+    result.snapshot.reactionBasePoints
+  );
+  assert.equal(
+    Object.entries(result.snapshot.multiplierBasePoints).reduce(
+      (sum, [multiplier, points]) => sum + (Number(multiplier) - 1) * points,
+      0
+    ),
+    result.snapshot.multiplierBonusPoints
+  );
+  assert.equal(
+    result.snapshot.points,
+    result.snapshot.reactionBasePoints + result.snapshot.multiplierBonusPoints
+  );
+});
+
+test("reset clears dodge, reaction, speed-rating, and multiplier statistics", () => {
   const engine = makeEngine();
   engine.start(0);
   hitRound(engine, 100, 80);
@@ -425,6 +540,11 @@ test("reset clears dodge, reaction, and speed-rating statistics", () => {
   assert.equal(snapshot.fastestReactionMs, null);
   assert.equal(snapshot.averageReactionMs, null);
   assert.deepEqual(snapshot.speedRatings, { godlike: 0, perfect: 0, great: 0, good: 0 });
+  assert.equal(snapshot.multiplier, 1);
+  assert.equal(snapshot.streakProgress, 0);
+  assert.equal(snapshot.reactionBasePoints, 0);
+  assert.equal(snapshot.multiplierBonusPoints, 0);
+  assert.deepEqual(snapshot.multiplierBasePoints, { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
 });
 
 test("the active target snapshot exposes a smooth remaining-time ratio", () => {

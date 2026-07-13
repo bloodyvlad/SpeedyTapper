@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-6";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-6";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-7";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-7";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-6";
+} from "./input-timing.js?v=20260713-7";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-6";
-import { createSoundController } from "./sound-controller.js?v=20260713-6";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-6";
+} from "./music-controller.js?v=20260713-7";
+import { createSoundController } from "./sound-controller.js?v=20260713-7";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-7";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -37,6 +37,8 @@ const elements = {
   app: document.querySelector("#app"),
   board: document.querySelector("#board"),
   colorBlindToggle: document.querySelector("#color-blind-toggle"),
+  coinBalance: document.querySelector("#coin-balance"),
+  coinCount: document.querySelector("#coin-count"),
   colorHero: document.querySelector("#color-hero"),
   colorGlyph: document.querySelector("#color-glyph"),
   colorName: document.querySelector("#color-name"),
@@ -97,6 +99,7 @@ const elements = {
   resultGoogleSignin: document.querySelector("#result-google-signin"),
   resultSavePanel: document.querySelector("#result-save-panel"),
   resultSaveStatus: document.querySelector("#result-save-status"),
+  resultScoreValue: document.querySelector("#result-score-value"),
   resultStats: document.querySelector("#result-stats"),
   settingsCurrent: document.querySelector("#settings-current"),
   settingsBackButton: document.querySelector("#settings-back-button"),
@@ -104,11 +107,14 @@ const elements = {
   settingsToggle: document.querySelector("#settings-toggle"),
   settingsView: document.querySelector("#settings-view"),
   soundFxToggle: document.querySelector("#sound-fx-toggle"),
+  scoreMultiplier: document.querySelector("#score-multiplier"),
   speedRatingOverlay: document.querySelector("#speed-rating-overlay"),
   speedSummaryBar: document.querySelector("#speed-summary-bar"),
   speedSummaryLegend: document.querySelector("#speed-summary-legend"),
   speedSummarySegments: [...document.querySelectorAll("[data-speed-segment]")],
   speedSummaryTotal: document.querySelector("#speed-summary-total"),
+  streakMeter: document.querySelector("#streak-meter"),
+  streakMeterCount: document.querySelector("#streak-meter-count"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
   themeInputs: [...document.querySelectorAll('input[name="theme"]')],
@@ -149,6 +155,7 @@ let nextRoundId = 0;
 let lastDeadlineResolutionAt = null;
 let roundPresentationExpired = false;
 let runDeadlineAt = null;
+let currentRunId = null;
 let deferredInstallPrompt = null;
 let pendingResult = null;
 let leaderboardMode = GAME_MODES.NORMAL;
@@ -163,7 +170,8 @@ let profileSession = Object.freeze({
   authenticated: false,
   googleClientId: null,
   profile: null,
-  ranks: Object.freeze({})
+  ranks: Object.freeze({}),
+  coinBalance: 0
 });
 let googleIdentityPromise = null;
 let googleIdentityClientId = null;
@@ -171,9 +179,9 @@ let speedRatingTimer = null;
 let speedRatingPlacementRight = false;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
-let soundFxEnabled = false;
+let soundFxEnabled = true;
 let musicEnabled = true;
-let interactiveMusicEnabled = false;
+let interactiveMusicEnabled = true;
 
 const sound = createSoundController();
 const presentationScheduler = Object.freeze({
@@ -189,6 +197,24 @@ const music = createMusicController({
 
 function now() {
   return performance.now();
+}
+
+function createRunId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
 function setOverlayVisible(visible) {
@@ -282,6 +308,40 @@ function renderSpeedSummary(speedRatings) {
   elements.speedSummaryLegend.append(fragment);
 }
 
+function createLeaderboardSpeedBar(speedRatings) {
+  const ratings = normalizeSpeedRatings(speedRatings);
+  const total = SPEED_RATING_ORDER.reduce((sum, rating) => sum + ratings[rating], 0);
+  const bar = document.createElement("div");
+  bar.className = "leaderboard-entry__speed-bar";
+  bar.setAttribute("aria-hidden", "true");
+  for (const rating of SPEED_RATING_ORDER) {
+    const segment = document.createElement("span");
+    segment.className = `leaderboard-entry__speed-segment leaderboard-entry__speed-segment--${rating}`;
+    segment.style.flexBasis = `${total > 0 ? (ratings[rating] / total) * 100 : 0}%`;
+    bar.append(segment);
+  }
+  return bar;
+}
+
+function renderStreak(snapshot) {
+  const maximumReached = snapshot.multiplier >= snapshot.maximumMultiplier;
+  const progress = maximumReached
+    ? 1
+    : Math.max(0, Math.min(1, snapshot.streakProgress / snapshot.streakTarget));
+  elements.streakMeter.style.setProperty("--streak-progress", String(progress));
+  elements.scoreMultiplier.textContent = `${snapshot.multiplier}×`;
+  elements.streakMeterCount.textContent = maximumReached
+    ? "MAX"
+    : `${snapshot.streakProgress} / ${snapshot.streakTarget}`;
+  const nextMultiplier = Math.min(snapshot.maximumMultiplier, snapshot.multiplier + 1);
+  elements.streakMeter.setAttribute(
+    "aria-label",
+    maximumReached
+      ? `Maximum ${snapshot.multiplier} times score multiplier reached`
+      : `Fast-reaction streak: ${snapshot.streakProgress} of ${snapshot.streakTarget} toward ${nextMultiplier} times score`
+  );
+}
+
 function readStoredPreference(key) {
   try {
     return window.localStorage.getItem(key);
@@ -330,10 +390,10 @@ function initializeDisplaySettings() {
   const storedColorBlindMode = readStoredPreference(COLOR_BLIND_STORAGE_KEY);
   colorBlindMode = storedColorBlindMode !== "off";
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
-  soundFxEnabled = storedSoundFx === "on";
+  soundFxEnabled = storedSoundFx !== "off";
   sound.setEnabled(soundFxEnabled);
   const storedInteractiveMusic = readStoredPreference(INTERACTIVE_MUSIC_STORAGE_KEY);
-  interactiveMusicEnabled = storedInteractiveMusic === "on";
+  interactiveMusicEnabled = storedInteractiveMusic !== "off";
   music.setInteractive(interactiveMusicEnabled);
   const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
   musicEnabled = storedMusic !== "off";
@@ -481,6 +541,7 @@ function startGame(mode) {
   void refreshTopScore(mode);
   const currentSession = sessionId + 1;
   sessionId = currentSession;
+  currentRunId = createRunId();
   completedSessionId = null;
   lastDeadlineResolutionAt = null;
   engine.reset();
@@ -751,7 +812,13 @@ function handleTileTap(event) {
     const dodgeCopy = result.dodgesAwarded > 0
       ? ` · ${result.dodgesAwarded} ${result.dodgesAwarded === 1 ? "dodge" : "dodges"}`
       : "";
-    showFeedback(`+${result.pointsAwarded} · ${result.displayedReactionMs} ms${dodgeCopy}`, false);
+    const multiplierCopy = result.multiplierRaised
+      ? ` · ${result.multiplierAfter}× ready`
+      : result.multiplierUsed > 1 ? ` · ${result.multiplierUsed}×` : "";
+    showFeedback(
+      `+${result.pointsAwarded.toLocaleString()} · ${result.displayedReactionMs} ms${multiplierCopy}${dodgeCopy}`,
+      false
+    );
     render();
     scheduleRound(sessionId);
     return;
@@ -825,6 +892,7 @@ function finishGame(snapshot, currentSession) {
   elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
   elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
   elements.resultDodgesValue.textContent = snapshot.dodges.toLocaleString();
+  elements.resultScoreValue.textContent = snapshot.points.toLocaleString();
   renderSpeedSummary(snapshot.speedRatings);
   elements.resultRestartButton.setAttribute(
     "aria-label",
@@ -832,6 +900,7 @@ function finishGame(snapshot, currentSession) {
   );
   dialogView = "result";
   pendingResult = {
+    runId: currentRunId,
     mode: snapshot.mode,
     score: snapshot.points,
     hits: snapshot.hits,
@@ -842,6 +911,23 @@ function finishGame(snapshot, currentSession) {
       snapshot.averageReactionMs === null ? null : Math.round(snapshot.averageReactionMs),
     survivalMs: Math.round(snapshot.elapsedMs),
     speedRatings: normalizeSpeedRatings(snapshot.speedRatings),
+    reactionBasePoints: snapshot.reactionBasePoints,
+    multiplierBonusPoints: snapshot.multiplierBonusPoints,
+    multiplierHitCounts: {
+      one: snapshot.multiplierHitCounts[1] ?? 0,
+      two: snapshot.multiplierHitCounts[2] ?? 0,
+      three: snapshot.multiplierHitCounts[3] ?? 0,
+      four: snapshot.multiplierHitCounts[4] ?? 0,
+      five: snapshot.multiplierHitCounts[5] ?? 0
+    },
+    multiplierBasePoints: {
+      one: snapshot.multiplierBasePoints[1] ?? 0,
+      two: snapshot.multiplierBasePoints[2] ?? 0,
+      three: snapshot.multiplierBasePoints[3] ?? 0,
+      four: snapshot.multiplierBasePoints[4] ?? 0,
+      five: snapshot.multiplierBasePoints[5] ?? 0
+    },
+    maxMultiplier: snapshot.maximumMultiplierUsed,
     submitted: false
   };
   selectLeaderboardMode(snapshot.mode);
@@ -874,6 +960,7 @@ function resetResultUi() {
   elements.mainMenuContent.hidden = false;
   elements.dialogUtility.hidden = false;
   elements.resultSaveStatus.textContent = "";
+  elements.resultScoreValue.textContent = "0";
   elements.resultGoogleSignin.hidden = true;
   renderSpeedSummary(null);
   closeSettings();
@@ -890,7 +977,7 @@ function renderResultMessage(result) {
   const bestScore = topScore === null
     ? "<strong>unavailable right now</strong>"
     : `<strong>${topScore.toLocaleString()}</strong>`;
-  elements.dialogMessage.innerHTML = `${completionReason} You scored <strong>${result.score.toLocaleString()}</strong> points with <strong>${result.hits}</strong> correct taps. The best score for ${modeName} mode is ${bestScore}.`;
+  elements.dialogMessage.innerHTML = `${completionReason} You made <strong>${result.hits}</strong> correct taps. The best score for ${modeName} mode is ${bestScore}.`;
 }
 
 function showMainMenu() {
@@ -899,6 +986,7 @@ function showMainMenu() {
   void music.unlock();
   sessionId += 1;
   engine.reset();
+  currentRunId = null;
   resetResultUi();
   elements.dialogTitle.textContent = "Ready to react?";
   elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
@@ -1119,7 +1207,7 @@ function renderLeaderboard(
       (rating) => `${SPEED_RATING_LABELS[rating]} ${ratings[rating]}`
     ).join(" · ");
     meta.append(runMeta, reactionMeta, ratingMeta);
-    player.append(nameLine, meta);
+    player.append(nameLine, createLeaderboardSpeedBar(ratings), meta);
 
     const score = document.createElement("strong");
     score.className = "leaderboard-entry__score";
@@ -1217,6 +1305,12 @@ function normalizeProfileSession(body = {}) {
       entries: leaderboard.entries
     });
   }
+  const receivedCoinBalance = [
+    body.coinBalance,
+    body.coins,
+    body.profile?.coinBalance,
+    body.profile?.coins
+  ].find((value) => Number.isInteger(value) && value >= 0);
   return Object.freeze({
     authenticated,
     googleClientId:
@@ -1226,7 +1320,10 @@ function normalizeProfileSession(body = {}) {
     profile: body.profile === undefined
       ? authenticated ? profileSession.profile : null
       : body.profile && typeof body.profile === "object" ? body.profile : null,
-    ranks: Object.freeze(ranks)
+    ranks: Object.freeze(ranks),
+    coinBalance: authenticated
+      ? receivedCoinBalance ?? profileSession.coinBalance ?? 0
+      : 0
   });
 }
 
@@ -1242,6 +1339,11 @@ function renderUtilityRank() {
   const rank = currentRank(leaderboardMode)?.rank ?? null;
   elements.leaderboardRank.hidden = rank === null;
   elements.leaderboardRank.textContent = rank === null ? "" : `#${rank.toLocaleString()}`;
+  elements.coinCount.textContent = profileSession.coinBalance.toLocaleString();
+  elements.coinBalance.setAttribute(
+    "aria-label",
+    `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`
+  );
   elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
 }
 
@@ -1377,6 +1479,7 @@ async function submitPendingResult() {
 
   try {
     const body = await profileClient.submitResult({
+      runId: submittedResult.runId,
       mode: submittedResult.mode,
       score: submittedResult.score,
       hits: submittedResult.hits,
@@ -1384,7 +1487,12 @@ async function submitPendingResult() {
       fastestReactionMs: submittedResult.fastestReactionMs,
       averageReactionMs: submittedResult.averageReactionMs,
       survivalMs: submittedResult.survivalMs,
-      speedRatings: submittedResult.speedRatings
+      speedRatings: submittedResult.speedRatings,
+      reactionBasePoints: submittedResult.reactionBasePoints,
+      multiplierBonusPoints: submittedResult.multiplierBonusPoints,
+      multiplierHitCounts: submittedResult.multiplierHitCounts,
+      multiplierBasePoints: submittedResult.multiplierBasePoints,
+      maxMultiplier: submittedResult.maxMultiplier
     });
     submittedResult.submitting = false;
     submittedResult.submitted = true;
@@ -1392,6 +1500,14 @@ async function submitPendingResult() {
     submittedResult.rank = body.playerRank ?? body.rank ?? null;
     submittedResult.leaderboardEntries = body.entries;
     submittedResult.leaderboardTotalEntries = body.totalEntries;
+    submittedResult.coinsEarned = Number.isInteger(body.coinsEarned) ? body.coinsEarned : 0;
+    if (Number.isInteger(body.coinBalance) && body.coinBalance >= 0) {
+      profileSession = normalizeProfileSession({
+        ...profileSession,
+        coinBalance: body.coinBalance
+      });
+      renderUtilityRank();
+    }
     topScoreRevisions[body.mode] += 1;
     updateTopScore(body.mode, body.entries);
     if (pendingResult === submittedResult) {
@@ -1468,7 +1584,7 @@ async function renderGoogleButtons() {
       container.replaceChildren();
       google.accounts.id.renderButton(container, {
         type: "standard",
-        theme: "filled_black",
+        theme: "outline",
         size: "large",
         shape: "pill",
         text: "continue_with",
@@ -1703,6 +1819,7 @@ function renderHud(snapshot) {
       `${snapshot.lives} ${snapshot.lives === 1 ? "life" : "lives"}`
     );
   }
+  renderStreak(snapshot);
 }
 
 function render() {

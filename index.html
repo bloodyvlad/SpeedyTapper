@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-6" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-7" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-6" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-7" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -114,6 +114,16 @@
           <div class="feedback" id="feedback" aria-live="polite"></div>
           <div class="speed-rating-overlay" id="speed-rating-overlay" aria-hidden="true"></div>
         </div>
+        <section class="streak-meter" id="streak-meter" aria-label="Fast-reaction streak: 0 of 5 toward 2 times score">
+          <div class="streak-meter__heading">
+            <span>Fast streak</span>
+            <strong id="score-multiplier">1×</strong>
+          </div>
+          <div class="streak-meter__track" aria-hidden="true">
+            <span class="streak-meter__fill" id="streak-meter-fill"></span>
+          </div>
+          <span class="streak-meter__count" id="streak-meter-count">0 / 5</span>
+        </section>
       </main>
     </div>
 
@@ -125,6 +135,14 @@
             <span class="brand-logo__pulse" aria-hidden="true"></span>
           </div>
           <nav class="dialog-utility__actions" aria-label="Player shortcuts">
+            <div class="coin-balance" id="coin-balance" role="status" aria-label="0 coins" title="Coins">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="8.5"></circle>
+                <path d="M14.8 8.8c-.7-.7-1.6-1.1-2.8-1.1-1.8 0-3 1-3 2.2 0 1.5 1.4 1.9 3 2.1 1.6.2 3 .6 3 2.1 0 1.2-1.2 2.2-3 2.2-1.2 0-2.3-.4-3.1-1.2"></path>
+                <path d="M12 6.3v11.4"></path>
+              </svg>
+              <strong id="coin-count">0</strong>
+            </div>
             <button
               class="leaderboard-shortcut"
               id="leaderboard-toggle"
@@ -161,6 +179,11 @@
           Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
         </p>
         <div class="result-content" id="result-content" hidden>
+          <div class="result-score" aria-label="Final score">
+            <span>Score</span>
+            <strong id="result-score-value">0</strong>
+            <small>points</small>
+          </div>
           <div class="result-stats" id="result-stats" hidden>
             <div class="result-stat">
               <span id="result-duration-label">Survived</span>
@@ -222,7 +245,7 @@
               aria-controls="settings-view"
             >
               <span>Settings</span>
-              <span class="settings-toggle__value" id="settings-current">Classic · FX off · Music on</span>
+              <span class="settings-toggle__value" id="settings-current">Classic · FX on · Music interactive</span>
             </button>
           </div>
           <button class="install-button" id="install-button" type="button" hidden>Install app</button>
@@ -281,7 +304,7 @@
                   </strong>
                   <small>Low-latency tile and life-loss sounds</small>
                 </span>
-                <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" />
+                <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" checked />
               </label>
               <label class="setting-row" for="music-toggle">
                 <span class="setting-row__copy">
@@ -298,7 +321,7 @@
                   </strong>
                   <small>Correct taps play the melody over state-matched backing</small>
                 </span>
-                <input class="setting-toggle" id="interactive-music-toggle" type="checkbox" role="switch" />
+                <input class="setting-toggle" id="interactive-music-toggle" type="checkbox" role="switch" checked />
               </label>
             </div>
           </fieldset>
@@ -409,7 +432,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-6";
+        const buildId = "20260713-7";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -463,6 +486,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-6"></script>
+    <script type="module" src="./src/main.js?v=20260713-7"></script>
   </body>
 </html>
