@@ -255,9 +255,9 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
     "interactive-neon-circuit-refined.m4a",
     "interactive-deep-current.m4a",
     "interactive-power-grid.m4a",
-    "interactive-notes-neon-circuit-refined.wav",
-    "interactive-notes-deep-current.wav",
-    "interactive-notes-power-grid.wav"
+    "interactive-notes-uniform-neon-circuit-refined.wav",
+    "interactive-notes-uniform-deep-current.wav",
+    "interactive-notes-uniform-power-grid.wav"
   ]) {
     assert.match(musicSource, new RegExp(filename.replace(".", "\\.")));
     assert.match(workerSource, new RegExp(`/assets/audio/${filename.replace(".", "\\.")}`));
@@ -274,10 +274,19 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   );
   assert.match(mainSource, /resolveInteractiveMusicSection\(snapshot\)/);
   assert.match(musicSource, /MUSIC_GAIN = 0\.45/);
+  assert.match(musicSource, /INTERACTIVE_BACKING_GAIN = 1\.25/);
+  assert.match(musicSource, /NOTE_GAIN = 0\.34/);
   assert.match(musicSource, /MAX_NOTE_VOICES = 2/);
   assert.match(musicSource, /resolveInteractiveNoteCue/);
-  assert.match(musicSource, /pendingTransition\.transitionEndsAt/);
-  assert.match(musicSource, /source\.playbackRate\.setValueAtTime/);
+  assert.doesNotMatch(musicSource, /source\.playbackRate\.setValueAtTime/);
+  for (const oldFilename of [
+    "interactive-notes-neon-circuit-refined.wav",
+    "interactive-notes-deep-current.wav",
+    "interactive-notes-power-grid.wav"
+  ]) {
+    assert.doesNotMatch(musicSource, new RegExp(oldFilename.replace(".", "\\.")));
+    assert.doesNotMatch(workerSource, new RegExp(oldFilename.replace(".", "\\.")));
+  }
   assert.match(musicSource, /latencyHint: interactive \? "interactive" : "playback"/);
   assert.match(musicSource, /prepareInteractiveTrack\(desiredTrackIndex/);
   assert.match(musicSource, /createBufferSource\(\)/);

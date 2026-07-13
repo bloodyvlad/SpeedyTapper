@@ -429,3 +429,16 @@ Decision: Increase random decoy lifetime by exactly 50% to 450–750 ms. Approxi
 Consequences: Decoys remain readable for longer but arrive less often, timing is less predictable, and late progression can still place more than one on screen. The next correct target no longer appears to replace a just-expired wrong color under either callback order. Existing scoring, dodge awards, color exclusion, active caps, and target pace are unchanged.
 
 Revisit when: Physical-phone playtesting finds 750 ms too distracting, 600 ms lower gaps recreate clutter, overlap is too rare, long upper gaps feel empty, or a paint-confirmed idle transition becomes preferable to one-target cell reservation.
+
+## D-033 — Use uniform native tap cues and rebalance Interactive Music
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Playtesting of D-030's runtime pitch lift found that 2× Web Audio playback compressed selected half-second tap slots to a quarter-second, halved their releases, and made the motif alternate between full and abruptly short high notes. A separate 1.08× accent also varied cue loudness. Measurement shows that backing crossfades return to unity after 24–120 ms and do not cause sustained attenuation; the larger phone-speaker imbalance comes from midrange tap cues competing with bass-heavy backing.
+
+Decision: Retain D-030's engine-driven backing-state mapping but remove its runtime tap-register lift. Replace the active note banks with versioned, lossless 48 kHz/16-bit mono banks containing the complete fixed 16-cue motif. Render every cue natively with the same 20,160-frame sound envelope and 3,840-frame zero tail inside a 24,000-frame slot, RMS-normalize the series, play only at 1×, and apply no per-position accent. Keep the shared music master at `0.45`, raise Interactive backing loops and bridges to `1.25` relative gain, and lower tap cues to `0.34`; retain the two-voice cap and every prior backing asset. Keep the superseded one-octave banks as rollback masters and remove them from current runtime requests and service-worker music caching. This supersedes D-030 only for tap-register lifting and D-025 only for Interactive backing/note gain.
+
+Consequences: The approved melody order remains sticky and immediate, but every occurrence now has identical wall-clock length, attack/release timing, and nominal energy regardless of game pace. Interactive backing becomes about 6.6 dB more prominent relative to the old tap-gain relationship before accounting for the newly equalized cue assets. Legacy music, backing composition, tempo/richness progression, Sound FX, and their masters remain unchanged. Automated duration, energy, transition, and headroom checks do not replace physical-iPhone Safari and installed-PWA listening.
+
+Revisit when: Physical-device listening supports a different backing/tap ratio, the fixed register becomes masked in richer states, a limiter allows more headroom, or a future native-pitch bank deliberately restores register progression without time compression.

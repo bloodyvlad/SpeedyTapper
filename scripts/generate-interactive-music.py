@@ -27,6 +27,10 @@ MANIFEST_PATH = MASTER_OUT / "manifest.json"
 GUARD_FRAMES = 4_096
 NOTE_SLOT_FRAMES = 24_000
 NOTE_SOUND_FRAMES = 20_160
+NOTE_ATTACK_FRAMES = 576
+NOTE_RELEASE_FRAMES = 4_320
+NOTE_RMS_TARGET = 0.23
+NOTE_PEAK_LIMIT = 0.78
 
 SECTION_SPECS = (
     ("opening", 100, 0),
@@ -65,6 +69,17 @@ def note_scale_degree_count(track):
     if len(track.mode) < 2 or track.mode[-1] != 12:
         raise RuntimeError(f"{track.filename} mode must end with its repeated octave")
     return len(track.mode) - 1
+
+
+def note_offsets(track):
+    return tuple(
+        track.mode[scale_degree]
+        for scale_degree in MOTIFS[track.filename]
+    )
+
+
+def note_bank_filename(track):
+    return f"interactive-notes-uniform-{track.filename}.wav"
 
 
 def beat_frames(bpm):
@@ -256,13 +271,27 @@ def master_sprite(audio, manifest, output_path):
 
 def render_note_bank(track, output_path):
     slots = []
-    for mode_offset in track.mode:
+    for mode_offset in note_offsets(track):
         note = track.root + 24 + mode_offset
         sound = PRODUCTION.muted_voice(note, NOTE_SOUND_FRAMES / RATE, track.character, 1.0)
+        fixed_envelope = np.ones(NOTE_SOUND_FRAMES, dtype=np.float64)
+        fixed_envelope[:NOTE_ATTACK_FRAMES] *= (
+            np.sin(np.linspace(0, np.pi / 2, NOTE_ATTACK_FRAMES)) ** 2
+        )
+        fixed_envelope[-NOTE_RELEASE_FRAMES:] *= (
+            np.cos(np.linspace(0, np.pi / 2, NOTE_RELEASE_FRAMES)) ** 2
+        )
+        sound *= fixed_envelope
         sound = exact_zero_edges(sound, frames=384)
+        rms = float(np.sqrt(np.mean(sound * sound)))
+        if rms <= 0:
+            raise RuntimeError(f"Silent generated note for {track.filename}")
+        sound *= NOTE_RMS_TARGET / rms
         peak = float(np.max(np.abs(sound)))
-        if peak > 0:
-            sound = sound * (0.78 / peak)
+        if peak > NOTE_PEAK_LIMIT:
+            raise RuntimeError(
+                f"Generated note peak exceeds headroom for {track.filename}: {peak:.4f}"
+            )
         slot = np.zeros(NOTE_SLOT_FRAMES, dtype=np.float64)
         slot[:len(sound)] = sound
         slots.append(slot)
@@ -379,14 +408,22 @@ def verify_assets(track, manifest, master_path, runtime_path, note_path):
             note_file.getframerate() != RATE
             or note_file.getnchannels() != 1
             or note_file.getsampwidth() != 2
-            or note_file.getnframes() != NOTE_SLOT_FRAMES * len(track.mode)
+            or note_file.getnframes() != NOTE_SLOT_FRAMES * len(note_offsets(track))
         ):
             raise RuntimeError(f"Unexpected note-bank format for {note_path}")
         note_pcm = np.frombuffer(note_file.readframes(note_file.getnframes()), dtype="<i2")
-    for index in range(len(track.mode)):
+    note_rms_values = []
+    for index in range(len(note_offsets(track))):
         slot = note_pcm[index * NOTE_SLOT_FRAMES:(index + 1) * NOTE_SLOT_FRAMES]
-        if slot[0] != 0 or slot[-1] != 0:
+        rendered = slot[:NOTE_SOUND_FRAMES].astype(np.float64) / 32_768
+        tail = slot[NOTE_SOUND_FRAMES:]
+        if slot[0] != 0 or rendered[-1] != 0 or slot[-1] != 0 or np.any(tail):
             raise RuntimeError(f"Non-zero note boundary in {note_path}, slot {index}")
+        note_rms_values.append(float(np.sqrt(np.mean(rendered * rendered))))
+    if max(abs(value - NOTE_RMS_TARGET) for value in note_rms_values) > 0.0001:
+        raise RuntimeError(
+            f"Uneven note energy in {note_path}: {note_rms_values}"
+        )
 
     core_audio_frames = None
     afinfo_path = shutil.which("afinfo")
@@ -416,6 +453,8 @@ def build_manifest():
         "sampleRate": RATE,
         "guardFrames": GUARD_FRAMES,
         "noteSlotFrames": NOTE_SLOT_FRAMES,
+        "noteSoundFrames": NOTE_SOUND_FRAMES,
+        "noteRmsTarget": NOTE_RMS_TARGET,
         "sections": [],
         "transitions": [],
         "tracks": {},
@@ -449,7 +488,7 @@ def render_track(track, shared_manifest):
     sprite = np.concatenate(sprite_parts)
     master_path = MASTER_OUT / f"{track.filename}.wav"
     runtime_path = RUNTIME_OUT / f"interactive-{track.filename}.m4a"
-    note_path = RUNTIME_OUT / f"interactive-notes-{track.filename}.wav"
+    note_path = RUNTIME_OUT / note_bank_filename(track)
     mastered = master_sprite(sprite, track_manifest, master_path)
     encode_aac(track, master_path, runtime_path)
     render_note_bank(track, note_path)
@@ -472,6 +511,8 @@ def render_track(track, shared_manifest):
         "master": master_path.name,
         "notes": note_path.name,
         "noteScaleDegreeCount": note_scale_degree_count(track),
+        "noteSlotCount": len(note_offsets(track)),
+        "noteOffsets": list(note_offsets(track)),
         "motif": list(MOTIFS[track.filename]),
         "coreAudioValidFrames": core_audio_frames,
     }
@@ -479,10 +520,22 @@ def render_track(track, shared_manifest):
 
 def verify_retained(shared_manifest):
     for track in PRODUCTION.TRACKS:
+        retained_track = shared_manifest["tracks"][track.filename]
+        expected_note_metadata = {
+            "notes": note_bank_filename(track),
+            "noteScaleDegreeCount": note_scale_degree_count(track),
+            "noteSlotCount": len(note_offsets(track)),
+            "noteOffsets": list(note_offsets(track)),
+            "motif": list(MOTIFS[track.filename]),
+        }
+        for key, expected_value in expected_note_metadata.items():
+            if retained_track.get(key) != expected_value:
+                raise RuntimeError(
+                    f"Note metadata drift for {track.filename} {key}: "
+                    f"{retained_track.get(key)} vs {expected_value}"
+                )
         expected_scale_degree_count = note_scale_degree_count(track)
-        retained_scale_degree_count = shared_manifest["tracks"][track.filename].get(
-            "noteScaleDegreeCount"
-        )
+        retained_scale_degree_count = retained_track.get("noteScaleDegreeCount")
         if retained_scale_degree_count != expected_scale_degree_count:
             raise RuntimeError(
                 f"Note scale drift for {track.filename}: "
@@ -497,9 +550,9 @@ def verify_retained(shared_manifest):
             track_manifest,
             MASTER_OUT / f"{track.filename}.wav",
             RUNTIME_OUT / f"interactive-{track.filename}.m4a",
-            RUNTIME_OUT / f"interactive-notes-{track.filename}.wav",
+            RUNTIME_OUT / note_bank_filename(track),
         )
-        expected = shared_manifest["tracks"][track.filename].get("coreAudioValidFrames")
+        expected = retained_track.get("coreAudioValidFrames")
         if expected is not None and core_audio_frames != expected:
             raise RuntimeError(
                 f"CoreAudio frame drift for {track.filename}: {core_audio_frames} vs {expected}"
@@ -508,15 +561,50 @@ def verify_retained(shared_manifest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--verify-only",
         action="store_true",
         help="Verify retained Interactive Music assets without regenerating them.",
+    )
+    mode.add_argument(
+        "--notes-only",
+        action="store_true",
+        help="Regenerate only uniform tap-note banks and their manifest metadata.",
     )
     arguments = parser.parse_args()
     MASTER_OUT.mkdir(parents=True, exist_ok=True)
     if arguments.verify_only:
         verify_retained(json.loads(MANIFEST_PATH.read_text()))
+        return
+
+    if arguments.notes_only:
+        manifest = json.loads(MANIFEST_PATH.read_text())
+        manifest["noteSlotFrames"] = NOTE_SLOT_FRAMES
+        manifest["noteSoundFrames"] = NOTE_SOUND_FRAMES
+        manifest["noteRmsTarget"] = NOTE_RMS_TARGET
+        for track in PRODUCTION.TRACKS:
+            note_path = RUNTIME_OUT / note_bank_filename(track)
+            render_note_bank(track, note_path)
+            track_manifest = manifest["tracks"][track.filename]
+            track_manifest.update({
+                "notes": note_path.name,
+                "noteScaleDegreeCount": note_scale_degree_count(track),
+                "noteSlotCount": len(note_offsets(track)),
+                "noteOffsets": list(note_offsets(track)),
+                "motif": list(MOTIFS[track.filename]),
+            })
+            verify_assets(
+                track,
+                {
+                    "sections": manifest["sections"],
+                    "transitions": manifest["transitions"],
+                },
+                MASTER_OUT / f"{track.filename}.wav",
+                RUNTIME_OUT / f"interactive-{track.filename}.m4a",
+                note_path,
+            )
+        MANIFEST_PATH.write_text(json.dumps(manifest, indent=2) + "\n")
         return
 
     manifest = build_manifest()
