@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-11";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-12";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -517,13 +517,8 @@ export class GameEngine {
         : Math.min(this.fastestReactionMs, reactionMs);
     this.speedRatings[speedRating.id] += 1;
     const multiplierBeforeAdvance = this.multiplier;
-    if (
-      speedRating.id === SPEED_RATING_IDS.GODLIKE ||
-      speedRating.id === SPEED_RATING_IDS.PERFECT ||
-      speedRating.id === SPEED_RATING_IDS.GREAT
-    ) {
-      this.#advanceStreak();
-    }
+    const streakSteps = this.config.streak.ratingSteps[speedRating.id] ?? 0;
+    if (streakSteps > 0) this.#advanceStreak(streakSteps);
     const multiplierRaised = this.multiplier > multiplierBeforeAdvance;
     this.#finishRound();
 
@@ -644,7 +639,7 @@ export class GameEngine {
       speedRatings: Object.freeze({ ...this.speedRatings }),
       multiplier: this.multiplier,
       streakProgress: this.streakProgress,
-      streakTarget: this.config.streak.tapsPerMultiplier,
+      streakTarget: this.config.streak.stepsPerMultiplier,
       maximumMultiplier: this.config.streak.maximumMultiplier,
       maximumMultiplierUsed: this.maximumMultiplierUsed,
       reactionBasePoints: this.reactionBasePoints,
@@ -672,21 +667,23 @@ export class GameEngine {
     return (this.playerColorIndex + offset) % this.colors.length;
   }
 
-  #advanceStreak() {
+  #advanceStreak(steps) {
     if (this.multiplier >= this.config.streak.maximumMultiplier) {
-      this.streakProgress = this.config.streak.tapsPerMultiplier;
+      this.streakProgress = this.config.streak.stepsPerMultiplier;
       return;
     }
 
-    this.streakProgress += 1;
-    if (this.streakProgress < this.config.streak.tapsPerMultiplier) return;
-    this.multiplier = Math.min(
-      this.config.streak.maximumMultiplier,
-      this.multiplier + 1
-    );
-    this.streakProgress = this.multiplier >= this.config.streak.maximumMultiplier
-      ? this.config.streak.tapsPerMultiplier
-      : 0;
+    this.streakProgress += steps;
+    while (
+      this.streakProgress >= this.config.streak.stepsPerMultiplier &&
+      this.multiplier < this.config.streak.maximumMultiplier
+    ) {
+      this.streakProgress -= this.config.streak.stepsPerMultiplier;
+      this.multiplier += 1;
+    }
+    if (this.multiplier >= this.config.streak.maximumMultiplier) {
+      this.streakProgress = this.config.streak.stepsPerMultiplier;
+    }
   }
 
   #resetStreak() {

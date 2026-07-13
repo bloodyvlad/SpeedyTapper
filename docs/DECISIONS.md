@@ -377,3 +377,16 @@ Decision: Keep the x1 track dark. At x2 through x5, give the track and multiplie
 Consequences: The base color communicates the active multiplier even at zero progress, while the animated overlay continues to communicate progress toward the next multiplier. The meter gains no new text or gameplay rule.
 
 Revisit when: Physical-device playtesting finds the saturated base too bright, the overlay difficult to distinguish from a tier color, or the tier palette conflicts with target recognition.
+
+## D-029 — Weight streak progress by reaction quality
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Treating Great like the two faster ratings made the multiplier progress too quickly, while giving Godlike and Perfect identical progress did not reward the highest reaction tier. The fully opaque active-tier track also competed with the animated progress overlay.
+
+Decision: Godlike adds two steps and Perfect adds one to the five-step meter. Great and Good remain neutral: they preserve the current progress and multiplier without advancing either. Carry a Godlike step beyond an unlock into the next tier, score the unlocking tap with its pre-unlock multiplier, and clamp x5 to a full meter. Retain the solid multiplier-label colors but render x2–x5 track backgrounds at 50% opacity beneath the animated gradient. This supersedes D-027 and D-028 where their progression weights or background opacity conflict.
+
+Consequences: A Godlike-only path reaches x2 after three taps and produces lower-tier hit buckets of 3, 2, 3, and 2 on the way to x5. PHP validation uses the weighted step total and these lower bounds while retaining exact base-score and multiplier-bonus reconciliation. Scores are not directly comparable with D-027 runs; this decision does not authorize clearing production leaderboard data.
+
+Revisit when: Playtesting finds two-step Godlike progress too generous, neutral Great/Good reactions make the meter feel stalled, carried overflow is unclear, or the translucent tier background is too subdued.

@@ -90,8 +90,14 @@ export const GAME_CONFIG = Object.freeze({
   }),
   dodgePoints: 550,
   streak: Object.freeze({
-    tapsPerMultiplier: 5,
-    maximumMultiplier: 5
+    stepsPerMultiplier: 5,
+    maximumMultiplier: 5,
+    ratingSteps: Object.freeze({
+      godlike: 2,
+      perfect: 1,
+      great: 0,
+      good: 0
+    })
   }),
   scoreFloor: 100,
   scoreCeiling: 1_000

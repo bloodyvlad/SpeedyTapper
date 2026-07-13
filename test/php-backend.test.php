@@ -156,9 +156,10 @@ $throwsApi(
         'averageReactionMs' => 100,
         'speedRatings' => ['godlike' => 1, 'perfect' => 0, 'great' => 0, 'good' => 5],
     ]),
-    'Maximum multiplier cannot exceed the milestone allowed by qualifying taps.',
+    'Maximum multiplier cannot exceed the milestone allowed by qualifying streak steps.',
 );
-$greatUnlockedGoodAtMultiplierRun = ScoreSubmission::fromArray([
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
         'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0461',
         'mode' => 'normal',
         'score' => 7_000,
@@ -173,30 +174,107 @@ $greatUnlockedGoodAtMultiplierRun = ScoreSubmission::fromArray([
         'fastestReactionMs' => 350,
         'averageReactionMs' => 367,
         'speedRatings' => ['godlike' => 0, 'perfect' => 0, 'great' => 5, 'good' => 1],
-    ]);
+    ]),
+    'Great reactions cannot unlock a multiplier.',
+);
+$godlikeUnlockedGoodAtMultiplierRun = ScoreSubmission::fromArray([
+    'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0462',
+    'mode' => 'normal',
+    'score' => 5_000,
+    'reactionBasePoints' => 4_000,
+    'multiplierBonusPoints' => 1_000,
+    'maxMultiplier' => 2,
+    'multiplierHitCounts' => ['one' => 3, 'two' => 1, 'three' => 0, 'four' => 0, 'five' => 0],
+    'multiplierBasePoints' => ['one' => 3_000, 'two' => 1_000, 'three' => 0, 'four' => 0, 'five' => 0],
+    'hits' => 4,
+    'dodges' => 0,
+    'survivalMs' => 10_000,
+    'fastestReactionMs' => 150,
+    'averageReactionMs' => 225,
+    'speedRatings' => ['godlike' => 3, 'perfect' => 0, 'great' => 0, 'good' => 1],
+]);
 $assert(
-    $greatUnlockedGoodAtMultiplierRun->greatCount === 5
-        && $greatUnlockedGoodAtMultiplierRun->goodCount === 1
-        && $greatUnlockedGoodAtMultiplierRun->multiplierTwoHits === 1
-        && $greatUnlockedGoodAtMultiplierRun->multiplierBonusPoints === 1_000,
-    'Five Great reactions unlock a multiplier that a later Good reaction can preserve and use.',
+    $godlikeUnlockedGoodAtMultiplierRun->godlikeCount === 3
+        && $godlikeUnlockedGoodAtMultiplierRun->goodCount === 1
+        && $godlikeUnlockedGoodAtMultiplierRun->multiplierTwoHits === 1
+        && $godlikeUnlockedGoodAtMultiplierRun->multiplierBonusPoints === 1_000,
+    'Three Godlike reactions unlock a multiplier that a later Good reaction can preserve and use.',
+);
+$perfectUnlockedGoodAtMultiplierRun = ScoreSubmission::fromArray([
+    'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0463',
+    'mode' => 'normal',
+    'score' => 7_000,
+    'reactionBasePoints' => 6_000,
+    'multiplierBonusPoints' => 1_000,
+    'maxMultiplier' => 2,
+    'multiplierHitCounts' => ['one' => 5, 'two' => 1, 'three' => 0, 'four' => 0, 'five' => 0],
+    'multiplierBasePoints' => ['one' => 5_000, 'two' => 1_000, 'three' => 0, 'four' => 0, 'five' => 0],
+    'hits' => 6,
+    'dodges' => 0,
+    'survivalMs' => 10_000,
+    'fastestReactionMs' => 250,
+    'averageReactionMs' => 283,
+    'speedRatings' => ['godlike' => 0, 'perfect' => 5, 'great' => 0, 'good' => 1],
+]);
+$assert(
+    $perfectUnlockedGoodAtMultiplierRun->perfectCount === 5
+        && $perfectUnlockedGoodAtMultiplierRun->multiplierTwoHits === 1,
+    'Five Perfect reactions unlock the same next-tap multiplier.',
+);
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
+        'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0464',
+        'mode' => 'normal',
+        'score' => 4_000,
+        'reactionBasePoints' => 3_000,
+        'multiplierBonusPoints' => 1_000,
+        'maxMultiplier' => 2,
+        'multiplierHitCounts' => ['one' => 2, 'two' => 1, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 2_000, 'two' => 1_000, 'three' => 0, 'four' => 0, 'five' => 0],
+        'hits' => 3,
+        'dodges' => 0,
+        'survivalMs' => 10_000,
+        'fastestReactionMs' => 150,
+        'averageReactionMs' => 150,
+        'speedRatings' => ['godlike' => 3, 'perfect' => 0, 'great' => 0, 'good' => 0],
+    ]),
+    'The first multiplier tier needs at least three hits even with Godlike reactions.',
+);
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
+        'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0465',
+        'mode' => 'normal',
+        'score' => 8_000,
+        'reactionBasePoints' => 5_000,
+        'multiplierBonusPoints' => 3_000,
+        'maxMultiplier' => 3,
+        'multiplierHitCounts' => ['one' => 3, 'two' => 1, 'three' => 1, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 3_000, 'two' => 1_000, 'three' => 1_000, 'four' => 0, 'five' => 0],
+        'hits' => 5,
+        'dodges' => 0,
+        'survivalMs' => 10_000,
+        'fastestReactionMs' => 150,
+        'averageReactionMs' => 150,
+        'speedRatings' => ['godlike' => 5, 'perfect' => 0, 'great' => 0, 'good' => 0],
+    ]),
+    'A carried-over tier still needs at least two hits before the next multiplier is used.',
 );
 
 $maxMultiplierRun = ScoreSubmission::fromArray([
     'runId' => 'cc2dc024-3300-4cb8-9d3c-e7f68eb8963c',
     'mode' => 'normal',
-    'score' => 55_000,
-    'reactionBasePoints' => 21_000,
-    'multiplierBonusPoints' => 34_000,
+    'score' => 29_000,
+    'reactionBasePoints' => 11_000,
+    'multiplierBonusPoints' => 18_000,
     'maxMultiplier' => 5,
-    'multiplierHitCounts' => ['one' => 5, 'two' => 5, 'three' => 5, 'four' => 5, 'five' => 1],
-    'multiplierBasePoints' => ['one' => 5_000, 'two' => 5_000, 'three' => 5_000, 'four' => 5_000, 'five' => 1_000],
-    'hits' => 21,
+    'multiplierHitCounts' => ['one' => 3, 'two' => 2, 'three' => 3, 'four' => 2, 'five' => 1],
+    'multiplierBasePoints' => ['one' => 3_000, 'two' => 2_000, 'three' => 3_000, 'four' => 2_000, 'five' => 1_000],
+    'hits' => 11,
     'dodges' => 0,
     'survivalMs' => 120_000,
     'fastestReactionMs' => 100,
     'averageReactionMs' => 100,
-    'speedRatings' => ['godlike' => 21, 'perfect' => 0, 'great' => 0, 'good' => 0],
+    'speedRatings' => ['godlike' => 11, 'perfect' => 0, 'great' => 0, 'good' => 0],
 ]);
 $assert($maxMultiplierRun->maxMultiplier === 5, 'Validated scoring supports the five-times multiplier cap.');
 
@@ -224,37 +302,37 @@ $assert(
 );
 
 $milestoneRuns = [
-    5 => [
+    3 => [
         'runId' => '5e4f46d1-a132-4b97-b9a1-481090dca940',
         'maxMultiplier' => 1,
-        'score' => 5_000,
+        'score' => 3_000,
         'bonus' => 0,
-        'counts' => ['one' => 5, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
-        'bases' => ['one' => 5_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'counts' => ['one' => 3, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'bases' => ['one' => 3_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
     ],
-    10 => [
+    5 => [
         'runId' => 'f9be7c57-cfbc-494c-8c22-df75889b2bd8',
         'maxMultiplier' => 2,
-        'score' => 15_000,
-        'bonus' => 5_000,
-        'counts' => ['one' => 5, 'two' => 5, 'three' => 0, 'four' => 0, 'five' => 0],
-        'bases' => ['one' => 5_000, 'two' => 5_000, 'three' => 0, 'four' => 0, 'five' => 0],
+        'score' => 7_000,
+        'bonus' => 2_000,
+        'counts' => ['one' => 3, 'two' => 2, 'three' => 0, 'four' => 0, 'five' => 0],
+        'bases' => ['one' => 3_000, 'two' => 2_000, 'three' => 0, 'four' => 0, 'five' => 0],
     ],
-    15 => [
+    8 => [
         'runId' => 'f425c7e3-fc47-401a-9bcc-c89b951fe17b',
         'maxMultiplier' => 3,
-        'score' => 30_000,
-        'bonus' => 15_000,
-        'counts' => ['one' => 5, 'two' => 5, 'three' => 5, 'four' => 0, 'five' => 0],
-        'bases' => ['one' => 5_000, 'two' => 5_000, 'three' => 5_000, 'four' => 0, 'five' => 0],
+        'score' => 16_000,
+        'bonus' => 8_000,
+        'counts' => ['one' => 3, 'two' => 2, 'three' => 3, 'four' => 0, 'five' => 0],
+        'bases' => ['one' => 3_000, 'two' => 2_000, 'three' => 3_000, 'four' => 0, 'five' => 0],
     ],
-    20 => [
+    10 => [
         'runId' => 'a4249615-4e43-4de1-b704-87d61647d7d7',
         'maxMultiplier' => 4,
-        'score' => 50_000,
-        'bonus' => 30_000,
-        'counts' => ['one' => 5, 'two' => 5, 'three' => 5, 'four' => 5, 'five' => 0],
-        'bases' => ['one' => 5_000, 'two' => 5_000, 'three' => 5_000, 'four' => 5_000, 'five' => 0],
+        'score' => 24_000,
+        'bonus' => 14_000,
+        'counts' => ['one' => 3, 'two' => 2, 'three' => 3, 'four' => 2, 'five' => 0],
+        'bases' => ['one' => 3_000, 'two' => 2_000, 'three' => 3_000, 'four' => 2_000, 'five' => 0],
     ],
 ];
 foreach ($milestoneRuns as $hitCount => $milestone) {

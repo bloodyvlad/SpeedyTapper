@@ -414,16 +414,23 @@ test("correct taps retain per-run speed rating counts with reaction statistics",
   assert.equal(finalHit.displayedReactionMs, 450);
 });
 
-test("five Godlike, Perfect, or Great taps unlock the next multiplier for the following hit", () => {
+test("Godlike adds two streak steps, Perfect adds one, and Great and Good remain neutral", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
-  let thresholdHit;
-  const qualifyingReactions = [150, 250, 350, 150, 350];
-  for (let hit = 0; hit < qualifyingReactions.length; hit += 1) {
-    thresholdHit = hitRound(engine, 100 + hit * 1_000, qualifyingReactions[hit]);
-  }
+  const godlike = hitRound(engine, 100, 150);
+  assert.equal(godlike.snapshot.streakProgress, 2);
 
+  const perfect = hitRound(engine, 1_100, 250);
+  assert.equal(perfect.snapshot.streakProgress, 3);
+
+  const great = hitRound(engine, 2_100, 350);
+  assert.equal(great.snapshot.streakProgress, 3);
+
+  const good = hitRound(engine, 3_100, 450);
+  assert.equal(good.snapshot.streakProgress, 3);
+
+  const thresholdHit = hitRound(engine, 4_100, 150);
   assert.equal(thresholdHit.multiplierUsed, 1);
   assert.equal(thresholdHit.multiplierAfter, 2);
   assert.equal(thresholdHit.multiplierRaised, true);
@@ -440,46 +447,41 @@ test("five Godlike, Perfect, or Great taps unlock the next multiplier for the fo
     "The multiplier applies only to the current tap and never rescales the accumulated run score."
   );
   assert.equal(multipliedHit.snapshot.multiplier, 2);
+  assert.equal(multipliedHit.snapshot.streakProgress, 0);
 });
 
-test("Great advances streak progress while Good preserves the current progress and multiplier", () => {
+test("Godlike overflow carries into the next multiplier and the threshold tap uses the old multiplier", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
   hitRound(engine, 100, 150);
-  hitRound(engine, 1_100, 250);
-  const great = hitRound(engine, 2_100, 350);
-  assert.equal(great.snapshot.streakProgress, 3);
-  assert.equal(great.snapshot.multiplier, 1);
+  const fourSteps = hitRound(engine, 1_100, 150);
+  assert.equal(fourSteps.snapshot.streakProgress, 4);
 
-  const goodBeforeUnlock = hitRound(engine, 3_100, 450);
-  assert.equal(goodBeforeUnlock.snapshot.streakProgress, 3);
-  const fourthFastTap = hitRound(engine, 4_100, 350);
-  assert.equal(fourthFastTap.snapshot.streakProgress, 4);
-  const unlock = hitRound(engine, 5_100, 350);
+  const unlock = hitRound(engine, 2_100, 150);
+  assert.equal(unlock.multiplierUsed, 1);
+  assert.equal(unlock.pointsAwarded, unlock.basePointsAwarded);
   assert.equal(unlock.snapshot.multiplier, 2);
+  assert.equal(unlock.snapshot.streakProgress, 1);
 
-  const nextFastTap = hitRound(engine, 6_100, 350);
-  assert.equal(nextFastTap.snapshot.streakProgress, 1);
-  const good = hitRound(engine, 7_100, 450);
-  assert.equal(good.speedRating.id, SPEED_RATING_IDS.GOOD);
-  assert.equal(good.multiplierUsed, 2);
-  assert.equal(good.pointsAwarded, good.basePointsAwarded * 2);
-  assert.equal(good.snapshot.multiplier, 2);
-  assert.equal(good.snapshot.streakProgress, 1);
+  const nextPerfect = hitRound(engine, 3_100, 250);
+  assert.equal(nextPerfect.multiplierUsed, 2);
+  assert.equal(nextPerfect.pointsAwarded, nextPerfect.basePointsAwarded * 2);
+  assert.equal(nextPerfect.snapshot.streakProgress, 2);
 });
 
 test("mistakes reset the multiplier in both game modes while dodges are neutral", () => {
   for (const mode of Object.values(GAME_MODES)) {
     const engine = makeEngine(() => 0);
     engine.start(0, mode);
-    for (let hit = 0; hit < 5; hit += 1) {
+    for (let hit = 0; hit < 3; hit += 1) {
       hitRound(engine, 100 + hit * 1_000, 150);
     }
     engine.hits = Math.max(engine.hits, 4);
     const decoy = engine.activateDecoy(10_100);
     const dodge = engine.expireDecoys(decoy.decoy.expiresAt);
     assert.equal(dodge.snapshot.multiplier, 2);
+    assert.equal(dodge.snapshot.streakProgress, 1);
 
     const miss = engine.tap(0, decoy.decoy.expiresAt + 10);
     assert.equal(miss.type, "miss");
@@ -493,9 +495,9 @@ test("score accounting and multiplier hit buckets reconcile through the 5x cap",
   engine.start(0, GAME_MODES.NORMAL);
   let result;
   const milestones = new Map();
-  for (let hit = 0; hit < 21; hit += 1) {
+  for (let hit = 0; hit < 11; hit += 1) {
     result = hitRound(engine, 100 + hit * 1_900, 150);
-    if ([5, 10, 15, 20].includes(hit + 1)) milestones.set(hit + 1, result);
+    if ([3, 5, 8, 10].includes(hit + 1)) milestones.set(hit + 1, result);
   }
 
   assert.deepEqual(
@@ -505,21 +507,21 @@ test("score accounting and multiplier hit buckets reconcile through the 5x cap",
       milestone.multiplierAfter
     ]),
     [
-      [5, 1, 2],
-      [10, 2, 3],
-      [15, 3, 4],
-      [20, 4, 5]
+      [3, 1, 2],
+      [5, 2, 3],
+      [8, 3, 4],
+      [10, 4, 5]
     ]
   );
   assert.equal(result.multiplierUsed, 5);
   assert.equal(result.snapshot.multiplier, 5);
   assert.equal(result.snapshot.maximumMultiplierUsed, 5);
-  assert.equal(result.snapshot.streakProgress, GAME_CONFIG.streak.tapsPerMultiplier);
+  assert.equal(result.snapshot.streakProgress, GAME_CONFIG.streak.stepsPerMultiplier);
   assert.deepEqual(result.snapshot.multiplierHitCounts, {
-    1: 5,
-    2: 5,
-    3: 5,
-    4: 5,
+    1: 3,
+    2: 2,
+    3: 3,
+    4: 2,
     5: 1
   });
   assert.equal(

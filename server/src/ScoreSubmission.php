@@ -9,6 +9,9 @@ final readonly class ScoreSubmission
     public const DODGE_POINTS = 550;
     public const ZEN_DURATION_MS = 180_000;
     public const MAX_MULTIPLIER = 5;
+    private const STREAK_STEPS_PER_MULTIPLIER = 5;
+    private const GODLIKE_STREAK_STEPS = 2;
+    private const PERFECT_STREAK_STEPS = 1;
     private const MAX_SCORE = 999_999_999;
     private const MAX_COUNT = 1_000_000;
     private const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -139,11 +142,14 @@ final readonly class ScoreSubmission
             throw new ApiException(400, 'Maximum multiplier does not match the multiplier hit counts.');
         }
         for ($multiplier = 1; $multiplier < $maxMultiplier; $multiplier++) {
-            if ($multiplierHitCounts[$multiplier] < 5) {
+            $minimumHits = $multiplier === 1 ? 3 : 2;
+            if ($multiplierHitCounts[$multiplier] < $minimumHits) {
                 throw new ApiException(400, 'Multiplier hit counts skip a required milestone.');
             }
         }
-        if ($godlike + $perfect + $great < 5 * ($maxMultiplier - 1)) {
+        $streakSteps = $godlike * self::GODLIKE_STREAK_STEPS
+            + $perfect * self::PERFECT_STREAK_STEPS;
+        if ($streakSteps < self::STREAK_STEPS_PER_MULTIPLIER * ($maxMultiplier - 1)) {
             throw new ApiException(400, 'Maximum multiplier does not match the speed ratings.');
         }
         $fastest = self::nullableInteger($input['fastestReactionMs'] ?? null, 'Fastest reaction', self::MAX_REACTION_MS);

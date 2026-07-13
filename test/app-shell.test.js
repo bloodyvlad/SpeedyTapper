@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-11");
+  assert.equal(buildId, "20260713-12");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -454,7 +454,11 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(indexHtml, /id="streak-meter" data-multiplier="1"/);
   assert.match(indexHtml, /class="streak-meter__multiplier" id="score-multiplier">x1</);
   assert.doesNotMatch(indexHtml, /streak-meter-count|0 \/ 5/);
-  assert.match(configSource, /tapsPerMultiplier:\s*5/);
+  assert.match(configSource, /stepsPerMultiplier:\s*5/);
+  assert.match(configSource, /godlike:\s*2/);
+  assert.match(configSource, /perfect:\s*1/);
+  assert.match(configSource, /great:\s*0/);
+  assert.match(configSource, /good:\s*0/);
   assert.match(configSource, /maximumMultiplier:\s*5/);
   assert.match(mainSource, /function renderStreak\(snapshot\)/);
   assert.match(mainSource, /classList\.toggle\("streak-meter--full", maximumReached\)/);
@@ -477,9 +481,10 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   );
   assert.match(stylesSource, /\.speed-summary__segment--perfect/);
   assert.match(stylesSource, /@keyframes streak-fill-sheen/);
-  assert.match(stylesSource, /\.streak-meter\[data-multiplier="2"\][\s\S]*--streak-track-background: #72e995/);
-  assert.match(stylesSource, /\.streak-meter\[data-multiplier="3"\][\s\S]*--streak-track-background: #67adff/);
-  assert.match(stylesSource, /\.streak-meter\[data-multiplier="4"\][\s\S]*--streak-track-background: #c68cff/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="2"\][\s\S]*--streak-track-background: rgba\(114, 233, 149, 0\.5\)/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="3"\][\s\S]*--streak-track-background: rgba\(103, 173, 255, 0\.5\)/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="4"\][\s\S]*--streak-track-background: rgba\(198, 140, 255, 0\.5\)/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="5"\][\s\S]*--streak-track-background: rgba\(255, 216, 77, 0\.5\)/);
   assert.match(stylesSource, /\.streak-meter__track[\s\S]*background: var\(--streak-track-background\)/);
   assert.match(stylesSource, /\.streak-meter--full \.streak-meter__track/);
   assert.match(mainSource, /function hasConfirmedProfile\(\)/);

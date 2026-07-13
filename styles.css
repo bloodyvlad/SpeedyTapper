@@ -502,25 +502,25 @@ button {
 .streak-meter[data-multiplier="2"] {
   --streak-tier-color: #72e995;
   --streak-tier-glow: rgba(114, 233, 149, 0.52);
-  --streak-track-background: #72e995;
+  --streak-track-background: rgba(114, 233, 149, 0.5);
 }
 
 .streak-meter[data-multiplier="3"] {
   --streak-tier-color: #67adff;
   --streak-tier-glow: rgba(103, 173, 255, 0.52);
-  --streak-track-background: #67adff;
+  --streak-track-background: rgba(103, 173, 255, 0.5);
 }
 
 .streak-meter[data-multiplier="4"] {
   --streak-tier-color: #c68cff;
   --streak-tier-glow: rgba(198, 140, 255, 0.52);
-  --streak-track-background: #c68cff;
+  --streak-track-background: rgba(198, 140, 255, 0.5);
 }
 
 .streak-meter[data-multiplier="5"] {
   --streak-tier-color: #ffd84d;
   --streak-tier-glow: rgba(255, 216, 77, 0.56);
-  --streak-track-background: #ffd84d;
+  --streak-track-background: rgba(255, 216, 77, 0.5);
 }
 
 :root[data-theme="disco"] .streak-meter {
