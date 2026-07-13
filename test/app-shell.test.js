@@ -13,6 +13,7 @@ const [
   workerSource,
   stylesSource,
   vercelIgnoreSource,
+  mishaClimber,
   mishaSprite
 ] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
@@ -25,13 +26,14 @@ const [
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
   readFile(new URL("../.vercelignore", import.meta.url), "utf8"),
+  readFile(new URL("../assets/pets/misha-climber.png", import.meta.url)),
   readFile(new URL("../assets/pets/misha-sprite.png", import.meta.url))
 ]);
 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-14");
+  assert.equal(buildId, "20260713-15");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -53,6 +55,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
+  assert.match(workerSource, /\.\/assets\/pets\/misha-climber\.png/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-sprite\.png/);
 
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
@@ -71,7 +74,14 @@ test("the complete browser module graph uses one release version", () => {
 });
 
 test("the Misha nickname easter egg keeps separate menu and gameplay placements", () => {
-  assert.match(indexHtml, /id="misha-menu-pet" hidden aria-hidden="true"/);
+  assert.match(
+    indexHtml,
+    /id="misha-menu-scene"[\s\S]*data-climber="true"[\s\S]*hidden[\s\S]*aria-hidden="true"/
+  );
+  assert.match(
+    indexHtml,
+    /misha-climber--back[\s\S]*id="misha-menu-pet"[\s\S]*data-facing="front"[\s\S]*data-pose="awake"[\s\S]*hidden[\s\S]*misha-climber--front/
+  );
   assert.match(
     indexHtml,
     /id="misha-game-pet"[\s\S]*data-facing="front"[\s\S]*hidden[\s\S]*aria-hidden="true"/
@@ -87,24 +97,45 @@ test("the Misha nickname easter egg keeps separate menu and gameplay placements"
     "The gameplay cat must perch directly above the speed-streak presentation."
   );
   assert.match(mishaSource, /MISHA_EASTER_EGG_NICKNAME = "misha_boy"/);
+  assert.match(mishaSource, /MISHA_IDLE_DELAY_MS = 5_000/);
   assert.match(mishaSource, /session\?\.authenticated === true/);
   assert.match(mishaSource, /nicknameConfirmed === true/);
   assert.match(
     mainSource,
     /if \(result\.type === "ignored"\) return;\s*misha\.turnToward\(event\.clientX\);/
   );
+  assert.match(mainSource, /misha\.handleNonGameTap\(event\.clientX/);
   assert.match(stylesSource, /misha-sprite\.png/);
+  assert.match(stylesSource, /misha-climber\.png/);
   assert.match(stylesSource, /image-rendering: pixelated/);
   assert.match(stylesSource, /pointer-events: none/);
   assert.match(stylesSource, /@keyframes misha-turn-left/);
   assert.match(stylesSource, /@keyframes misha-turn-right/);
-  assert.match(stylesSource, /@keyframes misha-idle/);
+  assert.match(stylesSource, /misha-pet--menu\[data-pose="sleeping"\][\s\S]*background-position: 100% 0/);
+  assert.match(stylesSource, /misha-menu-scene\[data-climber="false"\][\s\S]*display: none/);
+  assert.match(stylesSource, /max-height: 650px[\s\S]*\.misha-pet[\s\S]*width: 48px/);
   assert.match(stylesSource, /prefers-reduced-motion[\s\S]*\.misha-pet--menu/);
 
+  assert.equal(mishaClimber.subarray(1, 4).toString("ascii"), "PNG");
+  assert.equal(mishaClimber.readUInt32BE(16), 64);
+  assert.equal(mishaClimber.readUInt32BE(20), 48);
+  assert.equal(mishaClimber.readUInt32BE(16) / 32, 2);
   assert.equal(mishaSprite.subarray(1, 4).toString("ascii"), "PNG");
-  assert.equal(mishaSprite.readUInt32BE(16), 256);
+  assert.equal(mishaSprite.readUInt32BE(16), 288);
   assert.equal(mishaSprite.readUInt32BE(20), 32);
-  assert.equal(mishaSprite.readUInt32BE(16) / 32, 8);
+  assert.equal(mishaSprite.readUInt32BE(16) / 32, 9);
+});
+
+test("Arcade is the player-facing name for the compatible normal mode", () => {
+  assert.match(indexHtml, /id="mode-name">Arcade</);
+  assert.match(indexHtml, /id="normal-button"[^>]*>Arcade</);
+  assert.match(indexHtml, /data-profile-mode="normal"[^>]*>Arcade</);
+  assert.match(indexHtml, /data-leaderboard-mode="normal"[^>]*>Arcade</);
+  assert.match(mainSource, /Restart \$\{isZen \? "Zen" : "Arcade"\} mode/);
+  assert.match(mainSource, /const modeName = isZen \? "Zen" : "Arcade"/);
+  assert.match(mainSource, /Compare every ranked Arcade and Zen result\./);
+  assert.match(configSource, /NORMAL: "normal"/);
+  assert.doesNotMatch(configSource, /NORMAL: "arcade"/);
 });
 
 test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audio", () => {

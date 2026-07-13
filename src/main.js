@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-14";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-14";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-15";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-15";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,16 +8,16 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-14";
+} from "./input-timing.js?v=20260713-15";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-14";
-import { createMishaController } from "./misha-controller.js?v=20260713-14";
-import { createSoundController } from "./sound-controller.js?v=20260713-14";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-14";
+} from "./music-controller.js?v=20260713-15";
+import { createMishaController } from "./misha-controller.js?v=20260713-15";
+import { createSoundController } from "./sound-controller.js?v=20260713-15";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-15";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -70,6 +70,7 @@ const elements = {
   mainMenuContent: document.querySelector("#main-menu-content"),
   mishaGamePet: document.querySelector("#misha-game-pet"),
   mishaMenuPet: document.querySelector("#misha-menu-pet"),
+  mishaMenuScene: document.querySelector("#misha-menu-scene"),
   modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
   musicToggle: document.querySelector("#music-toggle"),
@@ -129,6 +130,7 @@ const elements = {
 const engine = new GameEngine();
 const profileClient = createProfileClient();
 const misha = createMishaController({
+  menuScene: elements.mishaMenuScene,
   menuPet: elements.mishaMenuPet,
   gameplayPet: elements.mishaGamePet,
   board: elements.board,
@@ -233,6 +235,11 @@ function setOverlayVisible(visible) {
   elements.overlay.hidden = !visible;
   elements.app.inert = visible;
   misha.setGameplayVisible(!visible);
+}
+
+function setDialogView(view) {
+  dialogView = view;
+  misha.setMenuView(view);
 }
 
 function formatDuration(milliseconds, showTenths = false) {
@@ -907,9 +914,9 @@ function finishGame(snapshot, currentSession) {
   renderSpeedSummary(snapshot.speedRatings);
   elements.resultRestartButton.setAttribute(
     "aria-label",
-    `Restart ${isZen ? "Zen" : "Normal"} mode`
+    `Restart ${isZen ? "Zen" : "Arcade"} mode`
   );
-  dialogView = "result";
+  setDialogView("result");
   pendingResult = {
     runId: currentRunId,
     mode: snapshot.mode,
@@ -963,7 +970,7 @@ function finishGame(snapshot, currentSession) {
 
 function resetResultUi() {
   pendingResult = null;
-  dialogView = "menu";
+  setDialogView("menu");
   leaderboardReturnView = "menu";
   elements.gameUtility.hidden = true;
   elements.resultContent.hidden = true;
@@ -982,7 +989,7 @@ function resetResultUi() {
 function renderResultMessage(result) {
   if (!result) return;
   const isZen = result.mode === GAME_MODES.ZEN;
-  const modeName = isZen ? "Zen" : "Normal";
+  const modeName = isZen ? "Zen" : "Arcade";
   const completionReason = isZen ? "The three-minute timer ended." : "You are out of lives.";
   const topScore = topScores[result.mode];
   const bestScore = topScore === null
@@ -1034,7 +1041,7 @@ function showMenuView(focusTarget = null) {
   closeSettings();
   closeLeaderboard();
   closeProfile();
-  dialogView = "menu";
+  setDialogView("menu");
   leaderboardReturnView = "menu";
   elements.resultContent.hidden = true;
   elements.mainMenuContent.hidden = false;
@@ -1048,7 +1055,7 @@ function showMenuView(focusTarget = null) {
 function openSettings() {
   closeLeaderboard();
   closeProfile();
-  dialogView = "settings";
+  setDialogView("settings");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.settingsView.hidden = false;
@@ -1068,7 +1075,7 @@ function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   closeSettings();
   closeLeaderboard();
   profileReturnView = returnView;
-  dialogView = "profile";
+  setDialogView("profile");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.profileView.hidden = false;
@@ -1105,13 +1112,13 @@ function openLeaderboard(returnView = "menu") {
   closeProfile();
   leaderboardReturnView = returnView;
   leaderboardReturnScrollTop = elements.dialog.scrollTop;
-  dialogView = "leaderboard";
+  setDialogView("leaderboard");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.leaderboardView.hidden = false;
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Leaderboard";
-  elements.dialogMessage.textContent = "Compare every ranked Normal and Zen result.";
+  elements.dialogMessage.textContent = "Compare every ranked Arcade and Zen result.";
   elements.dialog.scrollTop = 0;
   void music.unlock();
   elements.leaderboardBackButton.focus({ preventScroll: true });
@@ -1131,7 +1138,7 @@ function showResultView(focusTarget = null) {
   closeSettings();
   closeLeaderboard();
   closeProfile();
-  dialogView = "result";
+  setDialogView("result");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = false;
   elements.dialogUtility.hidden = false;
@@ -2038,8 +2045,13 @@ for (const tab of elements.profileModeTabs) {
   });
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
-document.addEventListener("pointerdown", () => {
+document.addEventListener("pointerdown", (event) => {
   if (musicEnabled) void music.unlock();
+  const viewport = window.visualViewport;
+  misha.handleNonGameTap(event.clientX, {
+    left: viewport?.offsetLeft ?? 0,
+    width: viewport?.width ?? document.documentElement.clientWidth
+  });
 }, { capture: true });
 window.addEventListener("pagehide", () => {
   stopRunForPageExit();

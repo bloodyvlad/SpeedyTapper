@@ -176,23 +176,77 @@ button {
   background-image: url("./assets/pets/misha-sprite.png");
   background-position: 0 0;
   background-repeat: no-repeat;
-  background-size: 800% 100%;
+  background-size: 900% 100%;
   image-rendering: crisp-edges;
   image-rendering: pixelated;
   pointer-events: none;
   filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.54));
 }
 
+.misha-menu-scene[hidden],
 .misha-pet[hidden] {
+  display: none;
+}
+
+.misha-menu-scene {
+  position: absolute;
+  z-index: 3;
+  top: calc(clamp(22px, 6vw, 32px) + 50px);
+  right: calc(clamp(22px, 6vw, 32px) - 10px);
+  width: 64px;
+  height: 64px;
+  pointer-events: none;
+}
+
+.misha-menu-scene[data-climber="true"] {
+  height: 144px;
+}
+
+.misha-menu-scene[data-climber="false"] .misha-climber {
   display: none;
 }
 
 .misha-pet--menu {
   position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+}
+
+.misha-pet--menu[data-pose="awake"][data-facing="left"] {
+  animation: misha-turn-left 300ms steps(1, end) forwards;
+}
+
+.misha-pet--menu[data-pose="awake"][data-facing="right"] {
+  animation: misha-turn-right 300ms steps(1, end) forwards;
+}
+
+.misha-pet--menu[data-pose="sleeping"] {
+  animation: none;
+  background-position: 100% 0;
+}
+
+.misha-climber {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  width: 64px;
+  height: 96px;
+  background-image: url("./assets/pets/misha-climber.png");
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  background-size: 200% 100%;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+.misha-climber--back {
+  z-index: 1;
+}
+
+.misha-climber--front {
   z-index: 3;
-  top: calc(clamp(22px, 6vw, 32px) + 50px);
-  right: calc(clamp(22px, 6vw, 32px) - 10px);
-  animation: misha-idle 8s steps(1, end) infinite;
+  background-position: 100% 0;
 }
 
 .coin-balance {
@@ -526,7 +580,7 @@ button {
 }
 
 .streak-meter--with-misha {
-  margin-top: 56px;
+  margin-top: 30px;
 }
 
 .misha-pet--game {
@@ -682,87 +736,33 @@ button {
   }
 
   34% {
-    background-position: 14.2857% 0;
+    background-position: 12.5% 0;
   }
 
   67% {
-    background-position: 28.5714% 0;
+    background-position: 25% 0;
   }
 
   100% {
-    background-position: 42.8571% 0;
+    background-position: 37.5% 0;
   }
 }
 
 @keyframes misha-turn-right {
   0% {
-    background-position: 57.1429% 0;
+    background-position: 50% 0;
   }
 
   34% {
-    background-position: 71.4286% 0;
+    background-position: 62.5% 0;
   }
 
   67% {
-    background-position: 85.7143% 0;
+    background-position: 75% 0;
   }
 
   100% {
-    background-position: 100% 0;
-  }
-}
-
-@keyframes misha-idle {
-  0%, 19% {
-    background-position: 0 0;
-  }
-
-  20%, 24% {
-    background-position: 14.2857% 0;
-  }
-
-  25%, 34% {
-    background-position: 28.5714% 0;
-  }
-
-  35%, 44% {
-    background-position: 42.8571% 0;
-  }
-
-  45%, 49% {
-    background-position: 28.5714% 0;
-  }
-
-  50%, 54% {
-    background-position: 14.2857% 0;
-  }
-
-  55%, 69% {
-    background-position: 0 0;
-  }
-
-  70%, 74% {
-    background-position: 71.4286% 0;
-  }
-
-  75%, 79% {
-    background-position: 85.7143% 0;
-  }
-
-  80%, 89% {
-    background-position: 100% 0;
-  }
-
-  90%, 94% {
-    background-position: 85.7143% 0;
-  }
-
-  95%, 97% {
-    background-position: 71.4286% 0;
-  }
-
-  98%, 100% {
-    background-position: 0 0;
+    background-position: 87.5% 0;
   }
 }
 
@@ -2233,25 +2233,42 @@ h1 {
   .streak-meter {
     width: min(calc(100vw - 24px), calc(100dvh - 225px), 680px);
   }
+
+  .game--with-misha .board-shell,
+  .game--with-misha .streak-meter {
+    width: min(calc(100vw - 24px), calc(100dvh - 255px), 680px);
+  }
 }
 
 @media (max-height: 650px), (max-width: 350px) {
   .misha-pet {
-    width: 32px;
-    height: 32px;
+    width: 48px;
+    height: 48px;
   }
 
-  .misha-pet--menu {
+  .misha-menu-scene {
+    width: 48px;
+    height: 48px;
     right: calc(clamp(22px, 6vw, 32px) + 6px);
+  }
+
+  .misha-menu-scene[data-climber="true"] {
+    height: 108px;
+  }
+
+  .misha-climber {
+    top: 36px;
+    width: 48px;
+    height: 72px;
   }
 
   .dialog--with-misha > h1,
   .dialog--with-misha > .dialog__lead {
-    padding-right: 42px;
+    padding-right: 60px;
   }
 
   .streak-meter--with-misha {
-    margin-top: 24px;
+    margin-top: 20px;
   }
 }
 
@@ -2366,11 +2383,17 @@ h1 {
     animation: none !important;
   }
 
+  .misha-pet--menu[data-pose="awake"][data-facing="left"],
   .misha-pet--game[data-facing="left"] {
-    background-position: 42.8571% 0;
+    background-position: 37.5% 0;
   }
 
+  .misha-pet--menu[data-pose="awake"][data-facing="right"],
   .misha-pet--game[data-facing="right"] {
+    background-position: 87.5% 0;
+  }
+
+  .misha-pet--menu[data-pose="sleeping"] {
     background-position: 100% 0;
   }
 }

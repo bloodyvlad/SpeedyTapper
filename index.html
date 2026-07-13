@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-14" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-15" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-14" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-15" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -98,7 +98,7 @@
           <div class="hud-side">
             <div class="stat">
               <span class="stat__label" id="mode-label">Mode</span>
-              <strong class="stat__value stat__value--small" id="mode-name">Normal</strong>
+              <strong class="stat__value stat__value--small" id="mode-name">Arcade</strong>
             </div>
             <div class="stat">
               <span class="stat__label" id="status-label">Lives</span>
@@ -180,7 +180,23 @@
             </button>
           </nav>
         </header>
-        <span class="misha-pet misha-pet--menu" id="misha-menu-pet" hidden aria-hidden="true"></span>
+        <span
+          class="misha-menu-scene"
+          id="misha-menu-scene"
+          data-climber="true"
+          hidden
+          aria-hidden="true"
+        >
+          <span class="misha-climber misha-climber--back"></span>
+          <span
+            class="misha-pet misha-pet--menu"
+            id="misha-menu-pet"
+            data-facing="front"
+            data-pose="awake"
+            hidden
+          ></span>
+          <span class="misha-climber misha-climber--front"></span>
+        </span>
         <h1 id="dialog-title">Ready to react?</h1>
         <p class="dialog__lead" id="dialog-message">
           Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
@@ -240,7 +256,7 @@
             <fieldset class="mode-group">
               <legend>Game mode</legend>
               <div class="mode-actions">
-                <button class="primary-button" id="normal-button" type="button">Normal</button>
+                <button class="primary-button" id="normal-button" type="button">Arcade</button>
                 <button class="secondary-button" id="zen-button" type="button">3-min Zen</button>
               </div>
             </fieldset>
@@ -384,7 +400,7 @@
                 </div>
               </form>
               <div class="profile-mode-tabs" role="group" aria-label="Profile leaderboard mode">
-                <button class="leaderboard-tab is-active" type="button" data-profile-mode="normal" aria-pressed="true">Normal</button>
+                <button class="leaderboard-tab is-active" type="button" data-profile-mode="normal" aria-pressed="true">Arcade</button>
                 <button class="leaderboard-tab" type="button" data-profile-mode="zen" aria-pressed="false">Zen</button>
               </div>
               <div class="profile-rank-card" id="profile-rank-card"></div>
@@ -426,7 +442,7 @@
               <span>All results</span>
             </div>
             <div class="leaderboard-tabs" role="group" aria-label="Leaderboard mode">
-              <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" aria-pressed="true">Normal</button>
+              <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" aria-pressed="true">Arcade</button>
               <button class="leaderboard-tab" type="button" data-leaderboard-mode="zen" aria-pressed="false">Zen</button>
             </div>
             <p class="leaderboard-player-position" id="leaderboard-player-position" aria-live="polite" hidden></p>
@@ -441,7 +457,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-14";
+        const buildId = "20260713-15";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -495,6 +511,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-14"></script>
+    <script type="module" src="./src/main.js?v=20260713-15"></script>
   </body>
 </html>

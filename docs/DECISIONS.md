@@ -442,3 +442,16 @@ Decision: Unlock Misha only for an authenticated, confirmed profile whose normal
 Consequences: The nickname is a discoverable presentation switch rather than secure ownership, and any confirmed profile may use it. The sprite joins the versioned offline app shell. Responsive and physical-iPhone checks must confirm that the cat does not cover targets, the response timer, streak information, navigation, or dialog copy.
 
 Revisit when: A pet shop, permanent ownership, spendable coins, selectable companions, or leaderboard pet portraits receive a separately accepted product decision.
+
+## D-034 — Rename Normal to Arcade and deepen the Misha preview
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: `Normal` describes the endless three-life rules but reads like a technical default beside Zen. The Misha easter egg also needs enough non-game behavior and physical context to test whether a companion feels alive, especially on the shorter viewport used by the 2022 iPhone SE.
+
+Decision: Present the endless three-life mode as **Arcade** everywhere players choose, review, or hear about the mode, while retaining `normal` as its engine, storage, database, leaderboard, and API identifier. On the main menu only, place Misha on a white cat climber with a light-blue pouch at the top; keep Misha alone at the established upper-right anchor on every other non-game view. After exactly five seconds without a non-game pointer tap, switch Misha to a sleeping pose. Any non-game pointer tap wakes him, turns him toward the tap relative to the visible viewport midpoint, and restarts the five-second timer. Gameplay cancels the idle timer, keeps the existing accepted-board-tap direction behavior, and raises the Misha/streak composition until only his ears and upper head overlap the non-interactive board frame. Render Misha at 48px on compact/short phone viewports and 64px elsewhere. Keep all companion layers decorative, pointer-transparent, reduced-motion safe, and gated by the existing `misha_boy` easter egg.
+
+Consequences: Existing `normal` leaderboard rows, routes, profile ranks, migrations, and clients remain compatible while player-facing copy changes to Arcade. The sprite gains one sleeping frame and the climber becomes a versioned offline-shell asset. Duplicate profile-session renders must preserve the current pose and idle deadline; entering and leaving gameplay must cancel or restart the timer without allowing stale callbacks to sleep a hidden cat. Short-phone and physical-iPhone QA must confirm the larger compact sprite and board overlap do not block navigation, streak information, or reaction targets.
+
+Revisit when: Arcade needs a different ruleset, protocol identifiers can be migrated safely, Misha should sleep during gameplay, the climber belongs on additional views, or physical-device testing calls for different compact sizing or board overlap.

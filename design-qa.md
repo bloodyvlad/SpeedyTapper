@@ -143,3 +143,17 @@ final result: local candidate `20260712-2` passed automated and browser-runtime 
 - Physical iPhone Safari and installed-PWA/offline relaunch testing remain required before this touch-driven presentation change can be described as production-validated.
 
 final result: local candidate `20260713-14` passed automated and desktop browser-runtime QA; it is not deployed and still requires physical iPhone validation
+
+## Local Candidate 20260713-15 Arcade and Misha Refinement QA
+
+- This is local candidate evidence only. It does not establish the current production deployment, and no deployment was performed.
+- Player-facing mode copy now reads **Arcade** in mode selection, Profile, Leaderboard, and result actions. The engine, persistence, database, leaderboard, and API continue to use `normal` for compatibility.
+- The `misha_boy` easter egg shows the white climber and light-blue pouch only on the main menu. Profile, Settings, Leaderboard, and result views retain Misha alone at the upper-right anchor.
+- Misha remained awake through 4,999ms of non-game inactivity and switched to the sleeping frame at 5,000ms in deterministic controller coverage. A left- or right-side screen tap woke him, turned him toward that side, and replaced the idle deadline. Repeated profile-session renders preserved his current pose and deadline; gameplay cancelled the timer and stale callbacks could not sleep the hidden cat.
+- The gameplay composition was raised until the top 12px of the 64px sprite overlapped the board at 390 × 844, leaving only Misha's ears and upper head inside the playfield. The decorative layers remain pointer-transparent. Compact checks at 375 × 548 and 320 × 568 used the 48px sprite with approximately 7px of board overlap, and the streak meter remained fully visible.
+- Classic and Disco main-menu states were inspected awake and asleep. Profile, Settings, Leaderboard, result, gameplay, narrow portrait, and 568 × 320 landscape states were also exercised locally without horizontal overflow or clipped controls.
+- `npm run check`: 128 JavaScript tests passed and the PHP backend suite passed 74 assertions. `git diff --check` passed, and the version-bearing release graph contains no stale `20260713-14` references.
+- Local evidence: `/tmp/speedytapper-20260713-15-misha-main-awake.jpg`, `/tmp/speedytapper-20260713-15-misha-main-sleep.jpg`, `/tmp/speedytapper-20260713-15-misha-profile.jpg`, `/tmp/speedytapper-20260713-15-misha-game.jpg`, `/tmp/speedytapper-20260713-15-misha-se-menu.jpg`, `/tmp/speedytapper-20260713-15-misha-se-game.jpg`, `/tmp/speedytapper-20260713-15-misha-narrow-menu.jpg`, `/tmp/speedytapper-20260713-15-misha-narrow-game.jpg`, and `/tmp/speedytapper-20260713-15-misha-landscape.jpg`.
+- Physical iPhone Safari and installed-PWA/offline relaunch testing remain required before the touch, compact sizing, and overlap behavior can be described as production-validated.
+
+final result: local candidate `20260713-15` passed automated and desktop browser-runtime QA; it is not deployed and still requires physical iPhone validation

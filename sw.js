@@ -1,4 +1,4 @@
-const BUILD_ID = "20260713-14";
+const BUILD_ID = "20260713-15";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const MUSIC_ASSET_PATHS = new Set([
@@ -30,6 +30,7 @@ const APP_SHELL = [
   "./assets/apple-touch-icon.png",
   "./assets/disco-concrete.png",
   "./assets/disco-tile-overlay.png",
+  "./assets/pets/misha-climber.png",
   "./assets/pets/misha-sprite.png"
 ];
 

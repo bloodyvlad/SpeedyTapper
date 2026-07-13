@@ -1,4 +1,5 @@
 export const MISHA_EASTER_EGG_NICKNAME = "misha_boy";
+export const MISHA_IDLE_DELAY_MS = 5_000;
 
 const MISHA_FACINGS = new Set(["front", "left", "right"]);
 
@@ -35,25 +36,68 @@ export function resolveMishaFacing(
 }
 
 export function createMishaController({
+  menuScene,
   menuPet,
   gameplayPet,
   board,
   dialog,
   gameArea,
-  streakMeter
+  streakMeter,
+  scheduleTimeout = (callback, delay) => globalThis.setTimeout(callback, delay),
+  cancelTimeout = (timerId) => globalThis.clearTimeout(timerId)
 }) {
-  if (!menuPet || !gameplayPet || !board || !dialog || !gameArea || !streakMeter) {
-    throw new TypeError("Misha controller requires both pet views and their layout anchors.");
+  if (!menuScene || !menuPet || !gameplayPet || !board || !dialog || !gameArea || !streakMeter) {
+    throw new TypeError("Misha controller requires both pet views, the menu scene, and layout anchors.");
+  }
+  if (typeof scheduleTimeout !== "function" || typeof cancelTimeout !== "function") {
+    throw new TypeError("Misha controller requires timeout scheduling functions.");
   }
 
   let unlocked = false;
   let gameplayVisible = false;
+  let menuView = "menu";
+  let menuPose = "awake";
+  let menuFacing = "front";
+  let idleTimer = null;
+  let idleGeneration = 0;
+
+  function syncMenuPetState() {
+    menuPet.dataset.pose = menuPose;
+    menuPet.dataset.facing = menuFacing;
+  }
+
+  function cancelIdleTimer() {
+    idleGeneration += 1;
+    if (idleTimer !== null) cancelTimeout(idleTimer);
+    idleTimer = null;
+  }
+
+  function scheduleSleep() {
+    cancelIdleTimer();
+    if (!unlocked || gameplayVisible) return;
+    const generation = idleGeneration;
+    idleTimer = scheduleTimeout(() => {
+      if (generation !== idleGeneration || !unlocked || gameplayVisible) return;
+      idleTimer = null;
+      menuPose = "sleeping";
+      syncMenuPetState();
+    }, MISHA_IDLE_DELAY_MS);
+  }
+
+  function wakeMenu(facing = menuFacing) {
+    menuPose = "awake";
+    menuFacing = normalizedFacing(facing);
+    syncMenuPetState();
+    scheduleSleep();
+  }
 
   function render() {
     const showMenuPet = unlocked && !gameplayVisible;
     const showGameplayPet = unlocked && gameplayVisible;
+    menuScene.hidden = !showMenuPet;
     menuPet.hidden = !showMenuPet;
     gameplayPet.hidden = !showGameplayPet;
+    menuScene.dataset.climber = String(menuView === "menu");
     dialog.classList.toggle("dialog--with-misha", showMenuPet);
     gameArea.classList.toggle("game--with-misha", showGameplayPet);
     streakMeter.classList.toggle("streak-meter--with-misha", showGameplayPet);
@@ -61,16 +105,45 @@ export function createMishaController({
 
   return Object.freeze({
     setProfileSession(session) {
-      unlocked = profileUnlocksMisha(session);
+      const nextUnlocked = profileUnlocksMisha(session);
+      if (nextUnlocked !== unlocked) {
+        unlocked = nextUnlocked;
+        if (unlocked && !gameplayVisible) {
+          wakeMenu("front");
+        } else if (!unlocked) {
+          cancelIdleTimer();
+          menuPose = "awake";
+          menuFacing = "front";
+          syncMenuPetState();
+        }
+      }
       render();
       return unlocked;
     },
 
     setGameplayVisible(visible) {
       const nextVisible = visible === true;
-      if (nextVisible) gameplayPet.dataset.facing = "front";
+      const wasVisible = gameplayVisible;
       gameplayVisible = nextVisible;
+      if (gameplayVisible) {
+        cancelIdleTimer();
+        gameplayPet.dataset.facing = "front";
+      } else if (wasVisible && unlocked) {
+        wakeMenu("front");
+      }
       render();
+    },
+
+    setMenuView(view) {
+      menuView = view === "menu" ? "menu" : "other";
+      render();
+    },
+
+    handleNonGameTap(pointerX, viewportRect) {
+      if (!unlocked || gameplayVisible) return menuFacing;
+      const nextFacing = resolveMishaFacing(pointerX, viewportRect, menuFacing);
+      wakeMenu(nextFacing);
+      return nextFacing;
     },
 
     turnToward(pointerX) {
