@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-13" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-14" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-13" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-14" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -115,6 +115,13 @@
           <div class="speed-rating-overlay" id="speed-rating-overlay" aria-hidden="true"></div>
         </div>
         <section class="streak-meter" id="streak-meter" data-multiplier="1" aria-label="Fast-reaction streak: 0 of 5 toward 2 times score">
+          <span
+            class="misha-pet misha-pet--game"
+            id="misha-game-pet"
+            data-facing="front"
+            hidden
+            aria-hidden="true"
+          ></span>
           <div class="streak-meter__track" aria-hidden="true">
             <span class="streak-meter__fill" id="streak-meter-fill"></span>
             <span class="streak-meter__label">Speed streak</span>
@@ -173,6 +180,7 @@
             </button>
           </nav>
         </header>
+        <span class="misha-pet misha-pet--menu" id="misha-menu-pet" hidden aria-hidden="true"></span>
         <h1 id="dialog-title">Ready to react?</h1>
         <p class="dialog__lead" id="dialog-message">
           Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
@@ -433,7 +441,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-13";
+        const buildId = "20260713-14";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -487,6 +495,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-13"></script>
+    <script type="module" src="./src/main.js?v=20260713-14"></script>
   </body>
 </html>

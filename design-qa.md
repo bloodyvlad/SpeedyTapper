@@ -129,3 +129,17 @@
 - No implementation blocker is recorded. The generated PNG textures add about 2.2 MB to the offline cache; a future asset-optimization pass could convert them to WebP if install size becomes important.
 
 final result: local candidate `20260712-2` passed automated and browser-runtime QA; production remains `20260712-1` pending deployment
+
+## Local Candidate 20260713-14 Misha Easter Egg QA
+
+- This is local candidate evidence only. It does not establish the current production deployment and no deployment was performed.
+- A confirmed authenticated nickname matching `misha_boy` after Unicode normalization, trimming, and case-folding reveals the decorative Misha sprite. Renaming to `someone_else` hid Misha immediately; saving `Misha_Boy` revealed him immediately through a local mocked profile session.
+- Misha remains below the Profile shortcut on the main menu and at the same dialog-relative position on the Profile screen. During a run, the menu instance hides and the gameplay instance appears above the Speed streak meter without overlapping or intercepting the board.
+- Accepted taps on the left and right sides of the board changed the gameplay pose to `left` and `right`. The in-game Restart control reset the pose to `front` for the new run.
+- Classic and Disco gameplay were inspected at 390 × 844. Compact layouts passed at 320 × 568 portrait and 568 × 320 landscape with no horizontal overflow, board overlap, or clipped streak meter.
+- The eight-frame sprite is a transparent 256 × 32 PNG rendered at 32px or 64px with pixelated sampling. The left-turn frame progression was inspected during the 300ms stepped animation; no wrong-way flick was visible.
+- `npm run check`: 125 JavaScript tests passed and the PHP backend suite passed 74 assertions. `git diff --check` passed, and the release graph contains no stale `20260713-13` references in the version-bearing app files.
+- Local evidence: `/tmp/speedytapper-20260713-14-misha-menu.jpg`, `/tmp/speedytapper-20260713-14-misha-profile.jpg`, `/tmp/speedytapper-20260713-14-misha-game.jpg`, `/tmp/speedytapper-20260713-14-misha-compact.jpg`, `/tmp/speedytapper-20260713-14-misha-landscape.jpg`, and `/tmp/speedytapper-20260713-14-misha-disco.jpg`.
+- Physical iPhone Safari and installed-PWA/offline relaunch testing remain required before this touch-driven presentation change can be described as production-validated.
+
+final result: local candidate `20260713-14` passed automated and desktop browser-runtime QA; it is not deployed and still requires physical iPhone validation

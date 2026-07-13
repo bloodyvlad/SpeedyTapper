@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-13";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-13";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-14";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-14";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,16 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-13";
+} from "./input-timing.js?v=20260713-14";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-13";
-import { createSoundController } from "./sound-controller.js?v=20260713-13";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-13";
+} from "./music-controller.js?v=20260713-14";
+import { createMishaController } from "./misha-controller.js?v=20260713-14";
+import { createSoundController } from "./sound-controller.js?v=20260713-14";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-14";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -48,6 +49,7 @@ const elements = {
   dialogMessage: document.querySelector("#dialog-message"),
   dialogTitle: document.querySelector("#dialog-title"),
   feedback: document.querySelector("#feedback"),
+  gameArea: document.querySelector(".game"),
   gameMenuButton: document.querySelector("#game-menu-button"),
   gameRestartButton: document.querySelector("#game-restart-button"),
   gameUtility: document.querySelector("#game-utility"),
@@ -66,6 +68,8 @@ const elements = {
   leaderboardView: document.querySelector("#leaderboard-view"),
   mainMenuButton: document.querySelector("#main-menu-button"),
   mainMenuContent: document.querySelector("#main-menu-content"),
+  mishaGamePet: document.querySelector("#misha-game-pet"),
+  mishaMenuPet: document.querySelector("#misha-menu-pet"),
   modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
   musicToggle: document.querySelector("#music-toggle"),
@@ -124,6 +128,14 @@ const elements = {
 
 const engine = new GameEngine();
 const profileClient = createProfileClient();
+const misha = createMishaController({
+  menuPet: elements.mishaMenuPet,
+  gameplayPet: elements.mishaGamePet,
+  board: elements.board,
+  dialog: elements.dialog,
+  gameArea: elements.gameArea,
+  streakMeter: elements.streakMeter
+});
 const topScores = {
   [GAME_MODES.NORMAL]: null,
   [GAME_MODES.ZEN]: null
@@ -220,6 +232,7 @@ function createRunId() {
 function setOverlayVisible(visible) {
   elements.overlay.hidden = !visible;
   elements.app.inert = visible;
+  misha.setGameplayVisible(!visible);
 }
 
 function formatDuration(milliseconds, showTenths = false) {
@@ -782,6 +795,7 @@ function handleTileTap(event) {
   }
   const result = engine.tap(cellIndex, inputAt, handledAt);
   if (result.type === "ignored") return;
+  misha.turnToward(event.clientX);
 
   sound.tileOff();
   window.clearTimeout(spawnTimer);
@@ -1386,6 +1400,7 @@ function renderUtilityRank() {
     `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`
   );
   elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
+  misha.setProfileSession(profileSession);
 }
 
 async function refreshProfileSession() {
@@ -1770,6 +1785,7 @@ function renderProfileRank() {
 
 function renderProfile() {
   if (!elements.profileView) return;
+  misha.setProfileSession(profileSession);
   elements.profileSignedIn.hidden = !profileSession.authenticated;
   elements.profileSignedOut.hidden = profileSession.authenticated;
   if (!profileSession.authenticated) {

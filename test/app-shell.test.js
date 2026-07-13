@@ -2,22 +2,36 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSource, workerSource, stylesSource, vercelIgnoreSource] = await Promise.all([
+const [
+  indexHtml,
+  mainSource,
+  configSource,
+  engineSource,
+  mishaSource,
+  musicSource,
+  soundSource,
+  workerSource,
+  stylesSource,
+  vercelIgnoreSource,
+  mishaSprite
+] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/main.js", import.meta.url), "utf8"),
   readFile(new URL("../src/config.js", import.meta.url), "utf8"),
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/misha-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
-  readFile(new URL("../.vercelignore", import.meta.url), "utf8")
+  readFile(new URL("../.vercelignore", import.meta.url), "utf8"),
+  readFile(new URL("../assets/pets/misha-sprite.png", import.meta.url))
 ]);
 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-13");
+  assert.equal(buildId, "20260713-14");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -27,16 +41,19 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(mainSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`game-engine\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`misha-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`profile-client\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(workerSource, new RegExp(`input-timing\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`misha-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
+  assert.match(workerSource, /\.\/assets\/pets\/misha-sprite\.png/);
 
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
@@ -51,6 +68,43 @@ test("the complete browser module graph uses one release version", () => {
     /pathname\.startsWith\("\/assets\/audio\/"\)[\s\S]*fetch\(event\.request, \{ cache: "no-store" \}\)/
   );
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
+});
+
+test("the Misha nickname easter egg keeps separate menu and gameplay placements", () => {
+  assert.match(indexHtml, /id="misha-menu-pet" hidden aria-hidden="true"/);
+  assert.match(
+    indexHtml,
+    /id="misha-game-pet"[\s\S]*data-facing="front"[\s\S]*hidden[\s\S]*aria-hidden="true"/
+  );
+  assert.match(
+    indexHtml,
+    /id="dialog-utility"[\s\S]*id="misha-menu-pet"[\s\S]*id="dialog-title"/,
+    "The menu cat must remain dialog-level so dedicated views cannot hide it with the utility header."
+  );
+  assert.match(
+    indexHtml,
+    /id="streak-meter"[\s\S]*id="misha-game-pet"[\s\S]*streak-meter__track/,
+    "The gameplay cat must perch directly above the speed-streak presentation."
+  );
+  assert.match(mishaSource, /MISHA_EASTER_EGG_NICKNAME = "misha_boy"/);
+  assert.match(mishaSource, /session\?\.authenticated === true/);
+  assert.match(mishaSource, /nicknameConfirmed === true/);
+  assert.match(
+    mainSource,
+    /if \(result\.type === "ignored"\) return;\s*misha\.turnToward\(event\.clientX\);/
+  );
+  assert.match(stylesSource, /misha-sprite\.png/);
+  assert.match(stylesSource, /image-rendering: pixelated/);
+  assert.match(stylesSource, /pointer-events: none/);
+  assert.match(stylesSource, /@keyframes misha-turn-left/);
+  assert.match(stylesSource, /@keyframes misha-turn-right/);
+  assert.match(stylesSource, /@keyframes misha-idle/);
+  assert.match(stylesSource, /prefers-reduced-motion[\s\S]*\.misha-pet--menu/);
+
+  assert.equal(mishaSprite.subarray(1, 4).toString("ascii"), "PNG");
+  assert.equal(mishaSprite.readUInt32BE(16), 256);
+  assert.equal(mishaSprite.readUInt32BE(20), 32);
+  assert.equal(mishaSprite.readUInt32BE(16) / 32, 8);
 });
 
 test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audio", () => {

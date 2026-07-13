@@ -429,3 +429,16 @@ Decision: Increase random decoy lifetime by exactly 50% to 450–750 ms. Approxi
 Consequences: Decoys remain readable for longer but arrive less often, timing is less predictable, and late progression can still place more than one on screen. The next correct target no longer appears to replace a just-expired wrong color under either callback order. Existing scoring, dodge awards, color exclusion, active caps, and target pace are unchanged.
 
 Revisit when: Physical-phone playtesting finds 750 ms too distracting, 600 ms lower gaps recreate clutter, overlap is too rare, long upper gaps feel empty, or a paint-confirmed idle transition becomes preferable to one-target cell reservation.
+
+## D-033 — Preview Misha as a nickname-triggered cosmetic easter egg
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: A full pet shop would require spendable-coin, inventory, ownership, and profile-avatar decisions that are outside the current prototype. The generated Misha pixel cat can still validate whether a companion adds charm without distracting from the direct reaction loop.
+
+Decision: Unlock Misha only for an authenticated, confirmed profile whose normalized nickname case-folds to `misha_boy`. Show the animated cat below the Profile shortcut at the same dialog position across every non-game view. During a run, move Misha above the Speed streak meter and turn him left or right only after a board tap is accepted, using the tap position relative to the board midpoint. Keep the cat decorative, pointer-transparent, reduced-motion safe, and entirely separate from scoring, streak progress, coins, ranking, and leaderboard identity. Do not add a shop, purchasing, inventory, or pet field to the profile schema in this release.
+
+Consequences: The nickname is a discoverable presentation switch rather than secure ownership, and any confirmed profile may use it. The sprite joins the versioned offline app shell. Responsive and physical-iPhone checks must confirm that the cat does not cover targets, the response timer, streak information, navigation, or dialog copy.
+
+Revisit when: A pet shop, permanent ownership, spendable coins, selectable companions, or leaderboard pet portraits receive a separately accepted product decision.

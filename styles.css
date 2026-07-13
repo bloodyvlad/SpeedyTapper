@@ -170,6 +170,31 @@ button {
   gap: 8px;
 }
 
+.misha-pet {
+  width: 64px;
+  height: 64px;
+  background-image: url("./assets/pets/misha-sprite.png");
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  background-size: 800% 100%;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.54));
+}
+
+.misha-pet[hidden] {
+  display: none;
+}
+
+.misha-pet--menu {
+  position: absolute;
+  z-index: 3;
+  top: calc(clamp(22px, 6vw, 32px) + 50px);
+  right: calc(clamp(22px, 6vw, 32px) - 10px);
+  animation: misha-idle 8s steps(1, end) infinite;
+}
+
 .coin-balance {
   position: relative;
   width: 44px;
@@ -483,6 +508,7 @@ button {
   --streak-tier-color: #d6daea;
   --streak-tier-glow: rgba(214, 218, 234, 0.24);
   --streak-track-background: rgba(255, 255, 255, 0.075);
+  position: relative;
   width: min(calc(100vw - 24px), calc(100dvh - 252px), 680px);
   min-height: 50px;
   padding: 6px 9px;
@@ -497,6 +523,26 @@ button {
   gap: 10px;
   align-items: center;
   backdrop-filter: blur(14px);
+}
+
+.streak-meter--with-misha {
+  margin-top: 56px;
+}
+
+.misha-pet--game {
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% - 4px);
+  left: 42%;
+  transform: translateX(-50%);
+}
+
+.misha-pet--game[data-facing="left"] {
+  animation: misha-turn-left 300ms steps(1, end) forwards;
+}
+
+.misha-pet--game[data-facing="right"] {
+  animation: misha-turn-right 300ms steps(1, end) forwards;
 }
 
 .streak-meter[data-multiplier="2"] {
@@ -627,6 +673,96 @@ button {
       inset 0 1px 4px rgba(0, 0, 0, 0.22),
       0 0 20px rgba(182, 87, 255, 0.82),
       0 0 34px rgba(255, 216, 77, 0.48);
+  }
+}
+
+@keyframes misha-turn-left {
+  0% {
+    background-position: 0 0;
+  }
+
+  34% {
+    background-position: 14.2857% 0;
+  }
+
+  67% {
+    background-position: 28.5714% 0;
+  }
+
+  100% {
+    background-position: 42.8571% 0;
+  }
+}
+
+@keyframes misha-turn-right {
+  0% {
+    background-position: 57.1429% 0;
+  }
+
+  34% {
+    background-position: 71.4286% 0;
+  }
+
+  67% {
+    background-position: 85.7143% 0;
+  }
+
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+@keyframes misha-idle {
+  0%, 19% {
+    background-position: 0 0;
+  }
+
+  20%, 24% {
+    background-position: 14.2857% 0;
+  }
+
+  25%, 34% {
+    background-position: 28.5714% 0;
+  }
+
+  35%, 44% {
+    background-position: 42.8571% 0;
+  }
+
+  45%, 49% {
+    background-position: 28.5714% 0;
+  }
+
+  50%, 54% {
+    background-position: 14.2857% 0;
+  }
+
+  55%, 69% {
+    background-position: 0 0;
+  }
+
+  70%, 74% {
+    background-position: 71.4286% 0;
+  }
+
+  75%, 79% {
+    background-position: 85.7143% 0;
+  }
+
+  80%, 89% {
+    background-position: 100% 0;
+  }
+
+  90%, 94% {
+    background-position: 85.7143% 0;
+  }
+
+  95%, 97% {
+    background-position: 71.4286% 0;
+  }
+
+  98%, 100% {
+    background-position: 0 0;
   }
 }
 
@@ -931,6 +1067,7 @@ button {
 }
 
 .dialog {
+  position: relative;
   width: min(100%, 460px);
   max-height: 100%;
   overflow: auto;
@@ -939,6 +1076,11 @@ button {
   border-radius: 24px;
   background: linear-gradient(155deg, rgba(34, 38, 65, 0.98), rgba(14, 16, 29, 0.98));
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+}
+
+.dialog--with-misha > h1,
+.dialog--with-misha > .dialog__lead {
+  padding-right: 76px;
 }
 
 :root[data-theme="disco"] .dialog {
@@ -2093,6 +2235,26 @@ h1 {
   }
 }
 
+@media (max-height: 650px), (max-width: 350px) {
+  .misha-pet {
+    width: 32px;
+    height: 32px;
+  }
+
+  .misha-pet--menu {
+    right: calc(clamp(22px, 6vw, 32px) + 6px);
+  }
+
+  .dialog--with-misha > h1,
+  .dialog--with-misha > .dialog__lead {
+    padding-right: 42px;
+  }
+
+  .streak-meter--with-misha {
+    margin-top: 24px;
+  }
+}
+
 @media (max-width: 350px) {
   .overlay {
     padding-right: max(10px, env(safe-area-inset-right));
@@ -2176,6 +2338,11 @@ h1 {
   .streak-meter {
     width: min(calc(100dvh - 84px), calc(100vw - 290px), 680px);
   }
+
+  .game--with-misha .board-shell,
+  .game--with-misha .streak-meter {
+    width: min(calc(100dvh - 108px), calc(100vw - 290px), 680px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2192,5 +2359,18 @@ h1 {
     animation: none !important;
     opacity: 1;
     transform: rotate(var(--speed-rating-tilt));
+  }
+
+  .misha-pet--menu,
+  .misha-pet--game {
+    animation: none !important;
+  }
+
+  .misha-pet--game[data-facing="left"] {
+    background-position: 42.8571% 0;
+  }
+
+  .misha-pet--game[data-facing="right"] {
+    background-position: 100% 0;
   }
 }
