@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-5";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-6";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -222,6 +222,7 @@ export class GameEngine {
     this.activeDecoys = [];
     this.nextDecoyId = 1;
     this.challengeStartHits = null;
+    this.recoveryUntil = null;
   }
 
   start(now = 0, mode = GAME_MODES.NORMAL) {
@@ -251,15 +252,23 @@ export class GameEngine {
     return this.challengeStartHits === null ? 0 : Math.max(0, this.hits - this.challengeStartHits);
   }
 
+  getRecoveryRemainingMs(now) {
+    if (this.recoveryUntil === null) return 0;
+    return Math.max(0, this.recoveryUntil - now);
+  }
+
   getNextDelayMs(now) {
+    const recoveryRemainingMs = this.getRecoveryRemainingMs(now);
+    const difficultyAt = now + recoveryRemainingMs;
     const difficulty = resolveDifficulty(
       this.hits,
-      this.getElapsedMs(now),
+      this.getElapsedMs(difficultyAt),
       this.getChallengeHits(),
       this.config
     );
     const [minimum, maximum] = difficulty.spawnDelayRangeMs;
-    return Math.round(minimum + this.random() * (maximum - minimum));
+    const quietDelayMs = Math.round(minimum + this.random() * (maximum - minimum));
+    return Math.ceil(recoveryRemainingMs) + quietDelayMs;
   }
 
   getNextDecoyDelayMs(now) {
@@ -267,18 +276,23 @@ export class GameEngine {
       return null;
     }
 
-    const elapsedMs = this.getElapsedMs(now);
+    const recoveryRemainingMs = this.getRecoveryRemainingMs(now);
+    const difficultyAt = now + recoveryRemainingMs;
+    const elapsedMs = this.getElapsedMs(difficultyAt);
     if (elapsedMs < this.config.phases.colorPatienceStartsAtMs) {
-      return Math.ceil(this.config.phases.colorPatienceStartsAtMs - elapsedMs);
+      return Math.ceil(
+        recoveryRemainingMs + this.config.phases.colorPatienceStartsAtMs - elapsedMs
+      );
     }
 
-    const difficulty = this.#currentDifficulty(now);
+    const difficulty = this.#currentDifficulty(difficultyAt);
     if (difficulty.gridDimension < 2 || difficulty.decoySpawnDelayRangeMs === null) {
-      return this.config.decoys.retryDelayMs;
+      return Math.ceil(recoveryRemainingMs) + this.config.decoys.retryDelayMs;
     }
 
     const [minimum, maximum] = difficulty.decoySpawnDelayRangeMs;
-    return Math.round(minimum + this.random() * (maximum - minimum));
+    const quietDelayMs = Math.round(minimum + this.random() * (maximum - minimum));
+    return Math.ceil(recoveryRemainingMs) + quietDelayMs;
   }
 
   getNextDecoyExpiryAt() {
@@ -290,6 +304,8 @@ export class GameEngine {
     if (this.state !== GAME_STATES.WAITING) {
       return Object.freeze({ type: "ignored", reason: "not-waiting", snapshot: this.getSnapshot(now) });
     }
+    const recoveryGuard = this.#recoveryGuard(now);
+    if (recoveryGuard) return recoveryGuard;
 
     const settled = this.#settleExpiredDecoys(now);
 
@@ -342,6 +358,8 @@ export class GameEngine {
     if (this.state === GAME_STATES.IDLE || this.state === GAME_STATES.GAME_OVER) {
       return Object.freeze({ type: "ignored", reason: "not-running", snapshot: this.getSnapshot(now) });
     }
+    const recoveryGuard = this.#recoveryGuard(now);
+    if (recoveryGuard) return recoveryGuard;
 
     const settled = this.#settleExpiredDecoys(now);
     const difficulty = this.#currentDifficulty(now);
@@ -438,13 +456,13 @@ export class GameEngine {
     });
   }
 
-  tap(cellIndex, now) {
+  tap(cellIndex, now, resolvedAt = now) {
     // A decoy earns a dodge only when its own expiry transition removes it.
     // If a still-present decoy is cleared by input, it was not visibly dodged.
     const settled = { count: 0, pointsAwarded: 0, decoyIds: [] };
 
     if (this.state === GAME_STATES.WAITING) {
-      return this.#miss("empty", now, null, settled);
+      return this.#miss("empty", now, null, settled, resolvedAt);
     }
 
     if (this.state !== GAME_STATES.ACTIVE) {
@@ -453,11 +471,11 @@ export class GameEngine {
 
     const reactionMs = Math.max(0, now - this.activeAt);
     if (reactionMs >= this.roundDifficulty.responseWindowMs) {
-      return this.#miss("late", now, reactionMs, settled);
+      return this.#miss("late", now, reactionMs, settled, resolvedAt);
     }
 
     if (cellIndex !== this.targetIndex) {
-      return this.#miss("wrong", now, reactionMs, settled);
+      return this.#miss("wrong", now, reactionMs, settled, resolvedAt);
     }
 
     const pointsAwarded = scoreReaction(
@@ -540,6 +558,7 @@ export class GameEngine {
     this.activeAt = null;
     this.roundKind = null;
     this.roundDifficulty = null;
+    this.recoveryUntil = null;
     return Object.freeze({
       type: "time-up",
       dodgesAwarded: 0,
@@ -587,6 +606,7 @@ export class GameEngine {
       averageReactionMs: this.hits > 0 ? this.reactionTotalMs / this.hits : null,
       speedRatings: Object.freeze({ ...this.speedRatings }),
       reactionProgress,
+      recoveryRemainingMs: this.getRecoveryRemainingMs(now),
       elapsedMs,
       remainingMs: this.getRemainingMs(now),
       endReason: this.endReason,
@@ -613,9 +633,16 @@ export class GameEngine {
     this.activeAt = null;
     this.roundKind = null;
     this.roundDifficulty = null;
+    this.recoveryUntil = null;
   }
 
-  #miss(reason, now, reactionMs, settled = { count: 0, pointsAwarded: 0 }) {
+  #miss(
+    reason,
+    now,
+    reactionMs,
+    settled = { count: 0, pointsAwarded: 0 },
+    resolvedAt = now
+  ) {
     const lifeLost = this.mode === GAME_MODES.NORMAL;
     if (lifeLost) {
       this.lives = Math.max(0, this.lives - 1);
@@ -631,8 +658,12 @@ export class GameEngine {
       this.activeAt = null;
       this.roundKind = null;
       this.roundDifficulty = null;
+      this.recoveryUntil = null;
     } else {
       this.#finishRound();
+      if (lifeLost) {
+        this.recoveryUntil = Math.max(now, resolvedAt) + this.config.lifeLossRecoveryMs;
+      }
     }
 
     return Object.freeze({
@@ -642,7 +673,7 @@ export class GameEngine {
       lifeLost,
       dodgesAwarded: settled.count,
       dodgePointsAwarded: settled.pointsAwarded,
-      snapshot: this.getSnapshot(now)
+      snapshot: this.getSnapshot(Math.max(now, resolvedAt))
     });
   }
 
@@ -655,6 +686,20 @@ export class GameEngine {
           this.getChallengeHits(),
           this.config
         );
+  }
+
+  #recoveryGuard(now) {
+    const remainingMs = this.getRecoveryRemainingMs(now);
+    if (remainingMs <= 0) {
+      this.recoveryUntil = null;
+      return null;
+    }
+    return Object.freeze({
+      type: "ignored",
+      reason: "recovering",
+      remainingMs,
+      snapshot: this.getSnapshot(now)
+    });
   }
 
   #settleExpiredDecoys(now) {

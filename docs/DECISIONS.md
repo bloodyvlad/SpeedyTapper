@@ -273,3 +273,16 @@ Decision: Keep GitHub and `php-main` as version history, but perform PHP release
 Consequences: A release is identified by commit SHA, build ID, and artifact SHA-256 rather than by an hPanel Git hook. The MCP transport requires no browser session, SSH key, or manual file upload. The secret-bearing staging tree and archive must be tightly controlled and never committed. The database user retains schema-change privileges on only the dedicated game database so first-request migration can work. The previous immutable Vercel deployment remains the rollback generation until the PHP release and physical-iPhone flow are verified. This supersedes D-016 only for the production configuration-location exception and deployment/migration procedure; its PHP/MySQL architecture remains accepted.
 
 Revisit when: Hostinger exposes secret injection or a first-class generic PHP deployment API, SSH automation is intentionally enabled, migrations require a separate least-privilege deploy role, or the app moves to managed CI/CD.
+
+## D-021 — Keep leaderboard generations internal
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: The database needs an operational partition for clean imports, rollback generations, and controlled leaderboard maintenance. Calling that partition a season in the player interface implies a recurring competitive schedule and makes an otherwise simple personal-best system harder to understand.
+
+Decision: Keep the existing `season_id` as an internal storage and API implementation detail. Player-facing copy refers only to a personal best, leaderboard position, and best runs. Any future change of the active leaderboard generation must preserve each profile's personal best, unless a separately accepted product decision explicitly introduces a visible reset before release.
+
+Consequences: No schema migration or API contract change is required. Technical documentation and server tests may continue to use season terminology where it describes the partitioning model, but browser UI copy must not expose it as a gameplay concept.
+
+Revisit when: SpeedyTapper intentionally launches scheduled competitive seasons, reset rewards, archived rankings, or an all-time leaderboard alongside time-limited rankings.

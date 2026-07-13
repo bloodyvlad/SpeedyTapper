@@ -170,9 +170,10 @@ button {
 
 .leaderboard-shortcut {
   position: relative;
-  min-width: 106px;
+  width: 44px;
+  min-width: 44px;
   height: 44px;
-  padding: 0 11px;
+  padding: 0;
   border: 1px solid var(--panel-border);
   border-radius: 12px;
   background: var(--panel);
@@ -186,9 +187,6 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  font-size: 0.7rem;
-  font-weight: 850;
 }
 
 .leaderboard-shortcut svg {
@@ -604,30 +602,33 @@ button {
 }
 
 .speed-rating-overlay {
+  --speed-rating-tilt: 0deg;
   position: fixed;
   z-index: 4;
   top: max(142px, calc(env(safe-area-inset-top) + 124px));
   max-width: 44vw;
-  padding: 7px 11px;
-  border: 1px solid currentColor;
+  padding: 8px 12px;
+  border: 2px solid currentColor;
   border-radius: 11px;
   opacity: 0;
   background: rgba(4, 6, 12, 0.84);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
-  font-size: clamp(1rem, 5vw, 1.4rem);
+  font-size: clamp(1.2rem, 6vw, 1.7rem);
   font-style: italic;
-  font-weight: 950;
-  letter-spacing: -0.035em;
+  font-weight: 1000;
+  letter-spacing: -0.045em;
   line-height: 1;
   pointer-events: none;
   text-transform: uppercase;
 }
 
 .speed-rating-overlay--left {
+  --speed-rating-tilt: -6deg;
   left: max(12px, env(safe-area-inset-left));
 }
 
 .speed-rating-overlay--right {
+  --speed-rating-tilt: 6deg;
   right: max(12px, env(safe-area-inset-right));
 }
 
@@ -658,16 +659,16 @@ button {
 @keyframes speed-rating-pop {
   0% {
     opacity: 0;
-    transform: translateY(7px) scale(0.9);
+    transform: translateY(7px) rotate(var(--speed-rating-tilt)) scale(0.88);
   }
   14%,
   68% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0) rotate(var(--speed-rating-tilt)) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translateY(-8px) scale(0.98);
+    transform: translateY(-8px) rotate(var(--speed-rating-tilt)) scale(0.98);
   }
 }
 
@@ -1830,5 +1831,11 @@ h1 {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+
+  .speed-rating-overlay--visible {
+    animation: none !important;
+    opacity: 1;
+    transform: rotate(var(--speed-rating-tilt));
   }
 }

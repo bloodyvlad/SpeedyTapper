@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-5" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-6" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-5" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-6" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -112,7 +112,7 @@
         <div class="board-shell">
           <div class="board" id="board" role="group" aria-label="Reaction grid"></div>
           <div class="feedback" id="feedback" aria-live="polite"></div>
-          <div class="speed-rating-overlay" id="speed-rating-overlay" aria-live="polite"></div>
+          <div class="speed-rating-overlay" id="speed-rating-overlay" aria-hidden="true"></div>
         </div>
       </main>
     </div>
@@ -131,6 +131,7 @@
               type="button"
               aria-controls="leaderboard-view"
               aria-label="Open leaderboard"
+              title="Leaderboard"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path d="M8 4h8v4a4 4 0 0 1-8 0V4Z"></path>
@@ -139,7 +140,6 @@
                 <path d="M12 12v5"></path>
                 <path d="M8 20h8"></path>
               </svg>
-              <span>Leaderboard</span>
               <span class="utility-rank" id="leaderboard-rank" hidden>—</span>
             </button>
             <button
@@ -194,7 +194,7 @@
           </section>
           <section class="result-save-panel" id="result-save-panel">
             <div class="section-heading">
-              <h2>Season result</h2>
+              <h2>Personal best</h2>
               <span>Google profile</span>
             </div>
             <p class="form-status" id="result-save-status" aria-live="polite"></p>
@@ -332,7 +332,7 @@
           <section class="profile-panel">
             <div class="profile-signed-out" id="profile-signed-out">
               <h2>Player profile</h2>
-              <p>Sign in with Google to keep one nickname and your best seasonal rank across devices.</p>
+              <p>Sign in with Google to keep one nickname, your personal best, and leaderboard position across devices.</p>
               <div class="google-signin" id="profile-google-signin"></div>
               <p class="form-status" id="profile-auth-status" aria-live="polite"></p>
             </div>
@@ -393,7 +393,7 @@
           <section class="leaderboard-panel" id="leaderboard-panel">
             <div class="section-heading">
               <h2>Leaderboard</h2>
-              <span>Current season</span>
+              <span>Best runs</span>
             </div>
             <div class="leaderboard-tabs" role="group" aria-label="Leaderboard mode">
               <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" aria-pressed="true">Normal</button>
@@ -409,7 +409,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-5";
+        const buildId = "20260713-6";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -463,6 +463,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-5"></script>
+    <script type="module" src="./src/main.js?v=20260713-6"></script>
   </body>
 </html>

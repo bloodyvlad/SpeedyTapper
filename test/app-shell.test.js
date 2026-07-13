@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-5");
+  assert.equal(buildId, "20260713-6");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -140,6 +140,15 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(settingsPanel, /name="theme" value="disco"/);
   assert.match(settingsPanel, /id="color-blind-toggle"[^>]+role="switch" checked/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);
+  assert.match(
+    indexHtml,
+    /id="leaderboard-toggle"[\s\S]*aria-label="Open leaderboard"[\s\S]*title="Leaderboard"/
+  );
+  assert.doesNotMatch(indexHtml, /<span>Leaderboard<\/span>/);
+  assert.match(
+    stylesSource,
+    /\.leaderboard-shortcut\s*\{[^}]+width:\s*44px;[^}]+min-width:\s*44px;[^}]+height:\s*44px;[^}]+padding:\s*0;/s
+  );
   assert.ok(
     indexHtml.indexOf('id="leaderboard-toggle"') < indexHtml.indexOf('id="settings-toggle"'),
     "The leaderboard shortcut must sit in the utility header above the menu controls."
@@ -314,7 +323,7 @@ test("Google-only profiles replace local names and submit completed runs automat
 test("result leaderboard navigation preserves result context and renders compact absolute ranks", () => {
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Top 20|of 20 places/i);
   assert.match(indexHtml, /class="dialog-utility" id="dialog-utility"/);
-  assert.match(indexHtml, /id="leaderboard-toggle"[\s\S]*<span>Leaderboard<\/span>/);
+  assert.match(indexHtml, /id="leaderboard-toggle"[\s\S]*id="leaderboard-rank" hidden/);
   assert.match(indexHtml, /class="leaderboard-utility"/);
   assert.match(indexHtml, /class="leaderboard-tabs" role="group" aria-label="Leaderboard mode"/);
   assert.doesNotMatch(indexHtml, /role="tab"|role="tablist"|aria-selected/);
@@ -332,6 +341,14 @@ test("result leaderboard navigation preserves result context and renders compact
     stylesSource,
     /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*38px\s+minmax\(0,\s*1fr\)\s+auto/s
   );
+});
+
+test("player-facing profile and leaderboard copy uses personal bests without season jargon", () => {
+  assert.match(indexHtml, /<h2>Personal best<\/h2>/);
+  assert.match(indexHtml, /<span>Best runs<\/span>/);
+  assert.match(mainSource, /Your personal best is unchanged\./);
+  assert.match(mainSource, /Your leaderboard position is #/);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Season result|Current season|seasonal/i);
 });
 
 test("in-game and result controls provide restart and menu shortcuts", () => {
@@ -385,11 +402,31 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(mainSource, /reachedDeadline\(visibleAt, runDeadlineAt\)/);
   assert.match(mainSource, /scheduleDecoySpawn\(currentSession\)/);
   assert.match(mainSource, /scheduleDecoyExpiry\(currentSession\)/);
+  assert.match(mainSource, /function cancelDecoyCadence\(\)[\s\S]*decoyCadenceId \+= 1/);
+  assert.match(
+    mainSource,
+    /function handleMiss\(result, currentSession\)[\s\S]*if \(result\.lifeLost\) cancelDecoyCadence\(\)[\s\S]*if \(result\.lifeLost\) scheduleDecoySpawn\(currentSession\)/
+  );
+  assert.match(mainSource, /cadenceId !== decoyCadenceId/);
+  assert.match(mainSource, /decoySpawnTimer !== spawnTimerId/);
+  assert.match(mainSource, /decoyExpiryTimer !== expiryTimerId/);
+  assert.match(mainSource, /decoyActivationFrame !== activationFrameId/);
+  assert.match(mainSource, /engine\.tap\(cellIndex, inputAt, handledAt\)/);
   assert.match(mainSource, /result\.displayedReactionMs/);
   assert.match(mainSource, /showSpeedRating\(result\.speedRating\)/);
-  assert.match(indexHtml, /id="speed-rating-overlay"/);
+  assert.match(indexHtml, /id="speed-rating-overlay" aria-hidden="true"/);
   assert.match(indexHtml, /id="speed-summary-bar"/);
   assert.match(stylesSource, /\.speed-rating-overlay--godlike/);
+  assert.match(stylesSource, /\.speed-rating-overlay--left\s*\{[^}]+--speed-rating-tilt:\s*-6deg/s);
+  assert.match(stylesSource, /\.speed-rating-overlay--right\s*\{[^}]+--speed-rating-tilt:\s*6deg/s);
+  assert.ok(
+    (stylesSource.match(/rotate\(var\(--speed-rating-tilt\)\)/g) ?? []).length >= 4,
+    "Speed-rating tilt must remain applied throughout animation and reduced-motion display."
+  );
+  assert.match(
+    mainSource,
+    /elements\.speedRatingOverlay\.className = "speed-rating-overlay";\s*void elements\.speedRatingOverlay\.offsetWidth;/
+  );
   assert.match(stylesSource, /\.speed-summary__segment--perfect/);
   assert.match(mainSource, /function hasConfirmedProfile\(\)/);
   assert.match(mainSource, /profile\?\.nicknameConfirmed === true/);

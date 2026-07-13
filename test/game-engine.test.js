@@ -266,13 +266,78 @@ test("tapping the empty board while waiting remains a Normal-mode mistake", () =
   assert.equal(result.snapshot.state, GAME_STATES.WAITING);
 });
 
+test("a lost life creates an engine-enforced quiet recovery for targets and decoys", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.NORMAL);
+  engine.hits = 4;
+
+  const missedAt = 35_000;
+  const miss = engine.tap(0, missedAt);
+  assert.equal(miss.type, "miss");
+  assert.equal(miss.snapshot.recoveryRemainingMs, GAME_CONFIG.lifeLossRecoveryMs);
+  assert.equal(engine.getNextDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 475);
+  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 600);
+
+  const beforeRecoveryEnds = missedAt + GAME_CONFIG.lifeLossRecoveryMs - 1;
+  assert.equal(engine.activateRound(beforeRecoveryEnds).reason, "recovering");
+  assert.equal(engine.activateDecoy(beforeRecoveryEnds).reason, "recovering");
+  assert.equal(engine.lives, 2);
+  assert.equal(engine.misses, 1);
+
+  const recoveryEnds = missedAt + GAME_CONFIG.lifeLossRecoveryMs;
+  const active = engine.activateRound(recoveryEnds);
+  assert.equal(active.type, "round-active");
+  assert.equal(active.snapshot.recoveryRemainingMs, 0);
+  assert.equal(engine.activateDecoy(recoveryEnds).type, "decoy-active");
+});
+
+test("empty-board taps remain mistakes during recovery and restart the quiet period", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+
+  const firstMiss = engine.tap(0, 100);
+  assert.equal(firstMiss.type, "miss");
+  assert.equal(firstMiss.snapshot.lives, 2);
+
+  const secondMiss = engine.tap(0, 200);
+  assert.equal(secondMiss.type, "miss");
+  assert.equal(secondMiss.reason, "empty");
+  assert.equal(secondMiss.snapshot.lives, 1);
+  assert.equal(secondMiss.snapshot.recoveryRemainingMs, GAME_CONFIG.lifeLossRecoveryMs);
+  assert.equal(engine.activateRound(1_699).reason, "recovering");
+  assert.equal(engine.activateRound(1_700).type, "round-active");
+});
+
+test("reaction contact time stays separate from the visible recovery start", () => {
+  const engine = makeEngine();
+  engine.start(0, GAME_MODES.NORMAL);
+
+  const result = engine.tap(0, 100, 240);
+  assert.equal(result.snapshot.elapsedMs, 240);
+  assert.equal(result.snapshot.recoveryRemainingMs, GAME_CONFIG.lifeLossRecoveryMs);
+  assert.equal(engine.activateRound(1_739).reason, "recovering");
+  assert.equal(engine.activateRound(1_740).type, "round-active");
+});
+
+test("recovery delays use the difficulty in effect after the quiet period", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.NORMAL);
+  engine.hits = 4;
+
+  const missedAt = 9_500;
+  engine.tap(0, missedAt);
+
+  assert.equal(engine.getNextDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 550);
+  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 900);
+});
+
 test("Normal mode is endless until the third mistake", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
   assert.equal(engine.finishTimedRun(10_000_000).reason, "not-timed");
   for (let miss = 0; miss < 3; miss += 1) {
-    engine.tap(0, 100 + miss * 100);
+    engine.tap(0, 100 + miss * 1_600);
   }
 
   assert.equal(engine.state, GAME_STATES.GAME_OVER);
@@ -289,6 +354,7 @@ test("Zen records mistakes without losing lives and ends at exactly three minute
   assert.equal(miss.type, "miss");
   assert.equal(miss.lifeLost, false);
   assert.equal(miss.snapshot.lives, 3);
+  assert.equal(miss.snapshot.recoveryRemainingMs, 0);
   assert.equal(engine.finishTimedRun(180_999).reason, "time-remaining");
   const result = engine.finishTimedRun(181_000);
   assert.equal(result.type, "time-up");

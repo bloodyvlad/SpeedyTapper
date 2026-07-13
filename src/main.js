@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-5";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-5";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-6";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-6";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-5";
+} from "./input-timing.js?v=20260713-6";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-5";
-import { createSoundController } from "./sound-controller.js?v=20260713-5";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-5";
+} from "./music-controller.js?v=20260713-6";
+import { createSoundController } from "./sound-controller.js?v=20260713-6";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-6";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -138,6 +138,7 @@ let progressFrame = null;
 let runStartFrame = null;
 let roundActivationFrame = null;
 let decoyActivationFrame = null;
+let decoyCadenceId = 0;
 let runEndCommit = null;
 let deadlineCommit = null;
 let sessionId = 0;
@@ -229,6 +230,8 @@ function showSpeedRating(speedRating) {
   window.clearTimeout(speedRatingTimer);
   speedRatingPlacementRight = Math.random() >= 0.5;
   const placement = speedRatingPlacementRight ? "right" : "left";
+  elements.speedRatingOverlay.className = "speed-rating-overlay";
+  void elements.speedRatingOverlay.offsetWidth;
   elements.speedRatingOverlay.textContent = SPEED_RATING_LABELS[speedRating.id];
   elements.speedRatingOverlay.className = [
     "speed-rating-overlay",
@@ -430,8 +433,7 @@ function startResponseProgress(currentSession, initialSnapshot) {
 
 function clearTimers() {
   window.clearTimeout(spawnTimer);
-  window.clearTimeout(decoySpawnTimer);
-  window.clearTimeout(decoyExpiryTimer);
+  cancelDecoyCadence();
   window.clearTimeout(deadlineTimer);
   window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
@@ -439,13 +441,10 @@ function clearTimers() {
   window.clearTimeout(speedRatingTimer);
   window.cancelAnimationFrame(runStartFrame);
   window.cancelAnimationFrame(roundActivationFrame);
-  window.cancelAnimationFrame(decoyActivationFrame);
   runEndCommit?.cancel();
   deadlineCommit?.cancel();
   stopResponseProgress();
   spawnTimer = null;
-  decoySpawnTimer = null;
-  decoyExpiryTimer = null;
   deadlineTimer = null;
   runEndTimer = null;
   clockTimer = null;
@@ -453,7 +452,6 @@ function clearTimers() {
   speedRatingTimer = null;
   runStartFrame = null;
   roundActivationFrame = null;
-  decoyActivationFrame = null;
   runEndCommit = null;
   deadlineCommit = null;
   activeRoundVisibleAt = null;
@@ -462,6 +460,16 @@ function clearTimers() {
   runDeadlineAt = null;
   sound.tileOff();
   hideSpeedRating();
+}
+
+function cancelDecoyCadence() {
+  decoyCadenceId += 1;
+  window.clearTimeout(decoySpawnTimer);
+  window.clearTimeout(decoyExpiryTimer);
+  window.cancelAnimationFrame(decoyActivationFrame);
+  decoySpawnTimer = null;
+  decoyExpiryTimer = null;
+  decoyActivationFrame = null;
 }
 
 function startGame(mode) {
@@ -512,18 +520,28 @@ function showDodgeAward(result) {
   return true;
 }
 
-function scheduleDecoyExpiry(currentSession) {
+function scheduleDecoyExpiry(currentSession, cadenceId = decoyCadenceId) {
   window.clearTimeout(decoyExpiryTimer);
   decoyExpiryTimer = null;
-  if (currentSession !== sessionId || engine.state === GAME_STATES.GAME_OVER) return;
+  if (
+    currentSession !== sessionId ||
+    cadenceId !== decoyCadenceId ||
+    engine.state === GAME_STATES.GAME_OVER
+  ) return;
   const expiryAt = engine.getSnapshot(now()).nextDecoyExpiryAt;
   if (expiryAt === null) return;
 
-  decoyExpiryTimer = window.setTimeout(() => {
-    decoyExpiryTimer = null;
-    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) {
+  const expiryTimerId = window.setTimeout(() => {
+    if (
+      currentSession !== sessionId ||
+      cadenceId !== decoyCadenceId ||
+      decoyExpiryTimer !== expiryTimerId ||
+      document.hidden ||
+      engine.state === GAME_STATES.GAME_OVER
+    ) {
       return;
     }
+    decoyExpiryTimer = null;
     const expiredAt = now();
     if (engine.mode === GAME_MODES.ZEN && reachedDeadline(expiredAt, runDeadlineAt)) return;
     const result = engine.expireDecoys(expiredAt);
@@ -531,27 +549,44 @@ function scheduleDecoyExpiry(currentSession) {
       showDodgeAward(result);
       render();
     }
-    scheduleDecoyExpiry(currentSession);
+    scheduleDecoyExpiry(currentSession, cadenceId);
   }, remainingUntilDeadline(expiryAt, now()));
+  decoyExpiryTimer = expiryTimerId;
 }
 
-function scheduleDecoySpawn(currentSession) {
+function scheduleDecoySpawn(currentSession, cadenceId = decoyCadenceId) {
   window.clearTimeout(decoySpawnTimer);
   decoySpawnTimer = null;
-  if (currentSession !== sessionId || engine.state === GAME_STATES.GAME_OVER) return;
+  if (
+    currentSession !== sessionId ||
+    cadenceId !== decoyCadenceId ||
+    engine.state === GAME_STATES.GAME_OVER
+  ) return;
   const delayMs = engine.getNextDecoyDelayMs(now());
   if (delayMs === null) return;
 
-  decoySpawnTimer = window.setTimeout(() => {
-    decoySpawnTimer = null;
-    if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) {
+  const spawnTimerId = window.setTimeout(() => {
+    if (
+      currentSession !== sessionId ||
+      cadenceId !== decoyCadenceId ||
+      decoySpawnTimer !== spawnTimerId ||
+      document.hidden ||
+      engine.state === GAME_STATES.GAME_OVER
+    ) {
       return;
     }
-    decoyActivationFrame = window.requestAnimationFrame((visibleAt) => {
-      decoyActivationFrame = null;
-      if (currentSession !== sessionId || document.hidden || engine.state === GAME_STATES.GAME_OVER) {
+    decoySpawnTimer = null;
+    const activationFrameId = window.requestAnimationFrame((visibleAt) => {
+      if (
+        currentSession !== sessionId ||
+        cadenceId !== decoyCadenceId ||
+        decoyActivationFrame !== activationFrameId ||
+        document.hidden ||
+        engine.state === GAME_STATES.GAME_OVER
+      ) {
         return;
       }
+      decoyActivationFrame = null;
       if (engine.mode === GAME_MODES.ZEN && reachedDeadline(visibleAt, runDeadlineAt)) {
         finishZenRun(currentSession, visibleAt);
         return;
@@ -559,10 +594,12 @@ function scheduleDecoySpawn(currentSession) {
       const result = engine.activateDecoy(visibleAt);
       showDodgeAward(result);
       render();
-      scheduleDecoyExpiry(currentSession);
-      scheduleDecoySpawn(currentSession);
+      scheduleDecoyExpiry(currentSession, cadenceId);
+      scheduleDecoySpawn(currentSession, cadenceId);
     });
+    decoyActivationFrame = activationFrameId;
   }, delayMs);
+  decoySpawnTimer = spawnTimerId;
 }
 
 function scheduleRound(currentSession, additionalDelayMs = 0) {
@@ -685,7 +722,7 @@ function handleTileTap(event) {
   ) {
     return;
   }
-  const result = engine.tap(cellIndex, inputAt);
+  const result = engine.tap(cellIndex, inputAt, handledAt);
   if (result.type === "ignored") return;
 
   sound.tileOff();
@@ -724,6 +761,7 @@ function handleTileTap(event) {
 }
 
 function handleMiss(result, currentSession) {
+  if (result.lifeLost) cancelDecoyCadence();
   if (result.lifeLost) sound.lifeLost();
   const reasonLabel = {
     empty: "Empty square",
@@ -739,8 +777,8 @@ function handleMiss(result, currentSession) {
   if (engine.isRunComplete()) {
     finishGame(result.snapshot, currentSession);
   } else {
-    const recoveryMs = result.lifeLost ? engine.config.lifeLossRecoveryMs : 0;
-    scheduleRound(currentSession, recoveryMs);
+    scheduleRound(currentSession);
+    if (result.lifeLost) scheduleDecoySpawn(currentSession);
   }
 }
 
@@ -938,7 +976,7 @@ function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Profile";
   elements.dialogMessage.textContent = profileSession.authenticated
-    ? "Manage your public nickname and view your current seasonal position."
+    ? "Manage your public nickname, personal best, and leaderboard position."
     : "Use Google to keep one SpeedyTapper identity across devices.";
   elements.dialog.scrollTop = 0;
   renderProfile();
@@ -1300,18 +1338,18 @@ function renderResultSaveState() {
   if (pendingResult.submitted) {
     elements.resultGoogleSignin.hidden = true;
     if (pendingResult.improved === false) {
-      setResultSaveStatus("Your best seasonal result is unchanged.");
+      setResultSaveStatus("Your personal best is unchanged.");
       return;
     }
     const rankCopy = pendingResult.rank === null
       ? ""
-      : ` Your seasonal position is #${pendingResult.rank.toLocaleString()}.`;
+      : ` Your leaderboard position is #${pendingResult.rank.toLocaleString()}.`;
     setResultSaveStatus(`New personal best saved.${rankCopy}`);
     return;
   }
   if (!profileSession.authenticated) {
     elements.resultGoogleSignin.hidden = false;
-    setResultSaveStatus("Sign in with Google to save this run and keep a seasonal position.");
+    setResultSaveStatus("Sign in with Google to save your personal best and leaderboard position.");
     return;
   }
   if (!hasConfirmedProfile()) {
@@ -1478,7 +1516,7 @@ async function loadProfileContext(mode) {
   const requestId = profileRequestId + 1;
   profileRequestId = requestId;
   elements.profileStatus.classList.remove("is-error");
-  elements.profileStatus.textContent = "Loading seasonal position…";
+  elements.profileStatus.textContent = "Loading leaderboard position…";
   try {
     const body = await profileClient.getProfile(mode);
     if (requestId !== profileRequestId) return;
