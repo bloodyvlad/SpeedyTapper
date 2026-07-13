@@ -13,6 +13,7 @@ final class RunSubmissionService
     public function __construct(
         private readonly PDO $database,
         private readonly LeaderboardRepository $leaderboard,
+        private readonly AchievementService $achievements,
     ) {
     }
 
@@ -51,20 +52,25 @@ final class RunSubmissionService
                 ];
             }
 
+            $score->assertAcceptedAsNewRun();
             $progression = CoinProgression::accrue(
                 (int) $player['coin_time_remainder_ms'],
                 $score->survivalMs,
             );
             $coinBalance = (int) $player['coins'] + $progression->coinsEarned;
+            $totalCoinsCollected =
+                (int) $player['total_coins_collected'] + $progression->coinsEarned;
             $totalPlayMs = (int) $player['total_play_ms'] + $score->survivalMs;
             $improved = $this->leaderboard->insertResultInTransaction($playerId, $score);
 
             $updatePlayer = $this->database->prepare(
-                'UPDATE players SET coins = :coins, coin_time_remainder_ms = :coin_time_remainder_ms, '
+                'UPDATE players SET coins = :coins, total_coins_collected = :total_coins_collected, '
+                . 'coin_time_remainder_ms = :coin_time_remainder_ms, '
                 . 'total_play_ms = :total_play_ms, updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
             );
             $updatePlayer->execute([
                 'coins' => $coinBalance,
+                'total_coins_collected' => $totalCoinsCollected,
                 'coin_time_remainder_ms' => $progression->remainderMs,
                 'total_play_ms' => $totalPlayMs,
                 'player_id' => $playerId,
@@ -105,6 +111,11 @@ final class RunSubmissionService
             $insertRun->bindValue(':coins_awarded', $progression->coinsEarned, PDO::PARAM_INT);
             $insertRun->bindValue(':leaderboard_improved', $improved ? 1 : 0, PDO::PARAM_INT);
             $insertRun->execute();
+            $this->achievements->unlockForRunInTransaction(
+                $playerId,
+                $score,
+                $totalCoinsCollected,
+            );
 
             $this->database->commit();
             return [
@@ -129,7 +140,8 @@ final class RunSubmissionService
     private function lockPlayer(string $playerId): array
     {
         $statement = $this->database->prepare(
-            'SELECT coins, coin_time_remainder_ms, total_play_ms FROM players WHERE id = :player_id FOR UPDATE'
+            'SELECT coins, total_coins_collected, coin_time_remainder_ms, total_play_ms '
+            . 'FROM players WHERE id = :player_id FOR UPDATE'
         );
         $statement->execute(['player_id' => $playerId]);
         $player = $statement->fetch();

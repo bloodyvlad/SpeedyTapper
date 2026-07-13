@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\AchievementCatalog;
 use SpeedyTapper\CoinProgression;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\Nickname;
@@ -63,9 +64,58 @@ $assert($valid->runId === '4f27f9de-37de-4c31-8090-279a037bf76a', 'Validated run
 $assert(strlen($valid->payloadHash()) === 32, 'Validated runs produce a fixed binary idempotency hash.');
 $assert($valid->isBetterThan(['score' => 4_500, 'duration_ms' => 100_000, 'correct_taps' => 8]), 'Score is the first ranking criterion.');
 $assert($valid->isBetterThan(['score' => 4_550, 'duration_ms' => 90_000, 'correct_taps' => 5]), 'Normal duration breaks score ties.');
+$zenWithoutDodgeBonus = ScoreSubmission::fromArray([
+    'runId' => '3e9292a6-5af7-4bed-a948-54a97f53f8ac',
+    'mode' => 'zen',
+    'score' => 1_000,
+    'reactionBasePoints' => 1_000,
+    'multiplierBonusPoints' => 0,
+    'maxMultiplier' => 1,
+    'multiplierHitCounts' => ['one' => 1, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'multiplierBasePoints' => ['one' => 1_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'hits' => 1,
+    'dodges' => 2,
+    'survivalMs' => ScoreSubmission::ZEN_DURATION_MS,
+    'fastestReactionMs' => 90_000,
+    'averageReactionMs' => 90_000,
+    'speedRatings' => ['godlike' => 0, 'perfect' => 0, 'great' => 0, 'good' => 1],
+]);
+$assert(
+    $zenWithoutDodgeBonus->dodges === 2 && $zenWithoutDodgeBonus->score === 1_000,
+    'Zen accepts infinite-target reactions and tracks dodges without adding dodge points.',
+);
+$zenWithoutDodgeBonus->assertAcceptedAsNewRun();
+$legacyZenRetry = ScoreSubmission::fromArray([
+    'runId' => '6b3d5a14-9b78-4d88-94db-b0e1cecae183',
+    'mode' => 'zen',
+    'score' => 2_100,
+    'reactionBasePoints' => 1_000,
+    'multiplierBonusPoints' => 0,
+    'maxMultiplier' => 1,
+    'multiplierHitCounts' => ['one' => 1, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'multiplierBasePoints' => ['one' => 1_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'hits' => 1,
+    'dodges' => 2,
+    'survivalMs' => ScoreSubmission::ZEN_DURATION_MS,
+    'fastestReactionMs' => 200,
+    'averageReactionMs' => 200,
+    'speedRatings' => ['godlike' => 1, 'perfect' => 0, 'great' => 0, 'good' => 0],
+]);
+$assert(
+    $legacyZenRetry->usesLegacyZenDodgeScore,
+    'Legacy Zen dodge scoring remains parseable only for completed-run retry matching.',
+);
+$assert(
+    bin2hex($legacyZenRetry->payloadHash()) === 'b91d44c87a1e6dde6dd598534d05ba62feb85538e3e877d671a68277140f51e5',
+    'Legacy Zen retry hashes remain byte-compatible with the stored completed-run ledger.',
+);
+$throwsApi(
+    static fn () => $legacyZenRetry->assertAcceptedAsNewRun(),
+    'A new Zen run cannot add skipped-decoy points.',
+);
 $throwsApi(
     static fn () => ScoreSubmission::fromArray([
-        'runId' => '3e9292a6-5af7-4bed-a948-54a97f53f8ac',
+        'runId' => '3e9292a6-5af7-4bed-a948-54a97f53f8ad',
         'mode' => 'zen',
         'score' => 1_000,
         'reactionBasePoints' => 1_000,
@@ -371,6 +421,31 @@ $assert($oneMinute->coinsEarned === 1 && $oneMinute->remainderMs === 0, 'Coin ac
 $zenCoins = CoinProgression::accrue(0, ScoreSubmission::ZEN_DURATION_MS);
 $assert($zenCoins->coinsEarned === 3 && $zenCoins->remainderMs === 0, 'A complete Zen run awards three coins.');
 
+$achievementDefinitions = AchievementCatalog::all();
+$assert(
+    array_column($achievementDefinitions, 'id') === [
+        'complete_zen',
+        'complete_arcade',
+        'godlike_speed',
+        'collect_5_coins',
+        'score_over_100k',
+        'buy_a_pet',
+    ],
+    'The first six achievements have stable server-owned IDs and order.',
+);
+$assert(
+    array_column($achievementDefinitions, 'rewardCoins') === [1, 1, 1, 5, 5, 10],
+    'Achievement coin rewards match the accepted catalog.',
+);
+$assert(
+    AchievementCatalog::require('complete_arcade')['title'] === 'Complete Arcade mode',
+    'The player-facing Arcade achievement retains the normal-mode storage alias.',
+);
+$throwsApi(
+    static fn () => AchievementCatalog::require('invented_achievement'),
+    'Unknown achievements cannot choose a client-defined reward.',
+);
+
 $rows = [];
 for ($rank = 1; $rank <= 12; $rank++) {
     $rows[] = [
@@ -412,8 +487,9 @@ $schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_
     . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/003_completed_runs_and_coins.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/004_clear_leaderboard_for_multiplier_scoring.sql')
-    . file_get_contents(dirname(__DIR__) . '/server/migrations/005_allow_multiple_leaderboard_results.sql');
-foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'multiplier_5_hits', 'multiplier_5_base_points'] as $needle) {
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/005_allow_multiple_leaderboard_results.sql')
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/007_player_achievements.sql');
+foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'total_coins_collected', 'player_achievements', 'achievement_key', 'claimed_at', 'multiplier_5_hits', 'multiplier_5_base_points'] as $needle) {
     $assert(is_string($schema) && str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 $assert(
@@ -428,9 +504,21 @@ $assert(
     && !str_contains($multipleResultsMigration, 'DELETE FROM'),
     'The multi-result migration replaces only the uniqueness constraint and preserves scores.',
 );
+$achievementMigration = file_get_contents(dirname(__DIR__) . '/server/migrations/007_player_achievements.sql');
+$assert(
+    is_string($achievementMigration)
+    && str_contains($achievementMigration, "WHERE mode = 'normal'")
+    && str_contains($achievementMigration, "WHERE mode = 'zen' AND duration_ms = 180000")
+    && str_contains($achievementMigration, 'WHERE godlike_count > 0')
+    && str_contains($achievementMigration, 'WHERE score > 100000')
+    && str_contains($achievementMigration, 'WHERE total_coins_collected >= 5')
+    && str_contains($achievementMigration, "acquisition_source = ''purchase''")
+    && !str_contains($achievementMigration, 'legacy_easter_egg'),
+    'Achievement backfill uses accepted runs, lifetime coins, strict score threshold, and real pet purchases.',
+);
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/achievements', '/api/achievements/claim'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(
@@ -449,11 +537,31 @@ $assert(
     && str_contains($runService, 'hash_equals')
     && str_contains($runService, 'CoinProgression::accrue')
     && str_contains($runService, '$score->survivalMs')
+    && str_contains($runService, 'total_coins_collected')
+    && str_contains($runService, 'unlockForRunInTransaction')
     && str_contains($runService, 'insertResultInTransaction')
     && str_contains($runService, 'hasExactSubmittedContext')
     && str_contains($runService, "\$payload['submittedRank'] = \$hasExactSubmittedContext")
     && str_contains($runService, "\$payload['submittedEntryId'] = \$hasExactSubmittedContext"),
     'Run accounting inserts each result and never presents a legacy best row as an exact submitted context.',
+);
+$assert(
+    is_string($runService)
+    && strpos($runService, 'findCompletedRun') < strpos($runService, 'assertAcceptedAsNewRun'),
+    'Legacy Zen scoring is accepted only after an identical completed run is found.',
+);
+$achievementService = file_get_contents(dirname(__DIR__) . '/server/src/AchievementService.php');
+$assert(
+    is_string($achievementService)
+    && str_contains($achievementService, 'FOR UPDATE')
+    && str_contains($achievementService, 'claimed_at IS NULL')
+    && str_contains($achievementService, "\$score->mode === 'zen'")
+    && str_contains($achievementService, '$score->godlikeCount > 0')
+    && str_contains($achievementService, '$score->score > 100_000')
+    && str_contains($achievementService, "acquisition_source = 'purchase'")
+    && str_contains($achievementService, 'total_coins_collected')
+    && str_contains($achievementService, "'duplicate' => \$duplicate"),
+    'Achievements unlock and claim from server evidence with serialized idempotent coin accounting.',
 );
 $leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
 $assert(
@@ -482,7 +590,9 @@ $assert(str_starts_with($migrationStatements[1], 'INSERT INTO example'), 'Migrat
 $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
 $migrationCli = file_get_contents(dirname(__DIR__) . '/server/bin/migrate.php');
 $assert(
-    is_string($apiBootstrap) && str_contains($apiBootstrap, 'new MigrationRunner'),
+    is_string($apiBootstrap)
+    && str_contains($apiBootstrap, 'new MigrationRunner')
+    && str_contains($apiBootstrap, 'new AchievementService'),
     'The HTTP API applies pending migrations before dispatch.',
 );
 $assert(

@@ -429,3 +429,31 @@ Decision: Increase random decoy lifetime by exactly 50% to 450–750 ms. Approxi
 Consequences: Decoys remain readable for longer but arrive less often, timing is less predictable, and late progression can still place more than one on screen. The next correct target no longer appears to replace a just-expired wrong color under either callback order. Existing scoring, dodge awards, color exclusion, active caps, and target pace are unchanged.
 
 Revisit when: Physical-phone playtesting finds 750 ms too distracting, 600 ms lower gaps recreate clutter, overlap is too rare, long upper gaps feel empty, or a paint-confirmed idle transition becomes preferable to one-target cell reservation.
+
+## D-036 — Make Zen targets persistent and adapt their cadence to the player
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Zen is intended to be a comfortable timed run, but sharing Normal's expiring target window causes forced misses and a draining deadline bar. Its programmed random spawn gaps also ignore the player's demonstrated pace, while passive decoy points can dominate a mode that should reward deliberate correct taps.
+
+Decision: In Zen only, give every correct target an infinite lifetime, retain it through wrong-color and inactive-cell mistakes, hide response-deadline progress, and never schedule another correct target until the current one is tapped. Wait exactly 1,000 ms before the first target. After each correct tap, move the next post-tap delay halfway from its prior value toward that tap's measured reaction: `next = previous + 0.5 × (reaction − previous)`. Keep decoy generation, lifetime, natural-expiry dodge counts, and correct-tap reaction scoring, but award zero points for skipped decoys. Normal timing, expiry penalties, randomized quiet intervals, and 550-point dodge awards remain unchanged.
+
+Consequences: Zen accelerates smoothly for quick players and relaxes for slower players without spawning overlapping correct targets. A mistake still resets streak progress and clears visible decoys, but the correct Zen target remains actionable. PHP validation accepts reactions up to the full 180-second run and omits the fixed dodge term from Zen score reconciliation. Zen scores produced under the old passive-dodge bonus are not directly comparable with this rule.
+
+Revisit when: Physical-iPhone playtesting supports cadence clamps, a different smoothing factor, a separate Zen scoring curve, decoy removal, or a leaderboard reset boundary.
+
+## D-037 — Track and claim six profile achievements on the PHP ledger
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Profiles already have an idempotent completed-run ledger and spendable coin balance, but milestone rewards need durable eligibility, one-time claiming, cross-device state, and atomic currency credit. A browser-only flag could be reset or forged and could credit the same reward more than once.
+
+Decision: Define six fixed server-side achievements: complete a 180-second Zen run for 1 coin; complete Arcade, represented internally by an accepted `normal` run, for 1 coin; record at least one Godlike reaction for 1 coin; collect five lifetime coins for 5 coins; score strictly more than 100,000 points in one accepted run for 5 coins; and purchase any pet for 10 coins. Pet eligibility accepts only a durable ownership row whose acquisition source is `purchase`, never free or legacy/easter-egg ownership. Add a monotonic `total_coins_collected` counter distinct from spendable balance and a per-player achievement row with unlock and claim timestamps. Reconcile historical run/coin/purchase eligibility on reads, unlock new run criteria inside the completed-run transaction, and claim under database row locks. A first claim increments spendable and lifetime coins and records the timestamp; a retry returns idempotently with zero new coins. A locked claim is rejected.
+
+Present Achievements as a dedicated menu view. Locked boxes are inert, claimable boxes expose a green check and can be tapped, and claimed boxes are disabled and grey. Signed-out players can see the catalog but must use their Google-backed PHP profile to track or claim it. The catalog, eligibility, claim, and balance remain server-authoritative within the limits of the browser-authoritative run prototype.
+
+Consequences: Achievement state follows the profile across devices and concurrent/retried requests cannot double-credit rewards. Claiming a reward may itself cross the five-lifetime-coin threshold and unlock that milestone for a later explicit claim. Migration `007_player_achievements.sql` backfills lifetime collection conservatively from current balance and run awards. It detects the separately developed pet table when present, so integration order does not turn free pet ownership into a purchase. This currency still has no real-money value or anti-cheat guarantee.
+
+Revisit when: Achievements need progress counters, hidden tiers, revocation, spending-aware criteria, new reward types, server-authoritative gameplay evidence, or the catalog should be data-driven rather than code-defined.

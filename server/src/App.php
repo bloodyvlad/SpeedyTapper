@@ -10,6 +10,7 @@ final class App
         private readonly Config $config,
         private readonly PlayerRepository $players,
         private readonly LeaderboardRepository $leaderboard,
+        private readonly AchievementService $achievements,
         private readonly RunSubmissionService $runs,
         private readonly SessionStore $session,
         private readonly GoogleIdentityVerifier $google,
@@ -76,6 +77,25 @@ final class App
                 $playerId = null;
             }
             JsonResponse::send(200, $this->leaderboard->payload($mode, $playerId));
+        }
+
+        if ($request->path === '/api/achievements' && $request->method === 'GET') {
+            $playerId = $this->session->playerId();
+            if ($playerId !== null && $this->players->find($playerId) === null) {
+                $this->session->logout();
+                $playerId = null;
+            }
+            JsonResponse::send(200, $this->achievements->payload($playerId));
+        }
+
+        if ($request->path === '/api/achievements/claim' && $request->method === 'POST') {
+            $request->guardSameOriginMutation();
+            $profile = $this->requirePlayer();
+            $result = $this->achievements->claim(
+                $profile['id'],
+                $request->json()['id'] ?? null,
+            );
+            JsonResponse::send($result['duplicate'] ? 200 : 201, $result);
         }
 
         if ($request->path === '/api/leaderboard' && $request->method === 'POST') {

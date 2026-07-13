@@ -84,6 +84,36 @@ test("profile context requests are mode-specific", async () => {
   assert.equal(calls[0][0], "/api/profile?mode=zen");
 });
 
+test("achievement reads and claims stay same-origin and send only the achievement ID", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return response({ achievements: [], coinBalance: 6 });
+    }
+  });
+
+  await client.getAchievements();
+  await client.claimAchievement("complete_zen");
+
+  assert.equal(calls[0][0], "/api/achievements");
+  assert.equal(calls[0][1].credentials, "same-origin");
+  assert.equal(calls[0][1].cache, "no-store");
+  assert.equal(calls[1][0], "/api/achievements/claim");
+  assert.equal(calls[1][1].method, "POST");
+  assert.equal(calls[1][1].credentials, "same-origin");
+  assert.deepEqual(JSON.parse(calls[1][1].body), { id: "complete_zen" });
+});
+
+test("achievement claims require a stable achievement ID", async () => {
+  const client = createProfileClient({
+    fetchImpl: async () => response({})
+  });
+
+  assert.throws(() => client.claimAchievement(""), /achievement ID/i);
+  assert.throws(() => client.claimAchievement(null), /achievement ID/i);
+});
+
 test("API failures retain server error codes for login and ranking UX", async () => {
   const client = createProfileClient({
     fetchImpl: async () => response(

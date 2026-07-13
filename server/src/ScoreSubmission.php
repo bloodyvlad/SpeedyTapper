@@ -15,7 +15,7 @@ final readonly class ScoreSubmission
     private const MAX_SCORE = 999_999_999;
     private const MAX_COUNT = 1_000_000;
     private const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1_000;
-    private const MAX_REACTION_MS = 60_000;
+    private const MAX_NORMAL_REACTION_MS = 60_000;
 
     public function __construct(
         public string $runId,
@@ -43,6 +43,7 @@ final readonly class ScoreSubmission
         public int $perfectCount,
         public int $greatCount,
         public int $goodCount,
+        public bool $usesLegacyZenDodgeScore,
     ) {
     }
 
@@ -152,8 +153,11 @@ final readonly class ScoreSubmission
         if ($streakSteps < self::STREAK_STEPS_PER_MULTIPLIER * ($maxMultiplier - 1)) {
             throw new ApiException(400, 'Maximum multiplier does not match the speed ratings.');
         }
-        $fastest = self::nullableInteger($input['fastestReactionMs'] ?? null, 'Fastest reaction', self::MAX_REACTION_MS);
-        $average = self::nullableInteger($input['averageReactionMs'] ?? null, 'Average reaction', self::MAX_REACTION_MS);
+        $maximumReactionMs = $mode === 'zen'
+            ? self::ZEN_DURATION_MS
+            : self::MAX_NORMAL_REACTION_MS;
+        $fastest = self::nullableInteger($input['fastestReactionMs'] ?? null, 'Fastest reaction', $maximumReactionMs);
+        $average = self::nullableInteger($input['averageReactionMs'] ?? null, 'Average reaction', $maximumReactionMs);
         if (($fastest === null) !== ($average === null)) {
             throw new ApiException(400, 'Reaction statistics must include fastest and average times.');
         }
@@ -183,8 +187,15 @@ final readonly class ScoreSubmission
 
         $expectedScore = $reactionBasePoints
             + $multiplierBonusPoints
+            + ($mode === 'normal' ? $dodges * self::DODGE_POINTS : 0);
+        $legacyZenScore = $reactionBasePoints
+            + $multiplierBonusPoints
             + $dodges * self::DODGE_POINTS;
-        if ($score !== $expectedScore) {
+        $usesLegacyZenDodgeScore = $mode === 'zen'
+            && $dodges > 0
+            && $score !== $expectedScore
+            && $score === $legacyZenScore;
+        if ($score !== $expectedScore && !$usesLegacyZenDodgeScore) {
             throw new ApiException(400, 'Score does not match the run statistics.');
         }
 
@@ -214,7 +225,15 @@ final readonly class ScoreSubmission
             perfectCount: $perfect,
             greatCount: $great,
             goodCount: $good,
+            usesLegacyZenDodgeScore: $usesLegacyZenDodgeScore,
         );
+    }
+
+    public function assertAcceptedAsNewRun(): void
+    {
+        if ($this->usesLegacyZenDodgeScore) {
+            throw new ApiException(400, 'Skipped Zen decoys do not award points.');
+        }
     }
 
     public function payloadHash(): string

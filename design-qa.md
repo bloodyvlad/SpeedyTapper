@@ -129,3 +129,15 @@
 - No implementation blocker is recorded. The generated PNG textures add about 2.2 MB to the offline cache; a future asset-optimization pass could convert them to WebP if install size becomes important.
 
 final result: local candidate `20260712-2` passed automated and browser-runtime QA; production remains `20260712-1` pending deployment
+
+## Unreleased PHP feature branch — Zen cadence and Achievements
+
+- Branch: `codex/php-zen-achievements`; this is local review evidence, not production truth.
+- Release ID: intentionally unchanged. The release integrator must assign one ID after this branch and the parallel PHP work are combined.
+- Achievements uses a full-width main-menu entry and a dedicated scrollable dialog view rather than another utility icon. Six native buttons expose locked, green claimable, and grey claimed states with explicit text as well as color.
+- In-app browser interaction at 390 × 844 verified the signed-out catalog, a mocked authenticated payload with claimable/claimed/locked cards, a successful claim transition from green to disabled grey, the claimed-count change from 1/6 to 2/6, and the utility coin balance change from 8 to 9.
+- At 390 × 844, all six cards fit the dialog width without horizontal overflow; the dialog itself owns the vertical scroll. Claimable cards measured at least 76 px high and the Back control exceeded 44 px.
+- At 320 × 568, cards remained 246 px wide within a 298 px dialog, measured 72–84 px high, and the 810 px content scrolled within the 530 px dialog viewport without horizontal overflow. A follow-up review increased narrow-screen title/description/state text and reduced whole-card dimming; that final polish is covered statically but did not receive a second retained screenshot.
+- A local Zen interaction showed one correct target after the initial delay, unlimited lives, and no response progress bar. The same target remained present beyond Normal's response lifetime. Exact cadence math, retained targets through mistakes, and three-minute completion remain covered deterministically rather than claimed as physical-device evidence.
+- Browser QA used a disposable local API response only to exercise authenticated visual states; no real profile, Google session, database, or production host was changed.
+- Physical-iPhone Safari and installed-PWA validation remains required for touch cadence, background timing, scrolling, and final readability before this work can be described as production-validated.

@@ -70,6 +70,17 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       return request("/api/profile", jsonRequest("PATCH", { nickname }));
     },
 
+    getAchievements() {
+      return request("/api/achievements");
+    },
+
+    claimAchievement(id) {
+      if (typeof id !== "string" || id.length === 0) {
+        throw new TypeError("An achievement ID is required.");
+      }
+      return request("/api/achievements/claim", jsonRequest("POST", { id }));
+    },
+
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
     },

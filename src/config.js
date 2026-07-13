@@ -36,6 +36,10 @@ export const GAME_MODES = Object.freeze({
 export const GAME_CONFIG = Object.freeze({
   startingLives: 3,
   zenDurationMs: 180_000,
+  zen: Object.freeze({
+    initialTargetDelayMs: 1_000,
+    cadenceAdaptation: 0.5
+  }),
   lifeLossRecoveryMs: 1_500,
   twoByTwoStartsAtHits: 4,
   phases: Object.freeze({

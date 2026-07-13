@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\AchievementService;
 use SpeedyTapper\App;
 use SpeedyTapper\Config;
 use SpeedyTapper\Database;
@@ -33,11 +34,13 @@ try {
         $config->seasonName,
     );
     $leaderboard->ensureSeason();
+    $achievements = new AchievementService($database);
     $app = new App(
         config: $config,
         players: new PlayerRepository($database),
         leaderboard: $leaderboard,
-        runs: new RunSubmissionService($database, $leaderboard),
+        achievements: $achievements,
+        runs: new RunSubmissionService($database, $leaderboard, $achievements),
         session: new SessionStore($request->isSecure()),
         google: new GoogleClientIdentityVerifier($config->googleClientId),
     );
