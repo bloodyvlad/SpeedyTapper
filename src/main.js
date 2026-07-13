@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-2";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-2";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-3";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-3";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,14 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-2";
+} from "./input-timing.js?v=20260713-3";
 import {
   createMusicController,
   MUSIC_STAGES,
+  resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-2";
-import { createSoundController } from "./sound-controller.js?v=20260713-2";
-import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260713-2";
+} from "./music-controller.js?v=20260713-3";
+import { createSoundController } from "./sound-controller.js?v=20260713-3";
+import { sanitizePlayerName } from "../lib/leaderboard-model.js?v=20260713-3";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -23,6 +24,7 @@ const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
 const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
+const INTERACTIVE_MUSIC_STORAGE_KEY = "speedytapper.interactiveMusic.v1";
 const REMEMBERED_NAME_STORAGE_KEY = "speedytapper.leaderboardName.v1";
 
 const elements = {
@@ -42,6 +44,7 @@ const elements = {
   gameUtility: document.querySelector("#game-utility"),
   highScore: document.querySelector("#high-score"),
   installButton: document.querySelector("#install-button"),
+  interactiveMusicToggle: document.querySelector("#interactive-music-toggle"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardBackButton: document.querySelector("#leaderboard-back-button"),
   leaderboardMenuButton: document.querySelector("#leaderboard-menu-button"),
@@ -125,6 +128,7 @@ let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = false;
 let musicEnabled = true;
+let interactiveMusicEnabled = false;
 
 const sound = createSoundController();
 const presentationScheduler = Object.freeze({
@@ -189,10 +193,14 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicEnabled ? "on" : "off"}`;
+  const musicStatus = musicEnabled
+    ? interactiveMusicEnabled ? "interactive" : "on"
+    : "off";
+  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicStatus}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
   elements.musicToggle.checked = musicEnabled;
+  elements.interactiveMusicToggle.checked = interactiveMusicEnabled;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
     input.checked = input.value === activeTheme;
@@ -207,6 +215,9 @@ function initializeDisplaySettings() {
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
   soundFxEnabled = storedSoundFx === "on";
   sound.setEnabled(soundFxEnabled);
+  const storedInteractiveMusic = readStoredPreference(INTERACTIVE_MUSIC_STORAGE_KEY);
+  interactiveMusicEnabled = storedInteractiveMusic === "on";
+  music.setInteractive(interactiveMusicEnabled);
   const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
   musicEnabled = storedMusic !== "off";
   music.setEnabled(musicEnabled);
@@ -244,8 +255,27 @@ function applyMusic(enabled) {
   writeStoredPreference(MUSIC_STORAGE_KEY, musicEnabled ? "on" : "off");
 }
 
+function applyInteractiveMusic(enabled) {
+  interactiveMusicEnabled = Boolean(enabled);
+  music.setInteractive(interactiveMusicEnabled);
+  music.setStage(MUSIC_STAGES.MENU);
+  renderDisplaySettings();
+  writeStoredPreference(
+    INTERACTIVE_MUSIC_STORAGE_KEY,
+    interactiveMusicEnabled ? "on" : "off"
+  );
+}
+
 function musicStageFor(snapshot) {
   return resolveMusicStage(snapshot, engine.config.musicStageStartsAtMs);
+}
+
+function updateMusicForSnapshot(snapshot) {
+  if (interactiveMusicEnabled) {
+    music.setInteractiveSection(resolveInteractiveMusicSection(snapshot));
+    return;
+  }
+  music.setStage(musicStageFor(snapshot));
 }
 
 function stopResponseProgress() {
@@ -315,6 +345,7 @@ function startGame(mode) {
   clearTimers();
   void sound.startRun();
   music.setStage(MUSIC_STAGES.MENU);
+  music.startRun();
   void music.unlock();
   void refreshTopScore(mode);
   const currentSession = sessionId + 1;
@@ -329,13 +360,14 @@ function startGame(mode) {
   runStartFrame = window.requestAnimationFrame((visibleAt) => {
     runStartFrame = null;
     if (currentSession !== sessionId || document.hidden) return;
-    engine.start(visibleAt, mode);
+    const initialSnapshot = engine.start(visibleAt, mode);
+    updateMusicForSnapshot(initialSnapshot);
     render();
 
     clockTimer = window.setInterval(() => {
       const snapshot = engine.getSnapshot(now());
       renderHud(snapshot);
-      music.setStage(musicStageFor(snapshot));
+      updateMusicForSnapshot(snapshot);
     }, 100);
 
     if (mode === GAME_MODES.ZEN) {
@@ -370,7 +402,7 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
       activeRoundId = roundId;
       activeRoundVisibleAt = visibleAt;
       roundPresentationExpired = false;
-      music.setStage(musicStageFor(result.snapshot));
+      updateMusicForSnapshot(result.snapshot);
       sound.tileOn();
       const deadlineAt = reactionDeadline(
         visibleAt,
@@ -482,7 +514,8 @@ function handleTileTap(event) {
   stopResponseProgress();
 
   if (result.type === "hit") {
-    music.setStage(musicStageFor(result.snapshot));
+    music.playCorrectTap(result.snapshot.hits);
+    updateMusicForSnapshot(result.snapshot);
     showFeedback(`+${result.pointsAwarded} · ${Math.round(result.reactionMs)} ms`, false);
     render();
     scheduleRound(sessionId);
@@ -1169,6 +1202,10 @@ elements.soundFxToggle.addEventListener("change", () => {
 elements.musicToggle.addEventListener("change", () => {
   applyMusic(elements.musicToggle.checked);
   if (elements.musicToggle.checked) void music.unlock();
+});
+elements.interactiveMusicToggle.addEventListener("change", () => {
+  applyInteractiveMusic(elements.interactiveMusicToggle.checked);
+  if (musicEnabled) void music.unlock();
 });
 elements.leaderboardToggle.addEventListener("click", () => loadLeaderboard(leaderboardMode, "menu"));
 elements.leaderboardBackButton.addEventListener("click", returnFromLeaderboard);

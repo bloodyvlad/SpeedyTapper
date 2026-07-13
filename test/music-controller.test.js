@@ -4,8 +4,12 @@ import test from "node:test";
 
 import {
   createMusicController,
+  INTERACTIVE_MUSIC_SECTIONS,
+  INTERACTIVE_MUSIC_TRACKS,
+  INTERACTIVE_MUSIC_TRANSITIONS,
   MUSIC_STAGES,
   MUSIC_TRACKS,
+  resolveInteractiveMusicSection,
   resolveMusicStage
 } from "../src/music-controller.js";
 
@@ -70,6 +74,7 @@ class FakeSource {
 
 class FakeAudioContext {
   static instances = [];
+  static deferResume = false;
   static deferSuspend = false;
 
   constructor(options) {
@@ -109,6 +114,14 @@ class FakeAudioContext {
 
   resume() {
     this.resumeCalls += 1;
+    if (FakeAudioContext.deferResume) {
+      return new Promise((resolve) => {
+        this.resolveResume = () => {
+          this.state = "running";
+          resolve();
+        };
+      });
+    }
     this.state = "running";
     return Promise.resolve();
   }
@@ -125,6 +138,22 @@ class FakeAudioContext {
     }
     this.state = "suspended";
     return Promise.resolve();
+  }
+}
+
+class DeferredDecodeAudioContext extends FakeAudioContext {
+  constructor(options) {
+    super(options);
+    this.pendingDecodes = [];
+  }
+
+  decodeAudioData(encoded) {
+    return new Promise((resolve) => {
+      this.pendingDecodes.push({
+        encoded,
+        resolve: () => resolve({ duration: 107.44, encoded })
+      });
+    });
   }
 }
 
@@ -248,6 +277,314 @@ test("music stages hold early 4x4 at 120 BPM and reserve overdrive for two minut
   assert.equal(resolveMusicStage(snapshot(4, 90_000), timing), MUSIC_STAGES.GRID_4);
   assert.equal(resolveMusicStage(snapshot(4, 119_999), timing), MUSIC_STAGES.GRID_4);
   assert.equal(resolveMusicStage(snapshot(4, 120_000), timing), MUSIC_STAGES.CHALLENGE);
+});
+
+test("Interactive Music follows grid state and the engine timing opportunity", () => {
+  const snapshot = (gridDimension, elapsedMs, overrides = {}) => ({
+    elapsedMs,
+    difficulty: {
+      gridDimension,
+      phaseId: gridDimension === 4 ? "four-by-four-challenge" : "warmup",
+      responseWindowMs: 1_000,
+      spawnDelayRangeMs: [425, 825],
+      ...overrides
+    }
+  });
+
+  assert.equal(resolveInteractiveMusicSection(snapshot(1, 0)), 0);
+  assert.equal(resolveInteractiveMusicSection(snapshot(2, 10_000)), 1);
+  assert.equal(resolveInteractiveMusicSection(snapshot(2, 20_000)), 2);
+  assert.equal(resolveInteractiveMusicSection(snapshot(2, 30_000)), 3);
+  assert.equal(
+    resolveInteractiveMusicSection(snapshot(4, 40_000, { phaseId: "four-by-four-reset" })),
+    4
+  );
+  assert.equal(resolveInteractiveMusicSection(snapshot(4, 50_000)), 5);
+  assert.equal(
+    resolveInteractiveMusicSection(snapshot(4, 90_000, {
+      responseWindowMs: 360,
+      spawnDelayRangeMs: [335, 675]
+    })),
+    8
+  );
+  assert.equal(
+    resolveInteractiveMusicSection(snapshot(4, 120_000, {
+      responseWindowMs: 200,
+      spawnDelayRangeMs: [305, 625]
+    })),
+    11
+  );
+});
+
+test("Interactive Music is opt-in and loads only one backing and note bank", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setInteractive(true);
+  assert.equal(FakeAudioContext.instances.length, 0);
+  assert.equal(fetchRecorder.calls.length, 0);
+  music.setEnabled(true);
+  await flushAsyncWork();
+  assert.deepEqual(
+    fetchRecorder.calls.map(({ url }) => url),
+    [
+      INTERACTIVE_MUSIC_TRACKS[0].backingFile,
+      INTERACTIVE_MUSIC_TRACKS[0].notesFile
+    ]
+  );
+
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+  assert.equal(context.options.latencyHint, "interactive");
+  const opening = INTERACTIVE_MUSIC_SECTIONS[0];
+  const backingSource = context.bufferSources[0];
+  assert.equal(backingSource.loop, true);
+  assert.equal(backingSource.loopStart, opening.offsetFrames / 48_000);
+  assert.equal(
+    backingSource.loopEnd,
+    (opening.offsetFrames + opening.durationFrames) / 48_000
+  );
+
+  assert.equal(music.playCorrectTap(1), true);
+  assert.deepEqual(context.bufferSources[1].startCalls[0], [5, 0, 0.5]);
+  assert.equal(music.playCorrectTap(2), true);
+  assert.deepEqual(context.bufferSources[2].startCalls[0], [5, 1.5, 0.5]);
+});
+
+test("Interactive backing changes once on the next beat through an authored bridge", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const scheduler = new ManualScheduler();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl,
+    setTimeoutImpl: scheduler.setTimeout.bind(scheduler),
+    clearTimeoutImpl: scheduler.clearTimeout.bind(scheduler)
+  });
+
+  music.setInteractive(true);
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+  const openingSource = context.bufferSources[0];
+
+  music.setInteractiveSection(1);
+  music.setInteractiveSection(1);
+  const bridge = INTERACTIVE_MUSIC_TRANSITIONS[0];
+  assert.equal(context.bufferSources.length, 3, "Repeated snapshots must not duplicate transitions.");
+  assert.deepEqual(context.bufferSources[1].startCalls[0], [
+    5.6,
+    bridge.offsetFrames / 48_000,
+    bridge.durationFrames / 48_000
+  ]);
+  assert.ok(Math.abs(openingSource.stopCalls[0] - 5.626) < 0.000001);
+  assert.deepEqual(
+    context.bufferSources[1].connections[0].gain.events.slice(0, 2),
+    [
+      { method: "setValueAtTime", time: 5.6, value: 0 },
+      { method: "linearRampToValueAtTime", time: 5.624, value: 1 }
+    ]
+  );
+  const targetStart = 5.6 + bridge.durationFrames / 48_000;
+  assert.deepEqual(context.bufferSources[2].startCalls[0], [
+    targetStart,
+    INTERACTIVE_MUSIC_SECTIONS[1].offsetFrames / 48_000
+  ]);
+});
+
+test("Interactive tap notes skip while unready and cap overlapping voices", async () => {
+  FakeAudioContext.instances = [];
+  const pending = [];
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl(url) {
+      return new Promise((resolve) => pending.push({ resolve, url }));
+    }
+  });
+
+  music.setInteractive(true);
+  music.setEnabled(true);
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+  assert.equal(music.playCorrectTap(1), false);
+  assert.equal(context.bufferSources.length, 0);
+
+  for (const item of pending) {
+    item.resolve({ ok: true, arrayBuffer: () => Promise.resolve({ url: item.url }) });
+  }
+  await flushAsyncWork();
+  assert.equal(context.bufferSources.length, 1, "Readiness must not replay the skipped note.");
+  for (let hit = 1; hit <= 5; hit += 1) assert.equal(music.playCorrectTap(hit), true);
+  assert.equal(context.bufferSources.length, 6);
+  assert.ok(
+    context.bufferSources.slice(1, 5).some((source) => source.stopCalls.length === 1),
+    "The fifth simultaneous note must fade and stop the oldest voice."
+  );
+});
+
+test("switching soundtrack variants replaces the context and preserves the track index", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const scheduler = new ManualScheduler();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl,
+    setTimeoutImpl: scheduler.setTimeout.bind(scheduler),
+    clearTimeoutImpl: scheduler.clearTimeout.bind(scheduler)
+  });
+
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  assert.equal(music.advanceTrack(), "deep-current");
+  const legacyContext = FakeAudioContext.instances[0];
+  legacyContext.currentTime = 10;
+  music.setInteractive(true);
+  const legacyGainEventCount = legacyContext.bufferSources[1].connections[0].gain.events.length;
+  await flushAsyncWork();
+  await music.unlock();
+  const interactiveContext = FakeAudioContext.instances[1];
+  assert.equal(interactiveContext.options.latencyHint, "interactive");
+  assert.match(interactiveContext.bufferSources[0].buffer.encoded.url, /interactive-deep-current\.m4a$/);
+  assert.equal(
+    legacyContext.bufferSources[1].connections[0].gain.events.length,
+    legacyGainEventCount,
+    "The replacement context must not reschedule gain events on a fading legacy voice."
+  );
+  scheduler.runAll();
+  assert.equal(legacyContext.closeCalls, 1);
+});
+
+test("Interactive track rotation releases the old sprite and loads only the next pair", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setInteractive(true);
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+  const oldBacking = context.bufferSources[0];
+
+  assert.equal(music.advanceTrack(), "deep-current");
+  await flushAsyncWork();
+  assert.deepEqual(
+    fetchRecorder.calls.slice(-2).map(({ url }) => url),
+    [
+      INTERACTIVE_MUSIC_TRACKS[1].backingFile,
+      INTERACTIVE_MUSIC_TRACKS[1].notesFile
+    ]
+  );
+  assert.equal(oldBacking.stopCalls.length, 1);
+  assert.match(context.bufferSources[1].buffer.encoded.url, /interactive-deep-current\.m4a$/);
+  assert.equal(music.playCorrectTap(1), true);
+  assert.match(context.bufferSources[2].buffer.encoded.url, /interactive-notes-deep-current\.wav$/);
+});
+
+test("Interactive track rotation ignores stale decodes from the previous track", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const music = createMusicController({
+    AudioContextClass: DeferredDecodeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setInteractive(true);
+  music.setEnabled(true);
+  await flushAsyncWork();
+  const context = FakeAudioContext.instances[0];
+  assert.equal(context.pendingDecodes.length, 2);
+
+  assert.equal(music.advanceTrack(), "deep-current");
+  await flushAsyncWork();
+  assert.equal(context.pendingDecodes.length, 4);
+
+  context.pendingDecodes[2].resolve();
+  context.pendingDecodes[3].resolve();
+  await flushAsyncWork();
+  await music.unlock();
+  assert.match(context.bufferSources[0].buffer.encoded.url, /interactive-deep-current\.m4a$/);
+
+  context.pendingDecodes[0].resolve();
+  context.pendingDecodes[1].resolve();
+  await flushAsyncWork();
+  assert.equal(music.playCorrectTap(1), true);
+  assert.match(
+    context.bufferSources[1].buffer.encoded.url,
+    /interactive-notes-deep-current\.wav$/
+  );
+
+  music.setInteractiveSection(1);
+  assert.equal(context.bufferSources.length, 4);
+  assert.match(context.bufferSources[2].buffer.encoded.url, /interactive-deep-current\.m4a$/);
+  assert.match(context.bufferSources[3].buffer.encoded.url, /interactive-deep-current\.m4a$/);
+});
+
+test("Interactive rotation preserves an in-flight gesture-authorized resume", async () => {
+  FakeAudioContext.instances = [];
+  FakeAudioContext.deferResume = true;
+  const fetchRecorder = createFetchRecorder();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  try {
+    music.setInteractive(true);
+    music.setEnabled(true);
+    await flushAsyncWork();
+    const context = FakeAudioContext.instances[0];
+    const unlockWork = music.unlock();
+    assert.equal(context.resumeCalls, 1);
+    assert.equal(context.state, "suspended");
+
+    assert.equal(music.advanceTrack(), "deep-current");
+    await flushAsyncWork();
+    assert.equal(context.bufferSources.length, 0);
+
+    context.resolveResume();
+    assert.equal(await unlockWork, true);
+    assert.equal(context.bufferSources.length, 1);
+    assert.match(context.bufferSources[0].buffer.encoded.url, /interactive-deep-current\.m4a$/);
+  } finally {
+    FakeAudioContext.deferResume = false;
+  }
+});
+
+test("suspending Interactive Music cancels scheduled bridges and tap voices", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const scheduler = new ManualScheduler();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl,
+    setTimeoutImpl: scheduler.setTimeout.bind(scheduler),
+    clearTimeoutImpl: scheduler.clearTimeout.bind(scheduler)
+  });
+
+  music.setInteractive(true);
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+  assert.equal(music.playCorrectTap(1), true);
+  music.setInteractiveSection(1);
+  const sources = [...context.bufferSources];
+
+  music.suspend();
+  assert.ok(sources.every((source) => source.stopCalls.length >= 1));
+  scheduler.runAll();
+  await flushAsyncWork();
+  assert.equal(context.suspendCalls, 1);
 });
 
 test("rotation silences stale gameplay music until a delayed next track is ready", async () => {
@@ -454,6 +791,55 @@ test("all retained production masters are silent at every adaptive loop seam", a
         Math.abs(sampleAt(end - 1, 1) - sampleAt(start, 1))
       );
       assert.ok(jump <= 1 / 32_768, `${filename} loop ${index} must be near zero.`);
+    }
+  }
+});
+
+test("Interactive Music manifest matches runtime cue metadata and PCM note boundaries", async () => {
+  const manifest = JSON.parse(
+    await readFile(
+      new URL("../assets/audio/interactive-music-masters/manifest.json", import.meta.url),
+      "utf8"
+    )
+  );
+  assert.equal(manifest.sampleRate, 48_000);
+  assert.deepEqual(
+    INTERACTIVE_MUSIC_SECTIONS.map(({ id, bpm, beatFrames, offsetFrames, durationFrames }) => ({
+      id,
+      bpm,
+      beatFrames,
+      offsetFrames,
+      durationFrames
+    })),
+    manifest.sections.map(({ id, bpm, beatFrames, offsetFrames, durationFrames }) => ({
+      id,
+      bpm,
+      beatFrames,
+      offsetFrames,
+      durationFrames
+    }))
+  );
+  assert.deepEqual(
+    INTERACTIVE_MUSIC_TRANSITIONS,
+    manifest.transitions.map(({ from, to, offsetFrames, durationFrames }) => ({
+      from,
+      to,
+      offsetFrames,
+      durationFrames
+    }))
+  );
+
+  for (const track of INTERACTIVE_MUSIC_TRACKS) {
+    assert.deepEqual(track.motif, manifest.tracks[track.id].motif);
+    const wav = await readFile(new URL(`../${track.notesFile.slice(2)}`, import.meta.url));
+    assert.equal(wav.readUInt16LE(22), 1, `${track.id} note bank must be mono.`);
+    assert.equal(wav.readUInt32LE(24), 48_000, `${track.id} note bank must be 48 kHz.`);
+    assert.equal(wav.readUInt16LE(34), 16, `${track.id} note bank must be 16-bit PCM.`);
+    const dataOffset = wav.indexOf(Buffer.from("data"));
+    const samples = wav.subarray(dataOffset + 8);
+    for (let slot = 0; slot < 6; slot += 1) {
+      assert.equal(samples.readInt16LE(slot * 24_000 * 2), 0);
+      assert.equal(samples.readInt16LE(((slot + 1) * 24_000 - 1) * 2), 0);
     }
   }
 });

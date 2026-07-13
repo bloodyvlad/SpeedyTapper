@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-2" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-3" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-3" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -266,6 +266,16 @@
                 </span>
                 <input class="setting-toggle" id="music-toggle" type="checkbox" role="switch" checked />
               </label>
+              <label class="setting-row" for="interactive-music-toggle">
+                <span class="setting-row__copy">
+                  <strong class="setting-row__title">
+                    <span>Interactive Music</span>
+                    <span class="setting-badge">Beta</span>
+                  </strong>
+                  <small>Correct taps play the melody over state-matched backing</small>
+                </span>
+                <input class="setting-toggle" id="interactive-music-toggle" type="checkbox" role="switch" />
+              </label>
             </div>
           </fieldset>
         </div>
@@ -314,7 +324,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-2";
+        const buildId = "20260713-3";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -368,6 +378,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-2"></script>
+    <script type="module" src="./src/main.js?v=20260713-3"></script>
   </body>
 </html>

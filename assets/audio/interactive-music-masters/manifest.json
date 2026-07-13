@@ -1,0 +1,312 @@
+{
+  "sampleRate": 48000,
+  "guardFrames": 4096,
+  "noteSlotFrames": 24000,
+  "sections": [
+    {
+      "id": "opening",
+      "bpm": 100,
+      "beatFrames": 28800,
+      "richness": 0,
+      "offsetFrames": 4096,
+      "durationFrames": 460800
+    },
+    {
+      "id": "grid-2",
+      "bpm": 104,
+      "beatFrames": 27692,
+      "richness": 1,
+      "offsetFrames": 468992,
+      "durationFrames": 443072
+    },
+    {
+      "id": "grid-2-ramp",
+      "bpm": 108,
+      "beatFrames": 26667,
+      "richness": 2,
+      "offsetFrames": 916160,
+      "durationFrames": 426672
+    },
+    {
+      "id": "grid-2-late",
+      "bpm": 112,
+      "beatFrames": 25714,
+      "richness": 2,
+      "offsetFrames": 1346928,
+      "durationFrames": 411424
+    },
+    {
+      "id": "grid-4",
+      "bpm": 112,
+      "beatFrames": 25714,
+      "richness": 3,
+      "offsetFrames": 1762448,
+      "durationFrames": 411424
+    },
+    {
+      "id": "challenge",
+      "bpm": 120,
+      "beatFrames": 24000,
+      "richness": 4,
+      "offsetFrames": 2177968,
+      "durationFrames": 384000
+    },
+    {
+      "id": "challenge-1",
+      "bpm": 124,
+      "beatFrames": 23226,
+      "richness": 4,
+      "offsetFrames": 2566064,
+      "durationFrames": 371616
+    },
+    {
+      "id": "challenge-2",
+      "bpm": 128,
+      "beatFrames": 22500,
+      "richness": 5,
+      "offsetFrames": 2941776,
+      "durationFrames": 360000
+    },
+    {
+      "id": "challenge-3",
+      "bpm": 136,
+      "beatFrames": 21176,
+      "richness": 5,
+      "offsetFrames": 3305872,
+      "durationFrames": 338816
+    },
+    {
+      "id": "challenge-4",
+      "bpm": 144,
+      "beatFrames": 20000,
+      "richness": 6,
+      "offsetFrames": 3648784,
+      "durationFrames": 320000
+    },
+    {
+      "id": "challenge-5",
+      "bpm": 156,
+      "beatFrames": 18462,
+      "richness": 6,
+      "offsetFrames": 3972880,
+      "durationFrames": 295392
+    },
+    {
+      "id": "endurance",
+      "bpm": 168,
+      "beatFrames": 17143,
+      "richness": 7,
+      "offsetFrames": 4272368,
+      "durationFrames": 274288
+    }
+  ],
+  "transitions": [
+    {
+      "from": "opening",
+      "to": "grid-2",
+      "offsetFrames": 4550752,
+      "durationFrames": 28246
+    },
+    {
+      "from": "grid-2",
+      "to": "grid-2-ramp",
+      "offsetFrames": 4583094,
+      "durationFrames": 27180
+    },
+    {
+      "from": "grid-2-ramp",
+      "to": "grid-2-late",
+      "offsetFrames": 4614370,
+      "durationFrames": 26190
+    },
+    {
+      "from": "grid-2-late",
+      "to": "grid-4",
+      "offsetFrames": 4644656,
+      "durationFrames": 25714
+    },
+    {
+      "from": "grid-4",
+      "to": "challenge",
+      "offsetFrames": 4674466,
+      "durationFrames": 24857
+    },
+    {
+      "from": "challenge",
+      "to": "challenge-1",
+      "offsetFrames": 4703419,
+      "durationFrames": 23613
+    },
+    {
+      "from": "challenge-1",
+      "to": "challenge-2",
+      "offsetFrames": 4731128,
+      "durationFrames": 22863
+    },
+    {
+      "from": "challenge-2",
+      "to": "challenge-3",
+      "offsetFrames": 4758087,
+      "durationFrames": 21838
+    },
+    {
+      "from": "challenge-3",
+      "to": "challenge-4",
+      "offsetFrames": 4784021,
+      "durationFrames": 20588
+    },
+    {
+      "from": "challenge-4",
+      "to": "challenge-5",
+      "offsetFrames": 4808705,
+      "durationFrames": 19231
+    },
+    {
+      "from": "challenge-5",
+      "to": "endurance",
+      "offsetFrames": 4832032,
+      "durationFrames": 17802
+    },
+    {
+      "from": "endurance",
+      "to": "challenge-5",
+      "offsetFrames": 4853930,
+      "durationFrames": 17802
+    },
+    {
+      "from": "challenge-5",
+      "to": "challenge-4",
+      "offsetFrames": 4875828,
+      "durationFrames": 19231
+    },
+    {
+      "from": "challenge-4",
+      "to": "challenge-3",
+      "offsetFrames": 4899155,
+      "durationFrames": 20588
+    },
+    {
+      "from": "challenge-3",
+      "to": "challenge-2",
+      "offsetFrames": 4923839,
+      "durationFrames": 21838
+    },
+    {
+      "from": "challenge-2",
+      "to": "challenge-1",
+      "offsetFrames": 4949773,
+      "durationFrames": 22863
+    },
+    {
+      "from": "challenge-1",
+      "to": "challenge",
+      "offsetFrames": 4976732,
+      "durationFrames": 23613
+    },
+    {
+      "from": "challenge",
+      "to": "grid-4",
+      "offsetFrames": 5004441,
+      "durationFrames": 24857
+    },
+    {
+      "from": "grid-4",
+      "to": "grid-2-late",
+      "offsetFrames": 5033394,
+      "durationFrames": 25714
+    },
+    {
+      "from": "grid-2-late",
+      "to": "grid-2-ramp",
+      "offsetFrames": 5063204,
+      "durationFrames": 26190
+    },
+    {
+      "from": "grid-2-ramp",
+      "to": "grid-2",
+      "offsetFrames": 5093490,
+      "durationFrames": 27180
+    },
+    {
+      "from": "grid-2",
+      "to": "opening",
+      "offsetFrames": 5124766,
+      "durationFrames": 28246
+    }
+  ],
+  "tracks": {
+    "neon-circuit-refined": {
+      "backing": "interactive-neon-circuit-refined.m4a",
+      "master": "neon-circuit-refined.wav",
+      "notes": "interactive-notes-neon-circuit-refined.wav",
+      "motif": [
+        0,
+        3,
+        5,
+        1,
+        1,
+        4,
+        0,
+        2,
+        2,
+        5,
+        1,
+        3,
+        3,
+        0,
+        2,
+        4
+      ],
+      "coreAudioValidFrames": 5157120
+    },
+    "deep-current": {
+      "backing": "interactive-deep-current.m4a",
+      "master": "deep-current.wav",
+      "notes": "interactive-notes-deep-current.wav",
+      "motif": [
+        0,
+        3,
+        5,
+        1,
+        2,
+        5,
+        1,
+        3,
+        4,
+        1,
+        3,
+        5,
+        0,
+        3,
+        5,
+        1
+      ],
+      "coreAudioValidFrames": 5157120
+    },
+    "power-grid": {
+      "backing": "interactive-power-grid.m4a",
+      "master": "power-grid.wav",
+      "notes": "interactive-notes-power-grid.wav",
+      "motif": [
+        0,
+        3,
+        5,
+        1,
+        3,
+        0,
+        2,
+        4,
+        0,
+        3,
+        5,
+        1,
+        3,
+        0,
+        2,
+        4
+      ],
+      "coreAudioValidFrames": 5157120
+    }
+  },
+  "masterFrames": 5157108
+}

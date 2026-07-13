@@ -1,10 +1,16 @@
-const BUILD_ID = "20260713-2";
+const BUILD_ID = "20260713-3";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const MUSIC_ASSET_PATHS = new Set([
   "/assets/audio/neon-circuit-refined.m4a",
   "/assets/audio/deep-current.m4a",
-  "/assets/audio/power-grid.m4a"
+  "/assets/audio/power-grid.m4a",
+  "/assets/audio/interactive-neon-circuit-refined.m4a",
+  "/assets/audio/interactive-deep-current.m4a",
+  "/assets/audio/interactive-power-grid.m4a",
+  "/assets/audio/interactive-notes-neon-circuit-refined.wav",
+  "/assets/audio/interactive-notes-deep-current.wav",
+  "/assets/audio/interactive-notes-power-grid.wav"
 ]);
 const APP_SHELL = [
   "./index.html",

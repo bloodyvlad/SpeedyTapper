@@ -195,3 +195,16 @@ Decision: Retain the best 1,000 validated results independently for Normal and Z
 Consequences: Existing positions below 20 were previously discarded and cannot be recovered. The private Blob remains one document and is rewritten through the existing optimistic-concurrency flow; only compact result windows are sent to the browser. A submission below rank 1,000 is not retained. The browser-authoritative ranking remains unverified.
 
 Revisit when: Submission volume, Blob rewrite cost, moderation, pagination, historical rank lookup, or server-authoritative competition warrants indexed storage.
+
+## D-015 — Offer tap-driven melody over pre-recorded state backing
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: The approved adaptive tracks establish a sticky identity, but their lead plays independently of the player and their large fixed tempo regions understate progression before an abrupt late change. Fully synthesizing and mixing music at runtime would follow gameplay precisely but adds browser CPU, scheduling, and mobile-audio risk. A single long timeline also cannot exactly follow the hit-driven 2×2 transition or different late-game performance.
+
+Decision: Retain D-012's approved soundtrack as the default and add **Interactive Music (Beta)** as a separately remembered, default-off variant under the existing Music master switch. In Interactive mode, correct target taps alone trigger successive notes from a fixed 16-note per-track motif; pitch order depends only on the run's successful-hit number, not color or reaction speed. Misses, dodges, and unready audio do not play or defer notes. Keep bass, drums, percussion, pads, and enrichment in pre-recorded backing-only AAC sprites. Select authored 100–168 BPM backing states from engine snapshots, using grid and phase boundaries plus the mean spawn delay and a response window capped at 400 ms for late-game pace. Move between adjacent states on the next beat through dedicated, bidirectional bridge audio produced in the same render; play tap notes immediately without beat quantization. Lazy-decode only the active Interactive backing and its PCM note bank, while sharing the existing trusted-gesture, rotation, caching, fade, background, and opt-out lifecycle.
+
+Consequences: The legacy and Interactive variants remain parallel and cannot sound simultaneously because one controller replaces its audio context when the setting changes. Pre-recorded states keep playback CPU low and make richness deterministic, but their discrete tempo choices approximate rather than continuously reproduce each player's hit-dependent opportunity curve. A future slowdown mechanic can select a lower authored state through the retained reverse bridges, but no such power-up is part of this decision. Runtime music remains outside the install-time app shell and is cached only after a service-worker-controlled request. Retain the original legacy assets, all new PCM masters, the generated cue manifest, and provenance. Automated AAC/PCM checks do not replace physical iPhone Safari and installed-PWA listening.
+
+Revisit when: Playtesting establishes preferred Interactive defaults, motif balance, transition latency, tempo thresholds, or backing richness; decoded memory proves too high; a slowdown power-up is designed; or native audio makes more continuous tempo control practical.

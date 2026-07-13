@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSource, workerSource, stylesSource] = await Promise.all([
+const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSource, workerSource, stylesSource, vercelIgnoreSource] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/main.js", import.meta.url), "utf8"),
   readFile(new URL("../src/config.js", import.meta.url), "utf8"),
@@ -10,13 +10,14 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
   readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
-  readFile(new URL("../styles.css", import.meta.url), "utf8")
+  readFile(new URL("../styles.css", import.meta.url), "utf8"),
+  readFile(new URL("../.vercelignore", import.meta.url), "utf8")
 ]);
 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-2");
+  assert.equal(buildId, "20260713-3");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -40,6 +41,7 @@ test("the complete browser module graph uses one release version", () => {
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
+  assert.match(vercelIgnoreSource, /assets\/audio\/interactive-music-masters/);
   assert.match(
     workerSource,
     /MUSIC_ASSET_PATHS\.has\(requestUrl\.pathname\)\)[\s\S]*cacheFirst\(event\.request\)/
@@ -190,20 +192,32 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   const musicSetting = indexHtml.match(
     /<label class="setting-row" for="music-toggle">[\s\S]*?<\/label>/
   )?.[0] ?? "";
+  const interactiveMusicSetting = indexHtml.match(
+    /<label class="setting-row" for="interactive-music-toggle">[\s\S]*?<\/label>/
+  )?.[0] ?? "";
   assert.match(musicSetting, />Music</);
   assert.match(musicSetting, /Adaptive soundtrack/);
   assert.match(musicSetting, /id="music-toggle"[^>]+role="switch"/);
   assert.match(musicSetting, /\bchecked\b/);
+  assert.match(interactiveMusicSetting, />Interactive Music</);
+  assert.match(interactiveMusicSetting, />\s*Beta\s*</i);
+  assert.match(interactiveMusicSetting, /Correct taps play the melody/);
+  assert.match(interactiveMusicSetting, /id="interactive-music-toggle"[^>]+role="switch"/);
+  assert.doesNotMatch(interactiveMusicSetting, /\bchecked\b/);
   assert.match(mainSource, /speedytapper\.music\.v1/);
+  assert.match(mainSource, /speedytapper\.interactiveMusic\.v1/);
   assert.match(mainSource, /let musicEnabled = true;/);
+  assert.match(mainSource, /let interactiveMusicEnabled = false;/);
   assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
+  assert.match(mainSource, /interactiveMusicEnabled = storedInteractiveMusic === "on";/);
+  assert.match(mainSource, /music\.setInteractive\(interactiveMusicEnabled\)/);
   assert.match(mainSource, /musicStageFor\(snapshot\)/);
   assert.match(musicSource, /MUSIC_STAGES\.GRID_2/);
   assert.match(musicSource, /MUSIC_STAGES\.GRID_4/);
   assert.match(musicSource, /MUSIC_STAGES\.CHALLENGE/);
   assert.match(mainSource, /finishGame[\s\S]*music\.advanceTrack\(MUSIC_STAGES\.MENU\)/);
   assert.match(mainSource, /completedSessionId === currentSession/);
-  assert.match(mainSource, /setInterval\([\s\S]*music\.setStage\(musicStageFor\(snapshot\)\)/);
+  assert.match(mainSource, /setInterval\([\s\S]*updateMusicForSnapshot\(snapshot\)/);
   assert.match(configSource, /fourByFourPressure:\s*90_000/);
   assert.match(configSource, /endurance:\s*120_000/);
   for (const filename of [
@@ -214,11 +228,35 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
     assert.match(musicSource, new RegExp(filename.replace(".", "\\.")));
     assert.match(workerSource, new RegExp(`/assets/audio/${filename.replace(".", "\\.")}`));
   }
+  for (const filename of [
+    "interactive-neon-circuit-refined.m4a",
+    "interactive-deep-current.m4a",
+    "interactive-power-grid.m4a",
+    "interactive-notes-neon-circuit-refined.wav",
+    "interactive-notes-deep-current.wav",
+    "interactive-notes-power-grid.wav"
+  ]) {
+    assert.match(musicSource, new RegExp(filename.replace(".", "\\.")));
+    assert.match(workerSource, new RegExp(`/assets/audio/${filename.replace(".", "\\.")}`));
+  }
+  assert.match(
+    mainSource,
+    /if \(result\.type === "hit"\) \{\s*music\.playCorrectTap\(result\.snapshot\.hits\)/,
+    "Only a confirmed correct tap may trigger the interactive melody."
+  );
+  assert.equal(
+    (mainSource.match(/music\.playCorrectTap\(/g) ?? []).length,
+    1,
+    "Misses, dodges, and unready cues must never trigger or replay a melody note."
+  );
+  assert.match(mainSource, /resolveInteractiveMusicSection\(snapshot\)/);
+  assert.match(musicSource, /MAX_NOTE_VOICES = 4/);
+  assert.match(musicSource, /latencyHint: interactive \? "interactive" : "playback"/);
+  assert.match(musicSource, /prepareInteractiveTrack\(desiredTrackIndex/);
   assert.match(musicSource, /createBufferSource\(\)/);
   assert.match(musicSource, /loopStart/);
   assert.match(musicSource, /loopEnd/);
   assert.match(musicSource, /linearRampToValueAtTime/);
-  assert.match(musicSource, /latencyHint:\s*"playback"/);
   assert.match(workerSource, /function cacheFirst\(request\)/);
   assert.match(indexHtml, /speedyTapperWorkerReady/);
   assert.match(mainSource, /await globalThis\.speedyTapperWorkerReady/);
