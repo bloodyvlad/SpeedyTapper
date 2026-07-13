@@ -6,6 +6,8 @@ namespace SpeedyTapper;
 
 final class Uuid
 {
+    private const V4_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D';
+
     public static function v4(): string
     {
         $bytes = random_bytes(16);
@@ -21,5 +23,10 @@ final class Uuid
             substr($hex, 16, 4),
             substr($hex, 20, 12),
         );
+    }
+
+    public static function isValidV4(string $value): bool
+    {
+        return preg_match(self::V4_PATTERN, strtolower($value)) === 1;
     }
 }

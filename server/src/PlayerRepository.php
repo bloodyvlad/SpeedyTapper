@@ -16,7 +16,8 @@ final class PlayerRepository
     public function find(string $playerId): ?array
     {
         $statement = $this->database->prepare(
-            'SELECT id, nickname, nickname_confirmed, created_at, updated_at FROM players WHERE id = :id LIMIT 1'
+            'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at '
+            . 'FROM players WHERE id = :id LIMIT 1'
         );
         $statement->execute(['id' => $playerId]);
         $row = $statement->fetch();
@@ -27,7 +28,8 @@ final class PlayerRepository
     {
         $subjectHash = hash('sha256', "google\0" . $identity->subject, true);
         $statement = $this->database->prepare(
-            'SELECT id, nickname, nickname_confirmed, created_at, updated_at FROM players WHERE google_subject_hash = :subject_hash LIMIT 1'
+            'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at '
+            . 'FROM players WHERE google_subject_hash = :subject_hash LIMIT 1'
         );
         $statement->bindValue('subject_hash', $subjectHash, PDO::PARAM_LOB);
         $statement->execute();
@@ -84,6 +86,8 @@ final class PlayerRepository
             'id' => (string) $row['id'],
             'nickname' => (string) $row['nickname'],
             'nicknameConfirmed' => (bool) $row['nickname_confirmed'],
+            'coins' => (int) $row['coins'],
+            'totalPlayMs' => (int) $row['total_play_ms'],
             'createdAt' => self::isoDate((string) $row['created_at']),
             'updatedAt' => self::isoDate((string) $row['updated_at']),
         ];

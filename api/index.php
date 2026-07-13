@@ -12,6 +12,7 @@ use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\PlayerRepository;
+use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\SessionStore;
 
 $projectRoot = dirname(__DIR__);
@@ -36,6 +37,7 @@ try {
         config: $config,
         players: new PlayerRepository($database),
         leaderboard: $leaderboard,
+        runs: new RunSubmissionService($database, $leaderboard),
         session: new SessionStore($request->isSecure()),
         google: new GoogleClientIdentityVerifier($config->googleClientId),
     );

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\CoinProgression;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\Nickname;
 use SpeedyTapper\ScoreSubmission;
@@ -42,8 +43,14 @@ $assert((bool) preg_match('/^Player [0-9]{4}$/', Nickname::anonymous()), 'New pr
 $assert((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', Uuid::v4()), 'UUIDs are RFC 4122 version 4.');
 
 $valid = ScoreSubmission::fromArray([
+    'runId' => '4f27f9de-37de-4c31-8090-279a037bf76a',
     'mode' => 'normal',
     'score' => 4_550,
+    'reactionBasePoints' => 4_000,
+    'multiplierBonusPoints' => 0,
+    'maxMultiplier' => 1,
+    'multiplierHitCounts' => ['one' => 4, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'multiplierBasePoints' => ['one' => 4_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
     'hits' => 4,
     'dodges' => 1,
     'survivalMs' => 91_000,
@@ -52,12 +59,20 @@ $valid = ScoreSubmission::fromArray([
     'speedRatings' => ['godlike' => 1, 'perfect' => 1, 'great' => 1, 'good' => 1],
 ]);
 $assert($valid->godlikeCount === 1 && $valid->hits === 4, 'Validated speed-rating counts are retained.');
+$assert($valid->runId === '4f27f9de-37de-4c31-8090-279a037bf76a', 'Validated run UUIDs are retained.');
+$assert(strlen($valid->payloadHash()) === 32, 'Validated runs produce a fixed binary idempotency hash.');
 $assert($valid->isBetterThan(['score' => 4_500, 'duration_ms' => 100_000, 'correct_taps' => 8]), 'Score is the first ranking criterion.');
 $assert($valid->isBetterThan(['score' => 4_550, 'duration_ms' => 90_000, 'correct_taps' => 5]), 'Normal duration breaks score ties.');
 $throwsApi(
     static fn () => ScoreSubmission::fromArray([
+        'runId' => '3e9292a6-5af7-4bed-a948-54a97f53f8ac',
         'mode' => 'zen',
         'score' => 1_000,
+        'reactionBasePoints' => 1_000,
+        'multiplierBonusPoints' => 0,
+        'maxMultiplier' => 1,
+        'multiplierHitCounts' => ['one' => 1, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 1_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
         'hits' => 1,
         'dodges' => 0,
         'survivalMs' => 60_000,
@@ -69,8 +84,14 @@ $throwsApi(
 );
 $throwsApi(
     static fn () => ScoreSubmission::fromArray([
+        'runId' => '1ae1e67d-ec40-48e5-863e-f79239cfcb86',
         'mode' => 'normal',
         'score' => 1_000,
+        'reactionBasePoints' => 1_000,
+        'multiplierBonusPoints' => 0,
+        'maxMultiplier' => 1,
+        'multiplierHitCounts' => ['one' => 2, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 1_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
         'hits' => 2,
         'dodges' => 0,
         'survivalMs' => 1_000,
@@ -80,6 +101,170 @@ $throwsApi(
     ]),
     'Rating counts must cover every hit.',
 );
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
+        'runId' => 'not-a-uuid',
+        'mode' => 'normal',
+        'score' => 1_000,
+        'reactionBasePoints' => 1_000,
+        'multiplierBonusPoints' => 0,
+        'maxMultiplier' => 1,
+        'multiplierHitCounts' => ['one' => 1, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 1_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'hits' => 1,
+        'dodges' => 0,
+        'survivalMs' => 1_000,
+        'fastestReactionMs' => 100,
+        'averageReactionMs' => 100,
+        'speedRatings' => ['godlike' => 1, 'perfect' => 0, 'great' => 0, 'good' => 0],
+    ]),
+    'Run submissions require a version-four UUID.',
+);
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
+        'runId' => '17bfc901-b1b4-461d-9ed8-e2e63d5e18be',
+        'mode' => 'normal',
+        'score' => 2_000,
+        'reactionBasePoints' => 1_000,
+        'multiplierBonusPoints' => 500,
+        'maxMultiplier' => 1,
+        'multiplierHitCounts' => ['one' => 1, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 1_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'hits' => 1,
+        'dodges' => 0,
+        'survivalMs' => 1_000,
+        'fastestReactionMs' => 100,
+        'averageReactionMs' => 100,
+        'speedRatings' => ['godlike' => 1, 'perfect' => 0, 'great' => 0, 'good' => 0],
+    ]),
+    'Multiplier bonus points cannot exceed the submitted multiplier.',
+);
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
+        'runId' => '7fef50a2-8a53-4fd8-92ca-8dcc1227b075',
+        'mode' => 'normal',
+        'score' => 6_000,
+        'reactionBasePoints' => 6_000,
+        'multiplierBonusPoints' => 0,
+        'maxMultiplier' => 2,
+        'multiplierHitCounts' => ['one' => 5, 'two' => 1, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 5_000, 'two' => 1_000, 'three' => 0, 'four' => 0, 'five' => 0],
+        'hits' => 6,
+        'dodges' => 0,
+        'survivalMs' => 1_000,
+        'fastestReactionMs' => 100,
+        'averageReactionMs' => 100,
+        'speedRatings' => ['godlike' => 1, 'perfect' => 0, 'great' => 0, 'good' => 5],
+    ]),
+    'Maximum multiplier cannot exceed the milestone allowed by elite taps.',
+);
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray([
+        'runId' => '557aa694-d5db-44e6-9d38-b4ce0cdd0461',
+        'mode' => 'normal',
+        'score' => 7_000,
+        'reactionBasePoints' => 6_000,
+        'multiplierBonusPoints' => 1_000,
+        'maxMultiplier' => 2,
+        'multiplierHitCounts' => ['one' => 5, 'two' => 1, 'three' => 0, 'four' => 0, 'five' => 0],
+        'multiplierBasePoints' => ['one' => 5_000, 'two' => 1_000, 'three' => 0, 'four' => 0, 'five' => 0],
+        'hits' => 6,
+        'dodges' => 0,
+        'survivalMs' => 10_000,
+        'fastestReactionMs' => 100,
+        'averageReactionMs' => 400,
+        'speedRatings' => ['godlike' => 5, 'perfect' => 0, 'great' => 0, 'good' => 1],
+    ]),
+    'Good reactions cannot occupy a multiplied hit after the five elite unlock taps.',
+);
+
+$maxMultiplierRun = ScoreSubmission::fromArray([
+    'runId' => 'cc2dc024-3300-4cb8-9d3c-e7f68eb8963c',
+    'mode' => 'normal',
+    'score' => 55_000,
+    'reactionBasePoints' => 21_000,
+    'multiplierBonusPoints' => 34_000,
+    'maxMultiplier' => 5,
+    'multiplierHitCounts' => ['one' => 5, 'two' => 5, 'three' => 5, 'four' => 5, 'five' => 1],
+    'multiplierBasePoints' => ['one' => 5_000, 'two' => 5_000, 'three' => 5_000, 'four' => 5_000, 'five' => 1_000],
+    'hits' => 21,
+    'dodges' => 0,
+    'survivalMs' => 120_000,
+    'fastestReactionMs' => 100,
+    'averageReactionMs' => 100,
+    'speedRatings' => ['godlike' => 21, 'perfect' => 0, 'great' => 0, 'good' => 0],
+]);
+$assert($maxMultiplierRun->maxMultiplier === 5, 'Validated scoring supports the five-times multiplier cap.');
+
+$milestoneRuns = [
+    5 => [
+        'runId' => '5e4f46d1-a132-4b97-b9a1-481090dca940',
+        'maxMultiplier' => 1,
+        'score' => 5_000,
+        'bonus' => 0,
+        'counts' => ['one' => 5, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+        'bases' => ['one' => 5_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    ],
+    10 => [
+        'runId' => 'f9be7c57-cfbc-494c-8c22-df75889b2bd8',
+        'maxMultiplier' => 2,
+        'score' => 15_000,
+        'bonus' => 5_000,
+        'counts' => ['one' => 5, 'two' => 5, 'three' => 0, 'four' => 0, 'five' => 0],
+        'bases' => ['one' => 5_000, 'two' => 5_000, 'three' => 0, 'four' => 0, 'five' => 0],
+    ],
+    15 => [
+        'runId' => 'f425c7e3-fc47-401a-9bcc-c89b951fe17b',
+        'maxMultiplier' => 3,
+        'score' => 30_000,
+        'bonus' => 15_000,
+        'counts' => ['one' => 5, 'two' => 5, 'three' => 5, 'four' => 0, 'five' => 0],
+        'bases' => ['one' => 5_000, 'two' => 5_000, 'three' => 5_000, 'four' => 0, 'five' => 0],
+    ],
+    20 => [
+        'runId' => 'a4249615-4e43-4de1-b704-87d61647d7d7',
+        'maxMultiplier' => 4,
+        'score' => 50_000,
+        'bonus' => 30_000,
+        'counts' => ['one' => 5, 'two' => 5, 'three' => 5, 'four' => 5, 'five' => 0],
+        'bases' => ['one' => 5_000, 'two' => 5_000, 'three' => 5_000, 'four' => 5_000, 'five' => 0],
+    ],
+];
+foreach ($milestoneRuns as $hitCount => $milestone) {
+    $run = ScoreSubmission::fromArray([
+        'runId' => $milestone['runId'],
+        'mode' => 'normal',
+        'score' => $milestone['score'],
+        'reactionBasePoints' => $hitCount * 1_000,
+        'multiplierBonusPoints' => $milestone['bonus'],
+        'maxMultiplier' => $milestone['maxMultiplier'],
+        'multiplierHitCounts' => $milestone['counts'],
+        'multiplierBasePoints' => $milestone['bases'],
+        'hits' => $hitCount,
+        'dodges' => 0,
+        'survivalMs' => 120_000,
+        'fastestReactionMs' => 100,
+        'averageReactionMs' => 100,
+        'speedRatings' => ['godlike' => $hitCount, 'perfect' => 0, 'great' => 0, 'good' => 0],
+    ]);
+    $assert(
+        $run->maxMultiplier === $milestone['maxMultiplier'],
+        'A run ending on elite hit ' . $hitCount . ' reports the highest multiplier used, not the next unlocked tier.',
+    );
+}
+
+$firstHalfMinute = CoinProgression::accrue(0, 30_000);
+$secondHalfMinute = CoinProgression::accrue($firstHalfMinute->remainderMs, 30_000);
+$assert($firstHalfMinute->coinsEarned === 0, 'An incomplete cumulative minute does not award a coin yet.');
+$assert(
+    $secondHalfMinute->coinsEarned === 1 && $secondHalfMinute->remainderMs === 0,
+    'Partial run time carries into the next accepted run.',
+);
+$almostOneMinute = CoinProgression::accrue(0, 59_999);
+$oneMinute = CoinProgression::accrue($almostOneMinute->remainderMs, 1);
+$assert($oneMinute->coinsEarned === 1 && $oneMinute->remainderMs === 0, 'Coin accrual has an exact minute boundary.');
+$zenCoins = CoinProgression::accrue(0, ScoreSubmission::ZEN_DURATION_MS);
+$assert($zenCoins->coinsEarned === 3 && $zenCoins->remainderMs === 0, 'A complete Zen run awards three coins.');
 
 $rows = [];
 for ($rank = 1; $rank <= 12; $rank++) {
@@ -115,8 +300,9 @@ $throwsApi(
 );
 
 $schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_and_leaderboard.sql')
-    . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql');
-foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique'] as $needle) {
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql')
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/003_completed_runs_and_coins.sql');
+foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'multiplier_5_hits', 'multiplier_5_base_points'] as $needle) {
     $assert(is_string($schema) && str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 
@@ -127,6 +313,27 @@ foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/a
 $assert(
     is_string($app) && str_contains($app, "profile['nicknameConfirmed']"),
     'Score submission requires a user-confirmed public nickname.',
+);
+$assert(
+    is_string($app) && str_contains($app, '$this->runs->submit'),
+    'Accepted scores pass through idempotent run accounting.',
+);
+
+$runService = file_get_contents(dirname(__DIR__) . '/server/src/RunSubmissionService.php');
+$assert(
+    is_string($runService)
+    && str_contains($runService, 'FOR UPDATE')
+    && str_contains($runService, 'hash_equals')
+    && str_contains($runService, 'CoinProgression::accrue')
+    && str_contains($runService, 'updateBestInTransaction'),
+    'Run accounting serializes player updates, detects mismatched retries, and updates progression with ranking.',
+);
+$playerRepository = file_get_contents(dirname(__DIR__) . '/server/src/PlayerRepository.php');
+$assert(
+    is_string($playerRepository)
+    && str_contains($playerRepository, "'coins' =>")
+    && str_contains($playerRepository, "'totalPlayMs' =>"),
+    'Profile responses expose the persistent coin balance and accepted play time.',
 );
 
 $migrationStatements = MigrationRunner::splitStatements(

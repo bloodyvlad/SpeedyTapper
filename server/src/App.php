@@ -10,6 +10,7 @@ final class App
         private readonly Config $config,
         private readonly PlayerRepository $players,
         private readonly LeaderboardRepository $leaderboard,
+        private readonly RunSubmissionService $runs,
         private readonly SessionStore $session,
         private readonly GoogleIdentityVerifier $google,
     ) {
@@ -85,7 +86,8 @@ final class App
             }
             $this->session->enforceScoreRateLimit();
             $score = ScoreSubmission::fromArray($request->json());
-            JsonResponse::send(201, $this->leaderboard->submit($profile['id'], $score));
+            $result = $this->runs->submit($profile['id'], $score);
+            JsonResponse::send($result['duplicate'] ? 200 : 201, $result);
         }
 
         throw new ApiException(404, 'API route not found.');

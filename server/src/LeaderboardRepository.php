@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SpeedyTapper;
 
+use LogicException;
 use PDO;
 use PDOException;
 use Throwable;
@@ -68,66 +69,35 @@ final class LeaderboardRepository
 
     public function submit(string $playerId, ScoreSubmission $score): array
     {
-        $improved = $this->writeBest($playerId, $score, true);
+        $improved = $this->writeBestTransaction($playerId, $score, true);
         $payload = $this->payload($score->mode, $playerId);
         $payload['rank'] = $payload['playerRank'];
         $payload['improved'] = $improved;
         return $payload;
     }
 
-    private function writeBest(string $playerId, ScoreSubmission $score, bool $mayRetry): bool
+    public function updateBestInTransaction(string $playerId, ScoreSubmission $score): bool
+    {
+        if (!$this->database->inTransaction()) {
+            throw new LogicException('A leaderboard update requires an active transaction.');
+        }
+
+        return $this->writeBestRow($playerId, $score);
+    }
+
+    private function writeBestTransaction(string $playerId, ScoreSubmission $score, bool $mayRetry): bool
     {
         $this->database->beginTransaction();
         try {
-            $select = $this->database->prepare(
-                'SELECT id, score, duration_ms, correct_taps FROM leaderboard_entries '
-                . 'WHERE season_id = :season_id AND player_id = :player_id AND mode = :mode FOR UPDATE'
-            );
-            $select->execute([
-                'season_id' => $this->seasonId,
-                'player_id' => $playerId,
-                'mode' => $score->mode,
-            ]);
-            $current = $select->fetch();
-
-            if (is_array($current) && !$score->isBetterThan($current)) {
-                $this->database->commit();
-                return false;
-            }
-
-            $parameters = $this->scoreParameters($playerId, $score);
-            if (is_array($current)) {
-                $parameters['id'] = $current['id'];
-                $statement = $this->database->prepare(
-                    'UPDATE leaderboard_entries SET score = :score, duration_ms = :duration_ms, '
-                    . 'fastest_reaction_ms = :fastest_reaction_ms, average_reaction_ms = :average_reaction_ms, '
-                    . 'correct_taps = :correct_taps, dodge_count = :dodge_count, '
-                    . 'godlike_count = :godlike_count, perfect_count = :perfect_count, '
-                    . 'great_count = :great_count, good_count = :good_count, '
-                    . 'achieved_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3) WHERE id = :id'
-                );
-                unset($parameters['season_id'], $parameters['player_id'], $parameters['mode']);
-            } else {
-                $parameters['id'] = Uuid::v4();
-                $statement = $this->database->prepare(
-                    'INSERT INTO leaderboard_entries '
-                    . '(id, season_id, player_id, mode, score, duration_ms, fastest_reaction_ms, '
-                    . 'average_reaction_ms, correct_taps, dodge_count, godlike_count, perfect_count, '
-                    . 'great_count, good_count, achieved_at) VALUES '
-                    . '(:id, :season_id, :player_id, :mode, :score, :duration_ms, :fastest_reaction_ms, '
-                    . ':average_reaction_ms, :correct_taps, :dodge_count, :godlike_count, :perfect_count, '
-                    . ':great_count, :good_count, UTC_TIMESTAMP(3))'
-                );
-            }
-            $statement->execute($parameters);
+            $improved = $this->updateBestInTransaction($playerId, $score);
             $this->database->commit();
-            return true;
+            return $improved;
         } catch (PDOException $error) {
             if ($this->database->inTransaction()) {
                 $this->database->rollBack();
             }
             if ($mayRetry && $error->getCode() === '23000') {
-                return $this->writeBest($playerId, $score, false);
+                return $this->writeBestTransaction($playerId, $score, false);
             }
             throw $error;
         } catch (Throwable $error) {
@@ -136,6 +106,51 @@ final class LeaderboardRepository
             }
             throw $error;
         }
+    }
+
+    private function writeBestRow(string $playerId, ScoreSubmission $score): bool
+    {
+        $select = $this->database->prepare(
+            'SELECT id, score, duration_ms, correct_taps FROM leaderboard_entries '
+            . 'WHERE season_id = :season_id AND player_id = :player_id AND mode = :mode FOR UPDATE'
+        );
+        $select->execute([
+            'season_id' => $this->seasonId,
+            'player_id' => $playerId,
+            'mode' => $score->mode,
+        ]);
+        $current = $select->fetch();
+
+        if (is_array($current) && !$score->isBetterThan($current)) {
+            return false;
+        }
+
+        $parameters = $this->scoreParameters($playerId, $score);
+        if (is_array($current)) {
+            $parameters['id'] = $current['id'];
+            $statement = $this->database->prepare(
+                'UPDATE leaderboard_entries SET score = :score, duration_ms = :duration_ms, '
+                . 'fastest_reaction_ms = :fastest_reaction_ms, average_reaction_ms = :average_reaction_ms, '
+                . 'correct_taps = :correct_taps, dodge_count = :dodge_count, '
+                . 'godlike_count = :godlike_count, perfect_count = :perfect_count, '
+                . 'great_count = :great_count, good_count = :good_count, '
+                . 'achieved_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3) WHERE id = :id'
+            );
+            unset($parameters['season_id'], $parameters['player_id'], $parameters['mode']);
+        } else {
+            $parameters['id'] = Uuid::v4();
+            $statement = $this->database->prepare(
+                'INSERT INTO leaderboard_entries '
+                . '(id, season_id, player_id, mode, score, duration_ms, fastest_reaction_ms, '
+                . 'average_reaction_ms, correct_taps, dodge_count, godlike_count, perfect_count, '
+                . 'great_count, good_count, achieved_at) VALUES '
+                . '(:id, :season_id, :player_id, :mode, :score, :duration_ms, :fastest_reaction_ms, '
+                . ':average_reaction_ms, :correct_taps, :dodge_count, :godlike_count, :perfect_count, '
+                . ':great_count, :good_count, UTC_TIMESTAMP(3))'
+            );
+        }
+        $statement->execute($parameters);
+        return true;
     }
 
     private function scoreParameters(string $playerId, ScoreSubmission $score): array
