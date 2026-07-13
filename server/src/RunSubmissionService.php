@@ -19,8 +19,12 @@ final class RunSubmissionService
     public function submit(string $playerId, ScoreSubmission $score): array
     {
         $record = $this->record($playerId, $score, true);
-        $payload = $this->leaderboard->payload($score->mode, $playerId);
-        $payload['rank'] = $payload['playerRank'];
+        $payload = $this->leaderboard->payload($score->mode, $playerId, $score->runId);
+        $hasExactSubmittedContext = is_string($payload['contextEntryId'])
+            && hash_equals($score->runId, $payload['contextEntryId']);
+        $payload['rank'] = $hasExactSubmittedContext ? $payload['contextRank'] : null;
+        $payload['submittedRank'] = $hasExactSubmittedContext ? $payload['contextRank'] : null;
+        $payload['submittedEntryId'] = $hasExactSubmittedContext ? $payload['contextEntryId'] : null;
         $payload['improved'] = $record['improved'];
         $payload['duplicate'] = $record['duplicate'];
         $payload['coinsEarned'] = $record['coinsEarned'];
@@ -53,7 +57,7 @@ final class RunSubmissionService
             );
             $coinBalance = (int) $player['coins'] + $progression->coinsEarned;
             $totalPlayMs = (int) $player['total_play_ms'] + $score->survivalMs;
-            $improved = $this->leaderboard->updateBestInTransaction($playerId, $score);
+            $improved = $this->leaderboard->insertResultInTransaction($playerId, $score);
 
             $updatePlayer = $this->database->prepare(
                 'UPDATE players SET coins = :coins, coin_time_remainder_ms = :coin_time_remainder_ms, '

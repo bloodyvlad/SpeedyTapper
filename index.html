@@ -29,10 +29,10 @@
           theme === "disco" ? "#050606" : "#0b0d18";
       })();
     </script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-12" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260713-13" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-12" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-13" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -216,7 +216,7 @@
           </section>
           <section class="result-save-panel" id="result-save-panel">
             <div class="section-heading">
-              <h2>Personal best</h2>
+              <h2>Leaderboard result</h2>
               <span>Google profile</span>
             </div>
             <p class="form-status" id="result-save-status" aria-live="polite"></p>
@@ -354,7 +354,7 @@
           <section class="profile-panel">
             <div class="profile-signed-out" id="profile-signed-out">
               <h2>Player profile</h2>
-              <p>Sign in with Google to keep one nickname, your personal best, and leaderboard position across devices.</p>
+              <p>Sign in with Google to save every result and keep your leaderboard history across devices.</p>
               <div class="google-signin" id="profile-google-signin"></div>
               <p class="form-status" id="profile-auth-status" aria-live="polite"></p>
             </div>
@@ -415,7 +415,7 @@
           <section class="leaderboard-panel" id="leaderboard-panel">
             <div class="section-heading">
               <h2>Leaderboard</h2>
-              <span>Best runs</span>
+              <span>All results</span>
             </div>
             <div class="leaderboard-tabs" role="group" aria-label="Leaderboard mode">
               <button class="leaderboard-tab is-active" type="button" data-leaderboard-mode="normal" aria-pressed="true">Normal</button>
@@ -433,7 +433,7 @@
 
     <script>
       (() => {
-        const buildId = "20260713-12";
+        const buildId = "20260713-13";
         window.speedyTapperWorkerReady = Promise.resolve(false);
         if (!("serviceWorker" in navigator)) return;
 
@@ -487,6 +487,6 @@
         })();
       })();
     </script>
-    <script type="module" src="./src/main.js?v=20260713-12"></script>
+    <script type="module" src="./src/main.js?v=20260713-13"></script>
   </body>
 </html>

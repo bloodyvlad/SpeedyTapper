@@ -9,6 +9,7 @@ import {
   INTERACTIVE_MUSIC_TRANSITIONS,
   MUSIC_STAGES,
   MUSIC_TRACKS,
+  resolveInteractiveNoteCue,
   resolveInteractiveMusicSection,
   resolveMusicStage
 } from "../src/music-controller.js";
@@ -53,6 +54,7 @@ class FakeSource {
     this.loop = false;
     this.loopEnd = 0;
     this.loopStart = 0;
+    this.playbackRate = new FakeAudioParam(1);
     this.startCalls = [];
     this.stopCalls = [];
   }
@@ -268,53 +270,67 @@ test("music preloads three tracks, loops their regions, and rotates atomically",
   assert.match(context.bufferSources[6].buffer.encoded.url, /neon-circuit-refined\.m4a$/);
 });
 
-test("music stages hold early 4x4 at 120 BPM and reserve overdrive for two minutes", () => {
-  const timing = { fourByFourPressure: 90_000, endurance: 120_000 };
-  const snapshot = (gridDimension, elapsedMs) => ({ difficulty: { gridDimension }, elapsedMs });
+test("legacy music stages follow programmed pace without an independent clock", () => {
+  const snapshot = (paceLevel, elapsedMs = 0) => ({ difficulty: { paceLevel }, elapsedMs });
 
-  assert.equal(resolveMusicStage(snapshot(1, 0), timing), MUSIC_STAGES.MENU);
-  assert.equal(resolveMusicStage(snapshot(2, 10_000), timing), MUSIC_STAGES.GRID_2);
-  assert.equal(resolveMusicStage(snapshot(4, 89_999), timing), MUSIC_STAGES.GRID_2);
-  assert.equal(resolveMusicStage(snapshot(4, 90_000), timing), MUSIC_STAGES.GRID_4);
-  assert.equal(resolveMusicStage(snapshot(4, 119_999), timing), MUSIC_STAGES.GRID_4);
-  assert.equal(resolveMusicStage(snapshot(4, 120_000), timing), MUSIC_STAGES.CHALLENGE);
+  assert.equal(resolveMusicStage(snapshot(0)), MUSIC_STAGES.MENU);
+  assert.equal(resolveMusicStage(snapshot(1)), MUSIC_STAGES.GRID_2);
+  assert.equal(resolveMusicStage(snapshot(7, 10_000_000)), MUSIC_STAGES.GRID_2);
+  assert.equal(resolveMusicStage(snapshot(8, 0)), MUSIC_STAGES.GRID_4);
+  assert.equal(resolveMusicStage(snapshot(9, 10_000_000)), MUSIC_STAGES.GRID_4);
+  assert.equal(resolveMusicStage(snapshot(10, 0)), MUSIC_STAGES.CHALLENGE);
+  assert.equal(resolveMusicStage(snapshot(11, 10_000_000)), MUSIC_STAGES.CHALLENGE);
 });
 
-test("Interactive Music follows grid state and the engine timing opportunity", () => {
-  const snapshot = (gridDimension, elapsedMs, overrides = {}) => ({
+test("Interactive Music follows the engine pace level, not reactions or elapsed time", () => {
+  const snapshot = (paceLevel, elapsedMs, overrides = {}) => ({
     elapsedMs,
+    averageReactionMs: overrides.averageReactionMs ?? 900,
     difficulty: {
-      gridDimension,
-      phaseId: gridDimension === 4 ? "four-by-four-challenge" : "warmup",
-      responseWindowMs: 1_000,
-      spawnDelayRangeMs: [425, 825],
+      paceLevel,
+      responseWindowMs: overrides.responseWindowMs ?? 1_000,
+      spawnDelayRangeMs: overrides.spawnDelayRangeMs ?? [425, 825],
       ...overrides
     }
   });
 
-  assert.equal(resolveInteractiveMusicSection(snapshot(1, 0)), 0);
-  assert.equal(resolveInteractiveMusicSection(snapshot(2, 10_000)), 1);
-  assert.equal(resolveInteractiveMusicSection(snapshot(2, 20_000)), 2);
-  assert.equal(resolveInteractiveMusicSection(snapshot(2, 30_000)), 3);
-  assert.equal(
-    resolveInteractiveMusicSection(snapshot(4, 40_000, { phaseId: "four-by-four-reset" })),
-    4
-  );
-  assert.equal(resolveInteractiveMusicSection(snapshot(4, 50_000)), 5);
-  assert.equal(
-    resolveInteractiveMusicSection(snapshot(4, 90_000, {
-      responseWindowMs: 360,
-      spawnDelayRangeMs: [335, 675]
-    })),
-    8
-  );
-  assert.equal(
-    resolveInteractiveMusicSection(snapshot(4, 120_000, {
-      responseWindowMs: 200,
-      spawnDelayRangeMs: [305, 625]
-    })),
-    11
-  );
+  for (let paceLevel = 0; paceLevel <= 11; paceLevel += 1) {
+    assert.equal(resolveInteractiveMusicSection(snapshot(paceLevel, paceLevel * 1_000)), paceLevel);
+  }
+  assert.equal(resolveInteractiveMusicSection(snapshot(8, 1, {
+    averageReactionMs: 100,
+    responseWindowMs: 200,
+    spawnDelayRangeMs: [250, 500]
+  })), 8);
+  assert.equal(resolveInteractiveMusicSection(snapshot(8, 9_000_000, {
+    averageReactionMs: 999,
+    responseWindowMs: 1_000,
+    spawnDelayRangeMs: [2_000, 4_000]
+  })), 8);
+});
+
+test("tap-note pitch rises diatonically with soundtrack richness", () => {
+  const track = INTERACTIVE_MUSIC_TRACKS[0];
+  assert.deepEqual(resolveInteractiveNoteCue(track, 0, 0), {
+    noteIndex: 0,
+    playbackRate: 1
+  });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 5, 0), {
+    noteIndex: 5,
+    playbackRate: 1
+  });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 0, 2), {
+    noteIndex: 1,
+    playbackRate: 1
+  });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 5, 2), {
+    noteIndex: 1,
+    playbackRate: 2
+  });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 5, 11), {
+    noteIndex: 3,
+    playbackRate: 2
+  });
 });
 
 test("Interactive Music is opt-in and loads only one backing and note bank", async () => {
@@ -400,6 +416,45 @@ test("Interactive backing changes once on the next beat through an authored brid
     targetStart,
     INTERACTIVE_MUSIC_SECTIONS[1].offsetFrames / 48_000
   ]);
+});
+
+test("tap-note pitch follows the soundtrack section audible across a bridge", async () => {
+  FakeAudioContext.instances = [];
+  const fetchRecorder = createFetchRecorder();
+  const scheduler = new ManualScheduler();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl,
+    setTimeoutImpl: scheduler.setTimeout.bind(scheduler),
+    clearTimeoutImpl: scheduler.clearTimeout.bind(scheduler)
+  });
+
+  music.setInteractive(true);
+  music.setEnabled(true);
+  await flushAsyncWork();
+  await music.unlock();
+  const context = FakeAudioContext.instances[0];
+
+  music.setInteractiveSection(1);
+  const firstTargetStart = context.bufferSources[2].startCalls[0][0];
+  context.currentTime = firstTargetStart + 0.001;
+  scheduler.runAll();
+
+  music.setInteractiveSection(2);
+  const secondTarget = context.bufferSources[4];
+  const secondTargetStart = secondTarget.startCalls[0][0];
+
+  context.currentTime = secondTargetStart - 0.001;
+  assert.equal(music.playCorrectTap(1), true);
+  const beforeBridgeEnd = context.bufferSources[5];
+  assert.deepEqual(beforeBridgeEnd.startCalls[0], [context.currentTime, 0, 0.5]);
+
+  context.currentTime = secondTargetStart + 0.001;
+  assert.equal(music.playCorrectTap(1), true);
+  const afterBridgeEnd = context.bufferSources[6];
+  assert.deepEqual(afterBridgeEnd.startCalls[0], [context.currentTime, 0.5, 0.5]);
+  assert.equal(beforeBridgeEnd.playbackRate.value, 1);
+  assert.equal(afterBridgeEnd.playbackRate.value, 1);
 });
 
 test("Interactive tap notes skip while unready and cap overlapping voices", async () => {
@@ -810,16 +865,18 @@ test("Interactive Music manifest matches runtime cue metadata and PCM note bound
   );
   assert.equal(manifest.sampleRate, 48_000);
   assert.deepEqual(
-    INTERACTIVE_MUSIC_SECTIONS.map(({ id, bpm, beatFrames, offsetFrames, durationFrames }) => ({
+    INTERACTIVE_MUSIC_SECTIONS.map(({ id, bpm, richness, beatFrames, offsetFrames, durationFrames }) => ({
       id,
       bpm,
+      richness,
       beatFrames,
       offsetFrames,
       durationFrames
     })),
-    manifest.sections.map(({ id, bpm, beatFrames, offsetFrames, durationFrames }) => ({
+    manifest.sections.map(({ id, bpm, richness, beatFrames, offsetFrames, durationFrames }) => ({
       id,
       bpm,
+      richness,
       beatFrames,
       offsetFrames,
       durationFrames
@@ -837,6 +894,7 @@ test("Interactive Music manifest matches runtime cue metadata and PCM note bound
 
   for (const track of INTERACTIVE_MUSIC_TRACKS) {
     assert.deepEqual(track.motif, manifest.tracks[track.id].motif);
+    assert.equal(track.noteScaleDegreeCount, manifest.tracks[track.id].noteScaleDegreeCount);
     const wav = await readFile(new URL(`../${track.notesFile.slice(2)}`, import.meta.url));
     assert.equal(wav.readUInt16LE(22), 1, `${track.id} note bank must be mono.`);
     assert.equal(wav.readUInt32LE(24), 48_000, `${track.id} note bank must be 48 kHz.`);

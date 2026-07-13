@@ -61,6 +61,12 @@ def load_production_renderer():
 PRODUCTION = load_production_renderer()
 
 
+def note_scale_degree_count(track):
+    if len(track.mode) < 2 or track.mode[-1] != 12:
+        raise RuntimeError(f"{track.filename} mode must end with its repeated octave")
+    return len(track.mode) - 1
+
+
 def beat_frames(bpm):
     return int(round(RATE * 60 / bpm))
 
@@ -465,6 +471,7 @@ def render_track(track, shared_manifest):
         "backing": runtime_path.name,
         "master": master_path.name,
         "notes": note_path.name,
+        "noteScaleDegreeCount": note_scale_degree_count(track),
         "motif": list(MOTIFS[track.filename]),
         "coreAudioValidFrames": core_audio_frames,
     }
@@ -472,6 +479,15 @@ def render_track(track, shared_manifest):
 
 def verify_retained(shared_manifest):
     for track in PRODUCTION.TRACKS:
+        expected_scale_degree_count = note_scale_degree_count(track)
+        retained_scale_degree_count = shared_manifest["tracks"][track.filename].get(
+            "noteScaleDegreeCount"
+        )
+        if retained_scale_degree_count != expected_scale_degree_count:
+            raise RuntimeError(
+                f"Note scale drift for {track.filename}: "
+                f"{retained_scale_degree_count} vs {expected_scale_degree_count}"
+            )
         track_manifest = {
             "sections": shared_manifest["sections"],
             "transitions": shared_manifest["transitions"],

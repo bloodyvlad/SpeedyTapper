@@ -239,6 +239,7 @@
       "backing": "interactive-neon-circuit-refined.m4a",
       "master": "neon-circuit-refined.wav",
       "notes": "interactive-notes-neon-circuit-refined.wav",
+      "noteScaleDegreeCount": 5,
       "motif": [
         0,
         3,
@@ -263,6 +264,7 @@
       "backing": "interactive-deep-current.m4a",
       "master": "deep-current.wav",
       "notes": "interactive-notes-deep-current.wav",
+      "noteScaleDegreeCount": 5,
       "motif": [
         0,
         3,
@@ -287,6 +289,7 @@
       "backing": "interactive-power-grid.m4a",
       "master": "power-grid.wav",
       "notes": "interactive-notes-power-grid.wav",
+      "noteScaleDegreeCount": 5,
       "motif": [
         0,
         3,

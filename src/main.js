@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-12";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-12";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-13";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-13";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-12";
+} from "./input-timing.js?v=20260713-13";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-12";
-import { createSoundController } from "./sound-controller.js?v=20260713-12";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-12";
+} from "./music-controller.js?v=20260713-13";
+import { createSoundController } from "./sound-controller.js?v=20260713-13";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-13";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -441,7 +441,7 @@ function applyInteractiveMusic(enabled) {
 }
 
 function musicStageFor(snapshot) {
-  return resolveMusicStage(snapshot, engine.config.musicStageStartsAtMs);
+  return resolveMusicStage(snapshot);
 }
 
 function updateMusicForSnapshot(snapshot) {
@@ -803,8 +803,8 @@ function handleTileTap(event) {
   stopResponseProgress();
 
   if (result.type === "hit") {
-    music.playCorrectTap(result.snapshot.hits);
     updateMusicForSnapshot(result.snapshot);
+    music.playCorrectTap(result.snapshot.hits);
     showSpeedRating(result.speedRating);
     const dodgeCopy = result.dodgesAwarded > 0
       ? ` · ${result.dodgesAwarded} ${result.dodgesAwarded === 1 ? "dodge" : "dodges"}`
@@ -1061,7 +1061,7 @@ function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Profile";
   elements.dialogMessage.textContent = profileSession.authenticated
-    ? "Manage your public nickname, personal best, and leaderboard position."
+    ? "Manage your public nickname and review your best leaderboard position."
     : "Use Google to keep one SpeedyTapper identity across devices.";
   elements.dialog.scrollTop = 0;
   renderProfile();
@@ -1097,7 +1097,7 @@ function openLeaderboard(returnView = "menu") {
   elements.leaderboardView.hidden = false;
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Leaderboard";
-  elements.dialogMessage.textContent = "Compare the best Normal and Zen runs.";
+  elements.dialogMessage.textContent = "Compare every ranked Normal and Zen result.";
   elements.dialog.scrollTop = 0;
   void music.unlock();
   elements.leaderboardBackButton.focus({ preventScroll: true });
@@ -1141,7 +1141,7 @@ function returnFromLeaderboard() {
 function renderLeaderboard(
   entries,
   mode,
-  playerRank = null,
+  contextRank = null,
   listElement = elements.leaderboardList
 ) {
   listElement.replaceChildren();
@@ -1168,9 +1168,9 @@ function renderLeaderboard(
 
     const row = document.createElement("li");
     row.className = "leaderboard-entry";
-    const isPlayerResult =
-      entry.isCurrent === true || entry.isCurrentPlayer === true || entryRank === playerRank;
-    row.classList.toggle("is-current", isPlayerResult);
+    const isCurrentPlayer = entry.isCurrentPlayer === true || entry.isCurrent === true;
+    const isContextResult = entry.isContextResult === true || entryRank === contextRank;
+    row.classList.toggle("is-current", isContextResult);
 
     const rank = document.createElement("span");
     rank.className = "leaderboard-entry__rank";
@@ -1184,7 +1184,7 @@ function renderLeaderboard(
     name.className = "leaderboard-entry__name";
     name.textContent = entry.nickname ?? entry.name ?? "Player";
     nameLine.append(name);
-    if (isPlayerResult) {
+    if (isCurrentPlayer) {
       const currentBadge = document.createElement("span");
       currentBadge.className = "leaderboard-entry__current";
       currentBadge.textContent = "You";
@@ -1217,7 +1217,12 @@ function renderLeaderboard(
   listElement.append(fragment);
 }
 
-function renderLeaderboardPlayerPosition(totalEntries, playerRank = null, topPercent = null) {
+function renderLeaderboardPlayerPosition(
+  totalEntries,
+  playerRank = null,
+  topPercent = null,
+  label = "Your best position"
+) {
   if (!profileSession.authenticated) {
     elements.leaderboardPlayerPosition.hidden = true;
     elements.leaderboardPlayerPosition.textContent = "";
@@ -1228,7 +1233,7 @@ function renderLeaderboardPlayerPosition(totalEntries, playerRank = null, topPer
   const safeRank = Number.isInteger(playerRank) && playerRank > 0 ? playerRank : null;
   if (safeTotal === 0 || safeRank === null) {
     elements.leaderboardPlayerPosition.hidden = false;
-    elements.leaderboardPlayerPosition.textContent = "Your position: Unranked";
+    elements.leaderboardPlayerPosition.textContent = `${label}: Unranked`;
     return;
   }
 
@@ -1238,24 +1243,29 @@ function renderLeaderboardPlayerPosition(totalEntries, playerRank = null, topPer
     : Math.max(1, Math.min(100, calculatedPercent));
   elements.leaderboardPlayerPosition.hidden = false;
   elements.leaderboardPlayerPosition.textContent =
-    `Your position: #${safeRank.toLocaleString()} · Top ${safePercent}%`;
+    `${label}: #${safeRank.toLocaleString()} · Top ${safePercent}% of results`;
 }
 
-function setLeaderboardSummary(totalEntries, playerRank = null, topPercent = null) {
+function setLeaderboardSummary(
+  totalEntries,
+  playerRank = null,
+  topPercent = null,
+  positionLabel = "Your best position"
+) {
   const safeTotal = Number.isInteger(totalEntries) ? totalEntries : 0;
-  renderLeaderboardPlayerPosition(safeTotal, playerRank, topPercent);
+  renderLeaderboardPlayerPosition(safeTotal, playerRank, topPercent, positionLabel);
   if (safeTotal === 0) {
     setLeaderboardStatus("No ranked results yet.");
     return;
   }
   if (playerRank !== null) {
     setLeaderboardStatus(
-      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "player" : "players"} · Showing the top ${Math.min(5, safeTotal)} and your nearby positions.`
+      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "result" : "results"} · Showing the top ${Math.min(5, safeTotal)} and nearby positions.`
     );
     return;
   }
   setLeaderboardStatus(
-    `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "player" : "players"} · Showing the top ${Math.min(5, safeTotal)}.`
+    `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "result" : "results"} · Showing the top ${Math.min(5, safeTotal)}.`
   );
 }
 
@@ -1269,11 +1279,16 @@ function renderSubmittedLeaderboard(mode) {
 
   leaderboardRequestId += 1;
   selectLeaderboardMode(mode);
-  renderLeaderboard(pendingResult.leaderboardEntries, mode, pendingResult.rank);
+  renderLeaderboard(
+    pendingResult.leaderboardEntries,
+    mode,
+    pendingResult.leaderboardContextRank
+  );
   setLeaderboardSummary(
     pendingResult.leaderboardTotalEntries,
-    pendingResult.rank,
-    pendingResult.topPercent
+    pendingResult.leaderboardContextRank,
+    pendingResult.leaderboardContextTopPercent,
+    pendingResult.hasExactLeaderboardContext ? "This result" : "Your best position"
   );
   return true;
 }
@@ -1432,7 +1447,7 @@ async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardR
     updateTopScore(mode, body.entries, topScoreRevision);
     if (requestId !== leaderboardRequestId) return;
     const playerRank = body.playerRank ?? body.rank ?? null;
-    renderLeaderboard(body.entries, mode, playerRank);
+    renderLeaderboard(body.entries, mode, body.contextRank ?? playerRank);
     setLeaderboardSummary(body.totalEntries, playerRank, body.topPercent);
     if (profileSession.authenticated) {
       profileSession = normalizeProfileSession({
@@ -1468,24 +1483,33 @@ function renderResultSaveState() {
   if (!pendingResult) return;
   if (pendingResult.submitting) {
     elements.resultGoogleSignin.hidden = true;
-    setResultSaveStatus("Saving this run to your profile…");
+    setResultSaveStatus("Saving this result to the leaderboard…");
     return;
   }
   if (pendingResult.submitted) {
     elements.resultGoogleSignin.hidden = true;
+    if (pendingResult.legacyContextUnavailable) {
+      setResultSaveStatus(
+        "Result was already processed. Its exact historical leaderboard position is unavailable."
+      );
+      return;
+    }
     if (pendingResult.improved === false) {
-      setResultSaveStatus("Your personal best is unchanged.");
+      const rankCopy = pendingResult.rank === null
+        ? ""
+        : ` This result is #${pendingResult.rank.toLocaleString()}.`;
+      setResultSaveStatus(`Result saved.${rankCopy} Your personal best is unchanged.`);
       return;
     }
     const rankCopy = pendingResult.rank === null
       ? ""
-      : ` Your leaderboard position is #${pendingResult.rank.toLocaleString()}.`;
-    setResultSaveStatus(`New personal best saved.${rankCopy}`);
+      : ` This result is #${pendingResult.rank.toLocaleString()}.`;
+    setResultSaveStatus(`Result saved as a new personal best.${rankCopy}`);
     return;
   }
   if (!profileSession.authenticated) {
     elements.resultGoogleSignin.hidden = false;
-    setResultSaveStatus("Sign in with Google to save your personal best and leaderboard position.");
+    setResultSaveStatus("Sign in with Google to save this result and your leaderboard history.");
     return;
   }
   if (!hasConfirmedProfile()) {
@@ -1494,7 +1518,7 @@ function renderResultSaveState() {
     return;
   }
   elements.resultGoogleSignin.hidden = true;
-  setResultSaveStatus("Ready to save this run.");
+  setResultSaveStatus("Ready to save this result.");
 }
 
 async function submitPendingResult() {
@@ -1530,9 +1554,20 @@ async function submitPendingResult() {
     });
     submittedResult.submitting = false;
     submittedResult.submitted = true;
+    submittedResult.duplicate = body.duplicate === true;
     submittedResult.improved = body.improved === true;
-    submittedResult.rank = body.playerRank ?? body.rank ?? null;
-    submittedResult.topPercent = body.topPercent ?? null;
+    submittedResult.hasExactLeaderboardContext = body.submittedEntryId === submittedResult.runId;
+    submittedResult.rank = submittedResult.hasExactLeaderboardContext
+      ? body.submittedRank ?? body.contextRank ?? body.rank ?? null
+      : null;
+    submittedResult.topPercent = submittedResult.hasExactLeaderboardContext
+      ? body.contextTopPercent ?? body.topPercent ?? null
+      : null;
+    submittedResult.legacyContextUnavailable =
+      submittedResult.duplicate && !submittedResult.hasExactLeaderboardContext;
+    submittedResult.leaderboardContextRank = body.contextRank ?? body.playerRank ?? null;
+    submittedResult.leaderboardContextTopPercent =
+      body.contextTopPercent ?? body.topPercent ?? null;
     submittedResult.leaderboardEntries = body.entries;
     submittedResult.leaderboardTotalEntries = body.totalEntries;
     submittedResult.coinsEarned = Number.isInteger(body.coinsEarned) ? body.coinsEarned : 0;
@@ -1708,7 +1743,7 @@ function renderProfileRank() {
   elements.profileRankCard.replaceChildren();
   const metrics = [
     ["Position", rank?.rank === null || !rank ? "Unranked" : `#${rank.rank.toLocaleString()}`],
-    ["Top", rank?.topPercent === null || !rank ? "—" : `${Math.max(0.1, rank.topPercent).toFixed(1)}%`]
+    ["Top results", rank?.topPercent === null || !rank ? "—" : `${Math.max(0.1, rank.topPercent).toFixed(1)}%`]
   ];
   for (const [labelText, valueText] of metrics) {
     const metric = document.createElement("div");

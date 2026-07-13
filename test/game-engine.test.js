@@ -71,13 +71,26 @@ test("the gentle phase moves gradually from 1000 ms to 750 ms", () => {
   assert.equal(resolveDifficulty(4, 30_000).responseWindowMs, 750);
 });
 
+test("programmed pace levels follow game phases rather than reaction timing", () => {
+  assert.equal(resolveDifficulty(0, 0).paceLevel, 0);
+  assert.equal(resolveDifficulty(4, 9_000).paceLevel, 1);
+  assert.equal(resolveDifficulty(4, 15_000).paceLevel, 1);
+  assert.equal(resolveDifficulty(4, 25_000).paceLevel, 2);
+  assert.equal(resolveDifficulty(4, 35_000).paceLevel, 3);
+  assert.equal(resolveDifficulty(20, 45_000).paceLevel, 4);
+  for (let tier = 0; tier <= 6; tier += 1) {
+    assert.equal(resolveDifficulty(20 + tier * 10, 50_000, tier * 10).paceLevel, 5 + tier);
+  }
+  assert.equal(resolveDifficulty(500, 50_000, 480).paceLevel, 11);
+});
+
 test("the switch to 16 cells resets target lifetime and eases decoy capacity", () => {
   const difficulty = resolveDifficulty(20, 40_000);
   assert.equal(difficulty.gridDimension, 4);
   assert.equal(difficulty.phaseId, "four-by-four-reset");
   assert.equal(difficulty.responseWindowMs, 1_000);
   assert.equal(difficulty.maximumActiveDecoys, 1);
-  assert.deepEqual(difficulty.decoySpawnDelayRangeMs, [1_100, 1_700]);
+  assert.deepEqual(difficulty.decoySpawnDelayRangeMs, [2_200, 3_400]);
 });
 
 test("the endless challenge accelerates targets and independent decoy opportunities", () => {
@@ -88,16 +101,16 @@ test("the endless challenge accelerates targets and independent decoy opportunit
 
   assert.equal(start.responseWindowMs, 1_000);
   assert.equal(start.maximumActiveDecoys, 2);
-  assert.deepEqual(start.decoySpawnDelayRangeMs, [450, 850]);
+  assert.deepEqual(start.decoySpawnDelayRangeMs, [600, 2_000]);
   assert.equal(tenHits.responseWindowMs, 900);
   assert.equal(tenHits.maximumActiveDecoys, 3);
-  assert.deepEqual(tenHits.decoySpawnDelayRangeMs, [415, 800]);
+  assert.deepEqual(tenHits.decoySpawnDelayRangeMs, [600, 1_830]);
   assert.equal(fortyHits.responseWindowMs, 600);
   assert.equal(fortyHits.maximumActiveDecoys, 6);
-  assert.deepEqual(fortyHits.decoySpawnDelayRangeMs, [310, 650]);
+  assert.deepEqual(fortyHits.decoySpawnDelayRangeMs, [600, 1_320]);
   assert.equal(capped.responseWindowMs, 200);
   assert.equal(capped.maximumActiveDecoys, 6);
-  assert.deepEqual(capped.decoySpawnDelayRangeMs, [300, 550]);
+  assert.deepEqual(capped.decoySpawnDelayRangeMs, [600, 1_100]);
 });
 
 test("independent decoy scheduling wakes at the phase boundary and then uses its own range", () => {
@@ -106,8 +119,19 @@ test("independent decoy scheduling wakes at the phase boundary and then uses its
 
   assert.equal(engine.getNextDecoyDelayMs(2_500), 7_500);
   engine.hits = 4;
-  assert.equal(engine.getNextDecoyDelayMs(10_000), 1_100);
-  assert.equal(engine.getNextDecoyDelayMs(35_000), 750);
+  assert.equal(engine.getNextDecoyDelayMs(10_000), 2_200);
+  assert.equal(engine.getNextDecoyDelayMs(35_000), 600);
+});
+
+test("configured decoy gaps keep the doubled mean while permitting occasional overlap", () => {
+  const rare = resolveDifficulty(4, 35_000).decoySpawnDelayRangeMs;
+  const challenge = resolveDifficulty(20, 50_000, 0).decoySpawnDelayRangeMs;
+
+  assert.deepEqual(rare, [600, 3_400]);
+  assert.equal((rare[0] + rare[1]) / 2, 2_000);
+  assert.equal((challenge[0] + challenge[1]) / 2, 1_300);
+  assert.ok(rare[0] < MAX_DECOY_LIFETIME_MS);
+  assert.ok(challenge[0] < MAX_DECOY_LIFETIME_MS);
 });
 
 test("decoys can appear while waiting or during a target and can overlap", () => {
@@ -149,7 +173,12 @@ test("a decoy is never assigned the player's current color", () => {
   assert.equal(result.snapshot.cells[result.decoy.cellIndex].kind, "decoy");
 });
 
-test("decoy lifetimes are hard-capped at 500 ms", () => {
+test("decoy lifetimes vary from 450 ms through the 750 ms hard cap", () => {
+  const minimumEngine = makeEngine(() => 0);
+  minimumEngine.start(0);
+  minimumEngine.hits = 4;
+  assert.equal(minimumEngine.activateDecoy(10_100).lifetimeMs, 450);
+
   const engine = makeEngine(() => 0.999999);
   engine.start(0);
   engine.hits = 4;
@@ -157,6 +186,33 @@ test("decoy lifetimes are hard-capped at 500 ms", () => {
   const result = engine.activateDecoy(10_100);
   assert.equal(result.lifetimeMs, MAX_DECOY_LIFETIME_MS);
   assert.equal(result.decoy.expiresAt - result.decoy.visibleAt, MAX_DECOY_LIFETIME_MS);
+});
+
+test("an expiring decoy cell is reserved from the target on the same frame", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0);
+  engine.hits = 4;
+  const decoy = engine.activateDecoy(10_100);
+  const result = engine.activateRound(decoy.decoy.expiresAt);
+
+  assert.equal(result.type, "round-active");
+  assert.equal(result.dodgesAwarded, 1);
+  assert.notEqual(result.snapshot.targetIndex, decoy.decoy.cellIndex);
+  assert.equal(result.snapshot.cells[decoy.decoy.cellIndex].kind, "idle");
+});
+
+test("a separately settled decoy cell remains reserved for the next target", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0);
+  engine.hits = 4;
+  const decoy = engine.activateDecoy(10_100);
+  const expiry = engine.expireDecoys(decoy.decoy.expiresAt);
+  const result = engine.activateRound(decoy.decoy.expiresAt);
+
+  assert.equal(expiry.type, "decoys-dodged");
+  assert.equal(result.type, "round-active");
+  assert.notEqual(result.snapshot.targetIndex, decoy.decoy.cellIndex);
+  assert.equal(result.snapshot.cells[decoy.decoy.cellIndex].kind, "idle");
 });
 
 test("self-expiring decoys award one dodge and configured average points", () => {
@@ -276,7 +332,7 @@ test("a lost life creates an engine-enforced quiet recovery for targets and deco
   assert.equal(miss.type, "miss");
   assert.equal(miss.snapshot.recoveryRemainingMs, GAME_CONFIG.lifeLossRecoveryMs);
   assert.equal(engine.getNextDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 475);
-  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 750);
+  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 600);
 
   const beforeRecoveryEnds = missedAt + GAME_CONFIG.lifeLossRecoveryMs - 1;
   assert.equal(engine.activateRound(beforeRecoveryEnds).reason, "recovering");
@@ -328,7 +384,7 @@ test("recovery delays use the difficulty in effect after the quiet period", () =
   engine.tap(0, missedAt);
 
   assert.equal(engine.getNextDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 550);
-  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 1_100);
+  assert.equal(engine.getNextDecoyDelayMs(missedAt), GAME_CONFIG.lifeLossRecoveryMs + 2_200);
 });
 
 test("Normal mode is endless until the third mistake", () => {
@@ -369,7 +425,7 @@ test("Zen completion clears an expiring decoy without a post-deadline dodge", ()
   engine.start(0, GAME_MODES.ZEN);
   engine.hits = 4;
   const decoy = engine.activateDecoy(179_700);
-  assert.equal(decoy.decoy.expiresAt, 180_000);
+  assert.equal(decoy.decoy.expiresAt, 180_150);
 
   const result = engine.finishTimedRun(180_010);
   assert.equal(result.type, "time-up");

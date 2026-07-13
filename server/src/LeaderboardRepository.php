@@ -6,7 +6,6 @@ namespace SpeedyTapper;
 
 use LogicException;
 use PDO;
-use PDOException;
 use Throwable;
 
 final class LeaderboardRepository
@@ -27,15 +26,30 @@ final class LeaderboardRepository
         $statement->execute(['id' => $this->seasonId, 'name' => $this->seasonName]);
     }
 
-    public function payload(string $mode, ?string $playerId): array
+    public function payload(string $mode, ?string $playerId, ?string $contextEntryId = null): array
     {
         self::validateMode($mode);
-        return $this->consistentRead(function () use ($mode, $playerId): array {
+        return $this->consistentRead(function () use ($mode, $playerId, $contextEntryId): array {
             $total = $this->countEntries($mode);
-            $playerRank = $playerId === null ? null : $this->rankForPlayer($mode, $playerId);
-            $rankedRows = $this->rankedRows($mode, $playerRank);
+            $playerPlacement = $playerId === null
+                ? null
+                : $this->bestPlacementForPlayer($mode, $playerId);
+            $contextPlacement = $contextEntryId === null || $playerId === null
+                ? $playerPlacement
+                : $this->placementForEntry($mode, $playerId, $contextEntryId);
+            if ($contextPlacement === null) {
+                $contextPlacement = $playerPlacement;
+            }
+            $playerRank = $playerPlacement['rank'] ?? null;
+            $contextRank = $contextPlacement['rank'] ?? null;
+            $resolvedContextEntryId = $contextPlacement['id'] ?? null;
+            $rankedRows = $this->rankedRows($mode, $contextRank);
             $entries = array_map(
-                fn (array $row): array => $this->publicEntry($row, $playerId),
+                fn (array $row): array => $this->publicEntry(
+                    $row,
+                    $playerId,
+                    $resolvedContextEntryId,
+                ),
                 $rankedRows,
             );
 
@@ -46,6 +60,9 @@ final class LeaderboardRepository
                 'totalEntries' => $total,
                 'playerRank' => $playerRank,
                 'topPercent' => LeaderboardWindow::topPercent($playerRank, $total),
+                'contextRank' => $contextRank,
+                'contextTopPercent' => LeaderboardWindow::topPercent($contextRank, $total),
+                'contextEntryId' => $resolvedContextEntryId,
             ];
         });
     }
@@ -56,7 +73,7 @@ final class LeaderboardRepository
             $rankings = [];
             foreach (['normal', 'zen'] as $mode) {
                 $total = $this->countEntries($mode);
-                $rank = $this->rankForPlayer($mode, $playerId);
+                $rank = $this->bestPlacementForPlayer($mode, $playerId)['rank'] ?? null;
                 $rankings[$mode] = [
                     'rank' => $rank,
                     'totalEntries' => $total,
@@ -67,52 +84,21 @@ final class LeaderboardRepository
         });
     }
 
-    public function submit(string $playerId, ScoreSubmission $score): array
-    {
-        $improved = $this->writeBestTransaction($playerId, $score, true);
-        $payload = $this->payload($score->mode, $playerId);
-        $payload['rank'] = $payload['playerRank'];
-        $payload['improved'] = $improved;
-        return $payload;
-    }
-
-    public function updateBestInTransaction(string $playerId, ScoreSubmission $score): bool
+    public function insertResultInTransaction(string $playerId, ScoreSubmission $score): bool
     {
         if (!$this->database->inTransaction()) {
-            throw new LogicException('A leaderboard update requires an active transaction.');
+            throw new LogicException('A leaderboard insert requires an active transaction.');
         }
 
-        return $this->writeBestRow($playerId, $score);
+        return $this->insertResultRow($playerId, $score);
     }
 
-    private function writeBestTransaction(string $playerId, ScoreSubmission $score, bool $mayRetry): bool
-    {
-        $this->database->beginTransaction();
-        try {
-            $improved = $this->updateBestInTransaction($playerId, $score);
-            $this->database->commit();
-            return $improved;
-        } catch (PDOException $error) {
-            if ($this->database->inTransaction()) {
-                $this->database->rollBack();
-            }
-            if ($mayRetry && $error->getCode() === '23000') {
-                return $this->writeBestTransaction($playerId, $score, false);
-            }
-            throw $error;
-        } catch (Throwable $error) {
-            if ($this->database->inTransaction()) {
-                $this->database->rollBack();
-            }
-            throw $error;
-        }
-    }
-
-    private function writeBestRow(string $playerId, ScoreSubmission $score): bool
+    private function insertResultRow(string $playerId, ScoreSubmission $score): bool
     {
         $select = $this->database->prepare(
-            'SELECT id, score, duration_ms, correct_taps FROM leaderboard_entries '
-            . 'WHERE season_id = :season_id AND player_id = :player_id AND mode = :mode FOR UPDATE'
+            'SELECT score, duration_ms, correct_taps FROM leaderboard_entries '
+            . 'WHERE season_id = :season_id AND player_id = :player_id AND mode = :mode '
+            . 'ORDER BY ' . self::rankingOrderSql() . ' LIMIT 1 FOR UPDATE'
         );
         $select->execute([
             'season_id' => $this->seasonId,
@@ -120,37 +106,20 @@ final class LeaderboardRepository
             'mode' => $score->mode,
         ]);
         $current = $select->fetch();
-
-        if (is_array($current) && !$score->isBetterThan($current)) {
-            return false;
-        }
-
+        $improved = !is_array($current) || $score->isBetterThan($current);
         $parameters = $this->scoreParameters($playerId, $score);
-        if (is_array($current)) {
-            $parameters['id'] = $current['id'];
-            $statement = $this->database->prepare(
-                'UPDATE leaderboard_entries SET score = :score, duration_ms = :duration_ms, '
-                . 'fastest_reaction_ms = :fastest_reaction_ms, average_reaction_ms = :average_reaction_ms, '
-                . 'correct_taps = :correct_taps, dodge_count = :dodge_count, '
-                . 'godlike_count = :godlike_count, perfect_count = :perfect_count, '
-                . 'great_count = :great_count, good_count = :good_count, '
-                . 'achieved_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3) WHERE id = :id'
-            );
-            unset($parameters['season_id'], $parameters['player_id'], $parameters['mode']);
-        } else {
-            $parameters['id'] = Uuid::v4();
-            $statement = $this->database->prepare(
-                'INSERT INTO leaderboard_entries '
-                . '(id, season_id, player_id, mode, score, duration_ms, fastest_reaction_ms, '
-                . 'average_reaction_ms, correct_taps, dodge_count, godlike_count, perfect_count, '
-                . 'great_count, good_count, achieved_at) VALUES '
-                . '(:id, :season_id, :player_id, :mode, :score, :duration_ms, :fastest_reaction_ms, '
-                . ':average_reaction_ms, :correct_taps, :dodge_count, :godlike_count, :perfect_count, '
-                . ':great_count, :good_count, UTC_TIMESTAMP(3))'
-            );
-        }
+        $parameters['id'] = $score->runId;
+        $statement = $this->database->prepare(
+            'INSERT INTO leaderboard_entries '
+            . '(id, season_id, player_id, mode, score, duration_ms, fastest_reaction_ms, '
+            . 'average_reaction_ms, correct_taps, dodge_count, godlike_count, perfect_count, '
+            . 'great_count, good_count, achieved_at) VALUES '
+            . '(:id, :season_id, :player_id, :mode, :score, :duration_ms, :fastest_reaction_ms, '
+            . ':average_reaction_ms, :correct_taps, :dodge_count, :godlike_count, :perfect_count, '
+            . ':great_count, :good_count, UTC_TIMESTAMP(3))'
+        );
         $statement->execute($parameters);
-        return true;
+        return $improved;
     }
 
     private function scoreParameters(string $playerId, ScoreSubmission $score): array
@@ -181,29 +150,51 @@ final class LeaderboardRepository
         return (int) $statement->fetchColumn();
     }
 
-    private function rankForPlayer(string $mode, string $playerId): ?int
+    private function bestPlacementForPlayer(string $mode, string $playerId): ?array
     {
         $statement = $this->database->prepare(
-            'SELECT rank_position FROM ('
-            . 'SELECT player_id, ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql() . ') AS rank_position '
+            'SELECT id, rank_position FROM ('
+            . 'SELECT id, player_id, ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql() . ') AS rank_position '
             . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
-            . ') ranked WHERE player_id = :player_id LIMIT 1'
+            . ') ranked WHERE player_id = :player_id ORDER BY rank_position ASC LIMIT 1'
         );
         $statement->execute([
             'season_id' => $this->seasonId,
             'mode' => $mode,
             'player_id' => $playerId,
         ]);
-        $rank = $statement->fetchColumn();
-        return $rank === false ? null : (int) $rank;
+        $placement = $statement->fetch();
+        return is_array($placement)
+            ? ['id' => (string) $placement['id'], 'rank' => (int) $placement['rank_position']]
+            : null;
     }
 
-    private function rankedRows(string $mode, ?int $playerRank): array
+    private function placementForEntry(string $mode, string $playerId, string $entryId): ?array
     {
-        $contextClause = $playerRank === null
+        $statement = $this->database->prepare(
+            'SELECT id, rank_position FROM ('
+            . 'SELECT id, player_id, ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql() . ') AS rank_position '
+            . 'FROM leaderboard_entries WHERE season_id = :season_id AND mode = :mode'
+            . ') ranked WHERE id = :entry_id AND player_id = :player_id LIMIT 1'
+        );
+        $statement->execute([
+            'season_id' => $this->seasonId,
+            'mode' => $mode,
+            'entry_id' => $entryId,
+            'player_id' => $playerId,
+        ]);
+        $placement = $statement->fetch();
+        return is_array($placement)
+            ? ['id' => (string) $placement['id'], 'rank' => (int) $placement['rank_position']]
+            : null;
+    }
+
+    private function rankedRows(string $mode, ?int $contextRank): array
+    {
+        $contextClause = $contextRank === null
             ? ''
-            : ' OR rank_position BETWEEN ' . max(1, $playerRank - LeaderboardWindow::CONTEXT_RADIUS)
-                . ' AND ' . ($playerRank + LeaderboardWindow::CONTEXT_RADIUS);
+            : ' OR rank_position BETWEEN ' . max(1, $contextRank - LeaderboardWindow::CONTEXT_RADIUS)
+                . ' AND ' . ($contextRank + LeaderboardWindow::CONTEXT_RADIUS);
         $statement = $this->database->prepare(
             'WITH ranked AS (SELECT e.id, e.player_id, p.nickname, e.mode, e.score, e.duration_ms, '
             . 'e.fastest_reaction_ms, e.average_reaction_ms, e.correct_taps, e.dodge_count, '
@@ -245,7 +236,7 @@ final class LeaderboardRepository
         }
     }
 
-    private function publicEntry(array $row, ?string $playerId): array
+    private function publicEntry(array $row, ?string $playerId, ?string $contextEntryId): array
     {
         $fastest = $row['fastest_reaction_ms'] === null ? null : (int) $row['fastest_reaction_ms'];
         $average = $row['average_reaction_ms'] === null ? null : (int) $row['average_reaction_ms'];
@@ -270,6 +261,7 @@ final class LeaderboardRepository
                 ->setTimezone(new \DateTimeZone('UTC'))
                 ->format('Y-m-d\TH:i:s.v\Z'),
             'isCurrentPlayer' => $playerId !== null && hash_equals((string) $row['player_id'], $playerId),
+            'isContextResult' => $contextEntryId !== null && hash_equals((string) $row['id'], $contextEntryId),
         ];
     }
 

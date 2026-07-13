@@ -17,7 +17,7 @@ php server/bin/migrate.php
 npm run check:php
 ```
 
-The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and one best leaderboard row per player, mode, and season. The multiplier-scoring release deletes the existing leaderboard rows once through migration `004`; profiles and coin balances remain intact. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` replaces the former one-result-per-player uniqueness constraint with a lookup index and preserves every existing row, profile, coin balance, and completed run. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 
@@ -62,7 +62,7 @@ Authentication required. `PATCH` body: `{ "nickname": "Public name" }`. Saving i
 
 ### `GET /api/leaderboard?mode=normal|zen`
 
-Returns the top five and, when signed in and ranked, the player's row with up to two positions on each side. Duplicate rows are removed. `playerRank` and `topPercent` are null when signed out or unranked.
+Returns the top five and, when signed in and ranked, the player's best result with up to two positions on each side. `playerRank` and `topPercent` always describe that best result and are null when signed out or unranked. Percentages are percentiles of ranked results, not distinct profiles. `contextRank`, `contextTopPercent`, and `contextEntryId` identify the result used for the returned nearby window; on a normal read this is the same best result.
 
 ```json
 {
@@ -82,12 +82,16 @@ Returns the top five and, when signed in and ranked, the player's row with up to
       "dodges": 7,
       "speedRatings": { "godlike": 2, "perfect": 6, "great": 8, "good": 8 },
       "createdAt": "2026-07-13T12:00:00.000Z",
-      "isCurrentPlayer": true
+      "isCurrentPlayer": true,
+      "isContextResult": true
     }
   ],
   "totalEntries": 250,
   "playerRank": 1,
-  "topPercent": 1
+  "topPercent": 1,
+  "contextRank": 1,
+  "contextTopPercent": 1,
+  "contextEntryId": "entry-uuid"
 }
 ```
 
@@ -108,7 +112,7 @@ Authentication and a confirmed public nickname are required. The server supplies
 }
 ```
 
-Zen submissions use `mode: "zen"` and an exact `survivalMs` of `180000`. A response has the leaderboard shape above plus `rank` and `improved`. A lower run does not overwrite the profile's existing best row.
+Zen submissions use `mode: "zen"` and an exact `survivalMs` of `180000`. Every accepted run is inserted as a separate immutable result using `runId` as its entry ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, and `improved`; its context window centers on that exact submitted result while `playerRank` continues to report the profile's best result. `improved` says whether the new result became that best. Repeating the identical run UUID returns idempotently without another row or coin award. A retry of a run completed before migration `005` may have no entry keyed by that historical run UUID; in that case submitted rank/ID are null and the fallback window is explicitly the profile best rather than being mislabeled as the submitted result.
 
 ## Security and limitations
 

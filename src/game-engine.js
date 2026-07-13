@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-12";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-13";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -25,7 +25,7 @@ export const SPEED_RATINGS = Object.freeze([
   Object.freeze({ id: SPEED_RATING_IDS.GOOD, label: "Good", maximumExclusiveMs: Infinity })
 ]);
 
-export const MAX_DECOY_LIFETIME_MS = 500;
+export const MAX_DECOY_LIFETIME_MS = 750;
 
 const EMPTY_CELL = Object.freeze({ kind: "idle", colorIndex: null });
 
@@ -136,20 +136,29 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
           challengeTier * endless.spawnMaximumDecreasePerTierMs
       )
     ];
+    const decoyMaximumDelayMs = Math.max(
+      endless.decoyMaximumDelayFloorMs,
+      config.decoys.spawnDelayRangesMs.fourByFourChallenge[1] -
+        challengeTier * endless.decoyMaximumDecreasePerTierMs
+    );
     decoySpawnDelayRangeMs = [
-      Math.max(
-        endless.decoyMinimumDelayMs,
-        config.decoys.spawnDelayRangesMs.fourByFourChallenge[0] -
-          challengeTier * endless.decoyMinimumDecreasePerTierMs
-      ),
-      Math.max(
-        endless.decoyMaximumDelayFloorMs,
-        config.decoys.spawnDelayRangesMs.fourByFourChallenge[1] -
-          challengeTier * endless.decoyMaximumDecreasePerTierMs
-      )
+      endless.decoyMinimumDelayMs,
+      decoyMaximumDelayMs
     ];
     maximumActiveDecoys = Math.min(endless.maximumDecoys, 2 + challengeTier);
   }
+
+  const paceLevel = gridDimension === 1
+    ? 0
+    : phaseId === "warmup" || phaseId === "color-patience"
+      ? 1
+      : phaseId === "gentle-ramp"
+        ? 2
+        : phaseId === "rare-decoys"
+          ? 3
+          : phaseId === "four-by-four-reset"
+            ? 4
+            : Math.min(11, 5 + challengeTier);
 
   return Object.freeze({
     gridDimension,
@@ -159,7 +168,8 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     spawnDelayRangeMs,
     decoySpawnDelayRangeMs,
     maximumActiveDecoys,
-    challengeTier
+    challengeTier,
+    paceLevel
   });
 }
 
@@ -237,6 +247,7 @@ export class GameEngine {
     this.activeAt = null;
     this.targetIndex = null;
     this.activeDecoys = [];
+    this.recentlyExpiredDecoyIndexes = new Set();
     this.nextDecoyId = 1;
     this.challengeStartHits = null;
     this.recoveryUntil = null;
@@ -341,10 +352,21 @@ export class GameEngine {
       this.config
     );
     const cellCount = difficulty.gridDimension ** 2;
-    const occupiedIndexes = new Set(this.activeDecoys.map(({ cellIndex }) => cellIndex));
-    const availableIndexes = Array.from({ length: cellCount }, (_, index) => index).filter(
+    const occupiedIndexes = new Set([
+      ...this.recentlyExpiredDecoyIndexes,
+      ...this.activeDecoys.map(({ cellIndex }) => cellIndex)
+    ]);
+    let availableIndexes = Array.from({ length: cellCount }, (_, index) => index).filter(
       (index) => !occupiedIndexes.has(index)
     );
+    if (availableIndexes.length === 0) {
+      const activeDecoyIndexes = new Set(
+        this.activeDecoys.map(({ cellIndex }) => cellIndex)
+      );
+      availableIndexes = Array.from({ length: cellCount }, (_, index) => index).filter(
+        (index) => !activeDecoyIndexes.has(index)
+      );
+    }
     if (availableIndexes.length === 0) {
       return Object.freeze({
         type: "ignored",
@@ -356,6 +378,7 @@ export class GameEngine {
     }
 
     const targetIndex = availableIndexes[randomInteger(this.random, availableIndexes.length)];
+    this.recentlyExpiredDecoyIndexes.clear();
 
     this.state = GAME_STATES.ACTIVE;
     this.roundDifficulty = difficulty;
@@ -792,6 +815,9 @@ export class GameEngine {
     }
 
     this.activeDecoys = retained;
+    for (const decoy of expired) {
+      this.recentlyExpiredDecoyIndexes.add(decoy.cellIndex);
+    }
     const pointsAwarded = expired.length * this.config.dodgePoints;
     this.points += pointsAwarded;
     this.dodges += expired.length;

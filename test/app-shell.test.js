@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-12");
+  assert.equal(buildId, "20260713-13");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -240,8 +240,9 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(mainSource, /finishGame[\s\S]*music\.advanceTrack\(MUSIC_STAGES\.MENU\)/);
   assert.match(mainSource, /completedSessionId === currentSession/);
   assert.match(mainSource, /setInterval\([\s\S]*updateMusicForSnapshot\(snapshot\)/);
-  assert.match(configSource, /fourByFourPressure:\s*90_000/);
-  assert.match(configSource, /endurance:\s*120_000/);
+  assert.doesNotMatch(configSource, /musicStageStartsAtMs|fourByFourPressure|endurance/);
+  assert.match(engineSource, /const paceLevel = gridDimension === 1/);
+  assert.match(musicSource, /snapshot\?\.difficulty\?\.paceLevel/);
   for (const filename of [
     "neon-circuit-refined.m4a",
     "deep-current.m4a",
@@ -263,8 +264,8 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   }
   assert.match(
     mainSource,
-    /if \(result\.type === "hit"\) \{\s*music\.playCorrectTap\(result\.snapshot\.hits\)/,
-    "Only a confirmed correct tap may trigger the interactive melody."
+    /if \(result\.type === "hit"\) \{\s*updateMusicForSnapshot\(result\.snapshot\);\s*music\.playCorrectTap\(result\.snapshot\.hits\)/,
+    "A confirmed tap must apply the engine pace before triggering its interactive melody note."
   );
   assert.equal(
     (mainSource.match(/music\.playCorrectTap\(/g) ?? []).length,
@@ -274,6 +275,9 @@ test("Music is an adaptive Web Audio soundtrack with an independent setting", ()
   assert.match(mainSource, /resolveInteractiveMusicSection\(snapshot\)/);
   assert.match(musicSource, /MUSIC_GAIN = 0\.45/);
   assert.match(musicSource, /MAX_NOTE_VOICES = 2/);
+  assert.match(musicSource, /resolveInteractiveNoteCue/);
+  assert.match(musicSource, /pendingTransition\.transitionEndsAt/);
+  assert.match(musicSource, /source\.playbackRate\.setValueAtTime/);
   assert.match(musicSource, /latencyHint: interactive \? "interactive" : "playback"/);
   assert.match(musicSource, /prepareInteractiveTrack\(desiredTrackIndex/);
   assert.match(musicSource, /createBufferSource\(\)/);
@@ -349,9 +353,15 @@ test("result leaderboard navigation preserves result context and renders compact
   assert.match(mainSource, /entryRank > previousRank \+ 1/);
   assert.match(mainSource, /currentBadge\.textContent = "You"/);
   assert.match(mainSource, /function renderLeaderboardPlayerPosition\(/);
-  assert.match(mainSource, /`Your position: #\$\{safeRank\.toLocaleString\(\)\} · Top \$\{safePercent\}%`/);
+  assert.match(mainSource, /`\$\{label\}: #\$\{safeRank\.toLocaleString\(\)\} · Top \$\{safePercent\}% of results`/);
+  assert.match(mainSource, /\["Top results",/);
   assert.match(mainSource, /if \(!profileSession\.authenticated\) \{[\s\S]*leaderboardPlayerPosition\.hidden = true/);
-  assert.match(mainSource, /submittedResult\.topPercent = body\.topPercent \?\? null/);
+  assert.match(mainSource, /submittedResult\.hasExactLeaderboardContext[\s\S]*body\.submittedRank \?\? body\.contextRank/);
+  assert.match(mainSource, /submittedResult\.hasExactLeaderboardContext[\s\S]*body\.contextTopPercent \?\? body\.topPercent \?\? null/);
+  assert.match(mainSource, /body\.submittedEntryId === submittedResult\.runId/);
+  assert.match(mainSource, /exact historical leaderboard position is unavailable/);
+  assert.match(mainSource, /entry\.isContextResult === true/);
+  assert.match(mainSource, /entry\.isCurrentPlayer === true/);
   assert.match(stylesSource, /\.leaderboard-entry\.is-current/);
   assert.match(stylesSource, /\.leaderboard-gap/);
   assert.match(
@@ -368,11 +378,14 @@ test("the settings shortcut uses simple music state copy and the app carries the
   assert.match(stylesSource, /\.copyright-footer/);
 });
 
-test("player-facing profile and leaderboard copy uses personal bests without season jargon", () => {
-  assert.match(indexHtml, /<h2>Personal best<\/h2>/);
-  assert.match(indexHtml, /<span>Best runs<\/span>/);
-  assert.match(mainSource, /Your personal best is unchanged\./);
-  assert.match(mainSource, /Your leaderboard position is #/);
+test("player-facing copy explains that every result is saved without season jargon", () => {
+  assert.match(indexHtml, /<h2>Leaderboard result<\/h2>/);
+  assert.match(indexHtml, /<span>All results<\/span>/);
+  assert.match(indexHtml, /save every result and keep your leaderboard history/);
+  assert.match(mainSource, /Result saved\.[\s\S]*Your personal best is unchanged\./);
+  assert.match(mainSource, /Result saved as a new personal best\./);
+  assert.match(mainSource, /This result is #/);
+  assert.match(mainSource, /ranked \$\{safeTotal === 1 \? "result" : "results"\}/);
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Season result|Current season|seasonal/i);
 });
 
@@ -428,6 +441,10 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
 
 test("three-minute Zen, independent decoys, and speed feedback are wired into the shell", () => {
   assert.match(configSource, /zenDurationMs:\s*180_000/);
+  assert.match(configSource, /maximumLifetimeMs:\s*750/);
+  assert.match(configSource, /lifetimeRangeMs:\s*Object\.freeze\(\[450, 750\]\)/);
+  assert.match(configSource, /rareDecoys:\s*Object\.freeze\(\[600, 3_400\]\)/);
+  assert.match(engineSource, /recentlyExpiredDecoyIndexes/);
   assert.match(indexHtml, /id="zen-button"[^>]*>3-min Zen</);
   assert.match(mainSource, /elements\.statusValue\.textContent = "∞"/);
   assert.match(mainSource, /engine\.getNextDecoyDelayMs\(now\(\)\)/);

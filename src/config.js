@@ -45,10 +45,6 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourStartsAtMs: 40_000,
     fourByFourChallengeStartsAtMs: 50_000
   }),
-  musicStageStartsAtMs: Object.freeze({
-    fourByFourPressure: 90_000,
-    endurance: 120_000
-  }),
   responseWindowsMs: Object.freeze({
     comfortable: 1_000,
     gentleMinimum: 750,
@@ -63,10 +59,9 @@ export const GAME_CONFIG = Object.freeze({
     spawnMaximumDecreasePerTierMs: 25,
     minimumSpawnDelayMs: 250,
     maximumSpawnDelayFloorMs: 500,
-    decoyMinimumDelayMs: 300,
-    decoyMaximumDelayFloorMs: 550,
-    decoyMinimumDecreasePerTierMs: 35,
-    decoyMaximumDecreasePerTierMs: 50
+    decoyMinimumDelayMs: 600,
+    decoyMaximumDelayFloorMs: 1_100,
+    decoyMaximumDecreasePerTierMs: 170
   }),
   spawnDelayRangesMs: Object.freeze({
     warmup: Object.freeze([550, 1_100]),
@@ -77,15 +72,15 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourChallenge: Object.freeze([425, 825])
   }),
   decoys: Object.freeze({
-    maximumLifetimeMs: 500,
-    lifetimeRangeMs: Object.freeze([300, 500]),
+    maximumLifetimeMs: 750,
+    lifetimeRangeMs: Object.freeze([450, 750]),
     retryDelayMs: 150,
     spawnDelayRangesMs: Object.freeze({
-      colorPatience: Object.freeze([1_100, 1_800]),
-      gentleRamp: Object.freeze([1_000, 1_600]),
-      rareDecoys: Object.freeze([750, 1_250]),
-      fourByFourReset: Object.freeze([1_100, 1_700]),
-      fourByFourChallenge: Object.freeze([450, 850])
+      colorPatience: Object.freeze([2_200, 3_600]),
+      gentleRamp: Object.freeze([2_000, 3_200]),
+      rareDecoys: Object.freeze([600, 3_400]),
+      fourByFourReset: Object.freeze([2_200, 3_400]),
+      fourByFourChallenge: Object.freeze([600, 2_000])
     })
   }),
   dodgePoints: 550,

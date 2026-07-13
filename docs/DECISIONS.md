@@ -390,3 +390,42 @@ Decision: Godlike adds two steps and Perfect adds one to the five-step meter. Gr
 Consequences: A Godlike-only path reaches x2 after three taps and produces lower-tier hit buckets of 3, 2, 3, and 2 on the way to x5. PHP validation uses the weighted step total and these lower bounds while retaining exact base-score and multiplier-bonus reconciliation. Scores are not directly comparable with D-027 runs; this decision does not authorize clearing production leaderboard data.
 
 Revisit when: Playtesting finds two-step Godlike progress too generous, neutral Great/Good reactions make the meter feel stalled, carried overflow is unclear, or the translucent tier background is too subdued.
+
+## D-030 — Couple adaptive music and tap pitch to programmed game pace
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: The approved Interactive backing already contains twelve increasingly fast and rich authored states, but runtime selection inferred pressure from elapsed time and timing opportunities. The legacy soundtrack separately waited for exact 90- and 120-second thresholds. Those duplicate clocks can make the music lag or disagree with the phases the engine actually programmed, and the tap-note register stayed static while the backing intensified.
+
+Decision: Make the engine expose one bounded `paceLevel` derived only from board phase and challenge tier. Map the twelve Interactive states directly to levels 0–11 and map the legacy regions from the same level; do not use reaction performance or an independent soundtrack timer. Keep adjacent authored bridges and evaluate their audio-clock completion when selecting the audible note register. Lift the existing five-degree tap-note bank diatonically as soundtrack richness increases, wrapping into an octave at no more than 2× playback rate. Retain every approved runtime file, bridge, source master, and provenance record. This supersedes the timing-selection portions of D-012 and D-015 without changing their track rotation, caching, lifecycle, opt-out, or rollback requirements.
+
+Consequences: Faster targets and higher programmed decoy pressure now have one authoritative audiovisual progression. Measured reaction milliseconds do not directly select the soundtrack, although successful play still advances challenge tiers; delayed JavaScript timers cannot move tap pitch ahead of the bridge actually heard. No audio binary is regenerated or replaced.
+
+Revisit when: Playtesting supports a different phase-to-section curve, a gameplay mechanic intentionally lowers pace, the octave lift masks attacks on phone speakers, or richer authored note banks replace runtime modal reuse.
+
+## D-031 — Rank every accepted profile result
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: The completed-run ledger already records every authenticated run for idempotent coin accounting, while the leaderboard retained only one best row per profile and mode. Players now need their lower and later runs to remain visible as distinct competitive results without losing the convenience of a single best profile position.
+
+Decision: Insert every accepted run as an immutable leaderboard row keyed by its stable run UUID. Remove only the unique `(season_id, player_id, mode)` constraint and replace it with a non-unique lookup index; preserve all current rows, profiles, coins, and completed-run history. Continue to show a profile's best row and Top percentage in profile/utility views. A successful submission instead centers its returned ±2 window on that exact result while still returning the profile's best rank separately. Public reads retain the top five. This supersedes D-018 and D-021 only where they require one best stored row or describe the board as best runs; internal season handling and hidden player-facing season terminology remain accepted.
+
+Consequences: One player can occupy several leaderboard positions and `totalEntries` counts ranked results rather than distinct players. `improved` remains meaningful as an indication that the submitted result became the profile best. Retrying an identical run UUID cannot add a second row or award coins twice. Migration `005_allow_multiple_leaderboard_results.sql` performs no leaderboard reset; rolling old application code back after duplicates exist is not schema-compatible without first restoring the new code or reconciling rows.
+
+Revisit when: The board needs a per-player display cap, distinct-player rankings, pagination/history UI, retention limits, visible seasons, account deletion/export, or server-authoritative anti-cheat.
+
+## D-032 — Lengthen decoys while halving their average opportunity rate
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Playtesting finds 300–500 ms decoys too fleeting to read, while their opportunity cadence remains too frequent and predictable. Simply doubling every minimum would remove overlap from phases that are intended to permit multiple visible decoys and would not resolve the direct decoy-to-target replacement race when expiry and activation occur before one paint.
+
+Decision: Increase random decoy lifetime by exactly 50% to 450–750 ms. Approximately double mean opportunity intervals across progression so average generation frequency is roughly halved, while widening selected ranges down to a 600 ms floor and compensating with longer upper gaps so occasional overlap remains possible. Retain the existing simultaneous-decoy caps. Record every naturally expired decoy cell and exclude it from the next target selection even when expiry was processed before target activation; if every otherwise-free cell is reserved, active-decoy safety takes priority and the engine may fall back to a recently expired cell. This supersedes D-019 and D-026 where their decoy lifetime, cadence, or target-cell reuse rules conflict.
+
+Consequences: Decoys remain readable for longer but arrive less often, timing is less predictable, and late progression can still place more than one on screen. The next correct target no longer appears to replace a just-expired wrong color under either callback order. Existing scoring, dodge awards, color exclusion, active caps, and target pace are unchanged.
+
+Revisit when: Physical-phone playtesting finds 750 ms too distracting, 600 ms lower gaps recreate clutter, overlap is too rare, long upper gaps feel empty, or a paint-confirmed idle transition becomes preferable to one-target cell reservation.

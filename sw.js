@@ -1,4 +1,4 @@
-const BUILD_ID = "20260713-12";
+const BUILD_ID = "20260713-13";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const MUSIC_ASSET_PATHS = new Set([

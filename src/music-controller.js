@@ -16,18 +16,21 @@ export const INTERACTIVE_MUSIC_TRACKS = Object.freeze([
     id: "neon-circuit-refined",
     backingFile: "./assets/audio/interactive-neon-circuit-refined.m4a",
     notesFile: "./assets/audio/interactive-notes-neon-circuit-refined.wav",
+    noteScaleDegreeCount: 5,
     motif: Object.freeze([0, 3, 5, 1, 1, 4, 0, 2, 2, 5, 1, 3, 3, 0, 2, 4])
   }),
   Object.freeze({
     id: "deep-current",
     backingFile: "./assets/audio/interactive-deep-current.m4a",
     notesFile: "./assets/audio/interactive-notes-deep-current.wav",
+    noteScaleDegreeCount: 5,
     motif: Object.freeze([0, 3, 5, 1, 2, 5, 1, 3, 4, 1, 3, 5, 0, 3, 5, 1])
   }),
   Object.freeze({
     id: "power-grid",
     backingFile: "./assets/audio/interactive-power-grid.m4a",
     notesFile: "./assets/audio/interactive-notes-power-grid.wav",
+    noteScaleDegreeCount: 5,
     motif: Object.freeze([0, 3, 5, 1, 3, 0, 2, 4, 0, 3, 5, 1, 3, 0, 2, 4])
   })
 ]);
@@ -36,18 +39,18 @@ const SAMPLE_RATE = 48_000;
 const framesToSeconds = (frames) => frames / SAMPLE_RATE;
 
 export const INTERACTIVE_MUSIC_SECTIONS = Object.freeze([
-  Object.freeze({ id: "opening", bpm: 100, beatFrames: 28_800, offsetFrames: 4_096, durationFrames: 460_800 }),
-  Object.freeze({ id: "grid-2", bpm: 104, beatFrames: 27_692, offsetFrames: 468_992, durationFrames: 443_072 }),
-  Object.freeze({ id: "grid-2-ramp", bpm: 108, beatFrames: 26_667, offsetFrames: 916_160, durationFrames: 426_672 }),
-  Object.freeze({ id: "grid-2-late", bpm: 112, beatFrames: 25_714, offsetFrames: 1_346_928, durationFrames: 411_424 }),
-  Object.freeze({ id: "grid-4", bpm: 112, beatFrames: 25_714, offsetFrames: 1_762_448, durationFrames: 411_424 }),
-  Object.freeze({ id: "challenge", bpm: 120, beatFrames: 24_000, offsetFrames: 2_177_968, durationFrames: 384_000 }),
-  Object.freeze({ id: "challenge-1", bpm: 124, beatFrames: 23_226, offsetFrames: 2_566_064, durationFrames: 371_616 }),
-  Object.freeze({ id: "challenge-2", bpm: 128, beatFrames: 22_500, offsetFrames: 2_941_776, durationFrames: 360_000 }),
-  Object.freeze({ id: "challenge-3", bpm: 136, beatFrames: 21_176, offsetFrames: 3_305_872, durationFrames: 338_816 }),
-  Object.freeze({ id: "challenge-4", bpm: 144, beatFrames: 20_000, offsetFrames: 3_648_784, durationFrames: 320_000 }),
-  Object.freeze({ id: "challenge-5", bpm: 156, beatFrames: 18_462, offsetFrames: 3_972_880, durationFrames: 295_392 }),
-  Object.freeze({ id: "endurance", bpm: 168, beatFrames: 17_143, offsetFrames: 4_272_368, durationFrames: 274_288 })
+  Object.freeze({ id: "opening", bpm: 100, richness: 0, beatFrames: 28_800, offsetFrames: 4_096, durationFrames: 460_800 }),
+  Object.freeze({ id: "grid-2", bpm: 104, richness: 1, beatFrames: 27_692, offsetFrames: 468_992, durationFrames: 443_072 }),
+  Object.freeze({ id: "grid-2-ramp", bpm: 108, richness: 2, beatFrames: 26_667, offsetFrames: 916_160, durationFrames: 426_672 }),
+  Object.freeze({ id: "grid-2-late", bpm: 112, richness: 2, beatFrames: 25_714, offsetFrames: 1_346_928, durationFrames: 411_424 }),
+  Object.freeze({ id: "grid-4", bpm: 112, richness: 3, beatFrames: 25_714, offsetFrames: 1_762_448, durationFrames: 411_424 }),
+  Object.freeze({ id: "challenge", bpm: 120, richness: 4, beatFrames: 24_000, offsetFrames: 2_177_968, durationFrames: 384_000 }),
+  Object.freeze({ id: "challenge-1", bpm: 124, richness: 4, beatFrames: 23_226, offsetFrames: 2_566_064, durationFrames: 371_616 }),
+  Object.freeze({ id: "challenge-2", bpm: 128, richness: 5, beatFrames: 22_500, offsetFrames: 2_941_776, durationFrames: 360_000 }),
+  Object.freeze({ id: "challenge-3", bpm: 136, richness: 5, beatFrames: 21_176, offsetFrames: 3_305_872, durationFrames: 338_816 }),
+  Object.freeze({ id: "challenge-4", bpm: 144, richness: 6, beatFrames: 20_000, offsetFrames: 3_648_784, durationFrames: 320_000 }),
+  Object.freeze({ id: "challenge-5", bpm: 156, richness: 6, beatFrames: 18_462, offsetFrames: 3_972_880, durationFrames: 295_392 }),
+  Object.freeze({ id: "endurance", bpm: 168, richness: 7, beatFrames: 17_143, offsetFrames: 4_272_368, durationFrames: 274_288 })
 ]);
 
 const INTERACTIVE_TRANSITION_DATA = Object.freeze([
@@ -105,56 +108,36 @@ const RELEASE_FADE_SECONDS = 0.06;
 const RELEASE_DELAY_MS = 75;
 const TRANSITION_SETTLE_MS = 20;
 
-export function resolveMusicStage(snapshot, stageStartsAtMs) {
-  if (snapshot?.difficulty?.gridDimension === 1) return MUSIC_STAGES.MENU;
-  const elapsedMs = Number.isFinite(snapshot?.elapsedMs) ? snapshot.elapsedMs : 0;
-  const pressureStartsAtMs = stageStartsAtMs?.fourByFourPressure ?? Number.POSITIVE_INFINITY;
-  const enduranceStartsAtMs = stageStartsAtMs?.endurance ?? Number.POSITIVE_INFINITY;
-  if (
-    snapshot?.difficulty?.gridDimension >= 4 &&
-    elapsedMs >= enduranceStartsAtMs
-  ) {
-    return MUSIC_STAGES.CHALLENGE;
-  }
-  if (
-    snapshot?.difficulty?.gridDimension >= 4 &&
-    elapsedMs >= pressureStartsAtMs
-  ) {
-    return MUSIC_STAGES.GRID_4;
-  }
+export function resolveInteractiveMusicSection(snapshot) {
+  const paceLevel = Number.isInteger(snapshot?.difficulty?.paceLevel)
+    ? snapshot.difficulty.paceLevel
+    : 0;
+  return Math.max(0, Math.min(INTERACTIVE_MUSIC_SECTIONS.length - 1, paceLevel));
+}
+
+export function resolveMusicStage(snapshot) {
+  const paceLevel = resolveInteractiveMusicSection(snapshot);
+  if (paceLevel === 0) return MUSIC_STAGES.MENU;
+  if (paceLevel >= 10) return MUSIC_STAGES.CHALLENGE;
+  if (paceLevel >= 8) return MUSIC_STAGES.GRID_4;
   return MUSIC_STAGES.GRID_2;
 }
 
-export function resolveInteractiveMusicSection(snapshot) {
-  const difficulty = snapshot?.difficulty;
-  const gridDimension = difficulty?.gridDimension ?? 1;
-  const elapsedMs = Number.isFinite(snapshot?.elapsedMs) ? snapshot.elapsedMs : 0;
-  if (gridDimension <= 1) return 0;
-  if (gridDimension === 2) {
-    if (elapsedMs < 20_000) return 1;
-    if (elapsedMs < 30_000) return 2;
-    return 3;
+export function resolveInteractiveNoteCue(track, noteIndex, sectionIndex) {
+  const section = INTERACTIVE_MUSIC_SECTIONS[sectionIndex] ?? INTERACTIVE_MUSIC_SECTIONS[0];
+  const scaleDegreeCount = Number.isInteger(track?.noteScaleDegreeCount)
+    ? Math.max(1, track.noteScaleDegreeCount)
+    : 5;
+  const safeNoteIndex = Number.isInteger(noteIndex) && noteIndex >= 0 ? noteIndex : 0;
+  const liftDegrees = Math.floor(section.richness / 2);
+  if (liftDegrees === 0) {
+    return Object.freeze({ noteIndex: safeNoteIndex, playbackRate: 1 });
   }
-  if (difficulty?.phaseId !== "four-by-four-challenge") return 4;
-
-  const delayRange = Array.isArray(difficulty.spawnDelayRangeMs)
-    ? difficulty.spawnDelayRangeMs
-    : [525, 950];
-  const minimumDelay = Number.isFinite(delayRange[0]) ? delayRange[0] : 525;
-  const maximumDelay = Number.isFinite(delayRange[1]) ? delayRange[1] : minimumDelay;
-  const meanDelayMs = (minimumDelay + maximumDelay) / 2;
-  const responseWindowMs = Math.min(
-    400,
-    Number.isFinite(difficulty.responseWindowMs) ? difficulty.responseWindowMs : 400
-  );
-  const targetBpm = 120_000 / Math.max(1, meanDelayMs + responseWindowMs);
-  if (targetBpm < 122) return 5;
-  if (targetBpm < 126) return 6;
-  if (targetBpm < 132) return 7;
-  if (targetBpm < 140) return 8;
-  if (targetBpm < 150) return 9;
-  if (targetBpm < 162) return 10;
-  return 11;
+  const absoluteDegree = safeNoteIndex + liftDegrees;
+  return Object.freeze({
+    noteIndex: absoluteDegree % scaleDegreeCount,
+    playbackRate: 2 ** Math.floor(absoluteDegree / scaleDegreeCount)
+  });
 }
 
 function ignoreFailure(promise) {
@@ -509,9 +492,11 @@ export function createMusicController({
       activeContext,
       activeGeneration,
       bridgeVoice,
+      fromIndex,
       oldVoice,
       targetVoice,
       toIndex,
+      transitionEndsAt,
       trackIndex: desiredTrackIndex
     };
     pendingTransition = pending;
@@ -755,6 +740,18 @@ export function createMusicController({
     }
   }
 
+  function audibleInteractiveSectionIndex(atTime) {
+    if (pendingTransition) {
+      return atTime < pendingTransition.transitionEndsAt
+        ? pendingTransition.fromIndex
+        : pendingTransition.toIndex;
+    }
+    if (currentVoice?.kind === "interactive-backing") {
+      return currentVoice.sectionIndex;
+    }
+    return desiredInteractiveSection;
+  }
+
   function playCorrectTap(hitNumber) {
     if (
       !enabled ||
@@ -769,8 +766,12 @@ export function createMusicController({
     const track = INTERACTIVE_MUSIC_TRACKS[desiredTrackIndex];
     const safeHitNumber = Number.isInteger(hitNumber) && hitNumber > 0 ? hitNumber : 1;
     const motifIndex = (safeHitNumber - 1) % track.motif.length;
-    const noteIndex = track.motif[motifIndex];
     const time = context.currentTime;
+    const cue = resolveInteractiveNoteCue(
+      track,
+      track.motif[motifIndex],
+      audibleInteractiveSectionIndex(time)
+    );
 
     let activeNoteVoices = [...noteVoices].filter(
       (voice) => voice.audioContext === context
@@ -796,13 +797,14 @@ export function createMusicController({
       startedAt: time
     });
     noteVoices.add(voice);
+    voice.source.playbackRate.setValueAtTime(cue.playbackRate, time);
     voice.envelope = Object.freeze({
       from: NOTE_GAIN * accent,
       to: NOTE_GAIN * accent,
       startedAt: time,
-      endsAt: time + NOTE_SLOT_SECONDS
+      endsAt: time + NOTE_SLOT_SECONDS / cue.playbackRate
     });
-    voice.source.start(time, noteIndex * NOTE_SLOT_SECONDS, NOTE_SLOT_SECONDS);
+    voice.source.start(time, cue.noteIndex * NOTE_SLOT_SECONDS, NOTE_SLOT_SECONDS);
     return true;
   }
 

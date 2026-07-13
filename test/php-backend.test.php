@@ -373,11 +373,15 @@ $assert($zenCoins->coinsEarned === 3 && $zenCoins->remainderMs === 0, 'A complet
 
 $rows = [];
 for ($rank = 1; $rank <= 12; $rank++) {
-    $rows[] = ['rank_position' => $rank, 'player_id' => $rank === 9 ? 'target-player' : 'player-' . $rank];
+    $rows[] = [
+        'id' => $rank === 9 ? 'target-result' : 'result-' . $rank,
+        'rank_position' => $rank,
+        'player_id' => $rank === 9 ? 'target-player' : 'player-' . $rank,
+    ];
 }
-$window = LeaderboardWindow::select($rows, 'target-player');
+$window = LeaderboardWindow::select($rows, 'target-result');
 $assert(array_column($window['rows'], 'rank_position') === [1, 2, 3, 4, 5, 7, 8, 9, 10, 11], 'Top five and player context are combined without filler rows.');
-$assert($window['playerRank'] === 9, 'Current player rank is returned.');
+$assert($window['contextRank'] === 9, 'The requested result rank is returned.');
 $assert(LeaderboardWindow::topPercent(9, 100) === 9, 'Top percentage is rounded upward.');
 $assert(LeaderboardWindow::topPercent(null, 100) === null, 'Unranked players have no top percentage.');
 
@@ -407,13 +411,22 @@ $throwsApi(
 $schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_and_leaderboard.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/003_completed_runs_and_coins.sql')
-    . file_get_contents(dirname(__DIR__) . '/server/migrations/004_clear_leaderboard_for_multiplier_scoring.sql');
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/004_clear_leaderboard_for_multiplier_scoring.sql')
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/005_allow_multiple_leaderboard_results.sql');
 foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'multiplier_5_hits', 'multiplier_5_base_points'] as $needle) {
     $assert(is_string($schema) && str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 $assert(
     is_string($schema) && str_contains($schema, 'DELETE FROM leaderboard_entries'),
     'The multiplier-scoring migration clears all existing leaderboard scores.',
+);
+$multipleResultsMigration = file_get_contents(dirname(__DIR__) . '/server/migrations/005_allow_multiple_leaderboard_results.sql');
+$assert(
+    is_string($multipleResultsMigration)
+    && str_contains($multipleResultsMigration, 'DROP INDEX leaderboard_player_mode_season_unique')
+    && str_contains($multipleResultsMigration, 'ADD KEY leaderboard_player_mode_season_index')
+    && !str_contains($multipleResultsMigration, 'DELETE FROM'),
+    'The multi-result migration replaces only the uniqueness constraint and preserves scores.',
 );
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
@@ -436,8 +449,21 @@ $assert(
     && str_contains($runService, 'hash_equals')
     && str_contains($runService, 'CoinProgression::accrue')
     && str_contains($runService, '$score->survivalMs')
-    && str_contains($runService, 'updateBestInTransaction'),
-    'Run accounting serializes player updates, detects mismatched retries, and updates progression with ranking.',
+    && str_contains($runService, 'insertResultInTransaction')
+    && str_contains($runService, 'hasExactSubmittedContext')
+    && str_contains($runService, "\$payload['submittedRank'] = \$hasExactSubmittedContext")
+    && str_contains($runService, "\$payload['submittedEntryId'] = \$hasExactSubmittedContext"),
+    'Run accounting inserts each result and never presents a legacy best row as an exact submitted context.',
+);
+$leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
+$assert(
+    is_string($leaderboardRepository)
+    && str_contains($leaderboardRepository, "\$parameters['id'] = \$score->runId")
+    && str_contains($leaderboardRepository, 'INSERT INTO leaderboard_entries')
+    && str_contains($leaderboardRepository, 'contextRank')
+    && str_contains($leaderboardRepository, 'ORDER BY rank_position ASC LIMIT 1')
+    && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
+    'Each accepted run is immutable, context can target that exact result, and profile rank remains the best run.',
 );
 $playerRepository = file_get_contents(dirname(__DIR__) . '/server/src/PlayerRepository.php');
 $assert(

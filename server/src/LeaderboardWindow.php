@@ -9,24 +9,24 @@ final class LeaderboardWindow
     public const TOP_COUNT = 5;
     public const CONTEXT_RADIUS = 2;
 
-    public static function select(array $rankedRows, ?string $playerId): array
+    public static function select(array $rankedRows, ?string $contextEntryId): array
     {
         $selected = [];
-        $playerRank = null;
+        $contextRank = null;
         foreach ($rankedRows as $row) {
             $rank = (int) $row['rank_position'];
             if ($rank <= self::TOP_COUNT) {
                 $selected[$rank] = $row;
             }
-            if ($playerId !== null && hash_equals((string) $row['player_id'], $playerId)) {
-                $playerRank = $rank;
+            if ($contextEntryId !== null && hash_equals((string) $row['id'], $contextEntryId)) {
+                $contextRank = $rank;
             }
         }
 
-        if ($playerRank !== null) {
+        if ($contextRank !== null) {
             foreach ($rankedRows as $row) {
                 $rank = (int) $row['rank_position'];
-                if (abs($rank - $playerRank) <= self::CONTEXT_RADIUS) {
+                if (abs($rank - $contextRank) <= self::CONTEXT_RADIUS) {
                     $selected[$rank] = $row;
                 }
             }
@@ -35,7 +35,7 @@ final class LeaderboardWindow
         ksort($selected, SORT_NUMERIC);
         return [
             'rows' => array_values($selected),
-            'playerRank' => $playerRank,
+            'contextRank' => $contextRank,
         ];
     }
 
