@@ -10,6 +10,7 @@ use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\Uuid;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\MigrationRunner;
+use SpeedyTapper\PetCatalog;
 
 require dirname(__DIR__) . '/server/autoload.php';
 
@@ -41,6 +42,17 @@ $assert(Nickname::normalize("  Speedy\n  Player  ") === 'Speedy Player', 'Nickna
 $throwsApi(static fn () => Nickname::normalize(str_repeat('x', 21)), 'Long nicknames are rejected.');
 $assert((bool) preg_match('/^Player [0-9]{4}$/', Nickname::anonymous()), 'New profiles receive a neutral nickname.');
 $assert((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', Uuid::v4()), 'UUIDs are RFC 4122 version 4.');
+$assert(
+    PetCatalog::all() === [
+        ['id' => 'foka', 'name' => 'Foka', 'priceCoins' => 10],
+        ['id' => 'kesha', 'name' => 'Kesha', 'priceCoins' => 20],
+        ['id' => 'tauta', 'name' => 'Tauta', 'priceCoins' => 50],
+        ['id' => 'misha', 'name' => 'Misha', 'priceCoins' => 100],
+        ['id' => 'pancake', 'name' => 'Pancake', 'priceCoins' => 500],
+    ],
+    'Pet catalog ids, names, prices, and order are stable.',
+);
+$throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
 
 $valid = ScoreSubmission::fromArray([
     'runId' => '4f27f9de-37de-4c31-8090-279a037bf76a',
@@ -412,8 +424,9 @@ $schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_
     . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/003_completed_runs_and_coins.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/004_clear_leaderboard_for_multiplier_scoring.sql')
-    . file_get_contents(dirname(__DIR__) . '/server/migrations/005_allow_multiple_leaderboard_results.sql');
-foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'multiplier_5_hits', 'multiplier_5_base_points'] as $needle) {
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/005_allow_multiple_leaderboard_results.sql')
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/006_pet_shop.sql');
+foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'multiplier_5_hits', 'multiplier_5_base_points', 'player_pets', 'player_pet_selection', 'player_pet_selection_owned_foreign', 'legacy_easter_egg'] as $needle) {
     $assert(is_string($schema) && str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 $assert(
@@ -428,9 +441,19 @@ $assert(
     && !str_contains($multipleResultsMigration, 'DELETE FROM'),
     'The multi-result migration replaces only the uniqueness constraint and preserves scores.',
 );
+$petMigration = file_get_contents(dirname(__DIR__) . '/server/migrations/006_pet_shop.sql');
+$assert(
+    is_string($petMigration)
+    && str_contains($petMigration, "('foka', 'Foka', 10")
+    && str_contains($petMigration, "('pancake', 'Pancake', 500")
+    && str_contains($petMigration, "LOWER(TRIM(nickname)) = 'misha_boy'")
+    && str_contains($petMigration, 'ON DUPLICATE KEY UPDATE')
+    && !str_contains($petMigration, 'INSERT IGNORE'),
+    'Pet migration seeds exact prices and safely grants the one-time legacy Misha entitlement.',
+);
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(
@@ -462,15 +485,32 @@ $assert(
     && str_contains($leaderboardRepository, 'INSERT INTO leaderboard_entries')
     && str_contains($leaderboardRepository, 'contextRank')
     && str_contains($leaderboardRepository, 'ORDER BY rank_position ASC LIMIT 1')
-    && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
-    'Each accepted run is immutable, context can target that exact result, and profile rank remains the best run.',
+    && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries')
+    && str_contains($leaderboardRepository, 'LEFT JOIN player_pet_selection')
+    && str_contains($leaderboardRepository, "'petId' =>"),
+    'Each accepted run is immutable, profile rank remains the best run, and equipped pets become avatars.',
 );
 $playerRepository = file_get_contents(dirname(__DIR__) . '/server/src/PlayerRepository.php');
 $assert(
     is_string($playerRepository)
     && str_contains($playerRepository, "'coins' =>")
-    && str_contains($playerRepository, "'totalPlayMs' =>"),
-    'Profile responses expose the persistent coin balance and accepted play time.',
+    && str_contains($playerRepository, "'totalPlayMs' =>")
+    && str_contains($playerRepository, "'ownedPetIds' =>")
+    && str_contains($playerRepository, "'equippedPetId' =>")
+    && str_contains($playerRepository, 'beginTransaction'),
+    'Profile responses expose a consistent coin, play-time, pet ownership, and selection snapshot.',
+);
+$petShopService = file_get_contents(dirname(__DIR__) . '/server/src/PetShopService.php');
+$assert(
+    is_string($petShopService)
+    && str_contains($petShopService, 'beginTransaction')
+    && str_contains($petShopService, 'FOR UPDATE')
+    && str_contains($petShopService, 'coins >= :price')
+    && str_contains($petShopService, 'INSERT INTO player_pets')
+    && str_contains($petShopService, 'ON DUPLICATE KEY UPDATE pet_id')
+    && str_contains($petShopService, 'rollBack')
+    && str_contains($petShopService, "error->getCode() === '40001'"),
+    'Buy and Change share one atomic, guarded, retry-safe selection transaction.',
 );
 
 $migrationStatements = MigrationRunner::splitStatements(
@@ -484,6 +524,13 @@ $migrationCli = file_get_contents(dirname(__DIR__) . '/server/bin/migrate.php');
 $assert(
     is_string($apiBootstrap) && str_contains($apiBootstrap, 'new MigrationRunner'),
     'The HTTP API applies pending migrations before dispatch.',
+);
+$assert(
+    is_string($apiBootstrap)
+    && str_contains($apiBootstrap, 'new PetShopService')
+    && str_contains($apiBootstrap, 'new PlayerRepository($database, $pets)')
+    && str_contains($apiBootstrap, 'pets: $pets'),
+    'The API injects one shared pet service into profile reads and pet mutations.',
 );
 $assert(
     is_string($migrationCli) && str_contains($migrationCli, 'new MigrationRunner'),

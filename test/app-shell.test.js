@@ -7,123 +7,150 @@ const [
   mainSource,
   configSource,
   engineSource,
-  mishaSource,
+  petCatalogSource,
+  petControllerSource,
   musicSource,
   soundSource,
   workerSource,
   stylesSource,
   vercelIgnoreSource,
   mishaClimber,
-  mishaSprite
+  mishaSprite,
+  fokaFloe,
+  fokaSprite,
+  keshaPerch,
+  keshaSprite,
+  tautaBed,
+  tautaSprite,
+  pancakeSprite
 ] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/main.js", import.meta.url), "utf8"),
   readFile(new URL("../src/config.js", import.meta.url), "utf8"),
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
-  readFile(new URL("../src/misha-controller.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/pet-catalog.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/pet-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
   readFile(new URL("../.vercelignore", import.meta.url), "utf8"),
   readFile(new URL("../assets/pets/misha-climber.png", import.meta.url)),
-  readFile(new URL("../assets/pets/misha-sprite.png", import.meta.url))
+  readFile(new URL("../assets/pets/misha-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/pets/foka-ice-floe.png", import.meta.url)),
+  readFile(new URL("../assets/pets/foka-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/pets/kesha-perch.png", import.meta.url)),
+  readFile(new URL("../assets/pets/kesha-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/pets/tauta-bed.png", import.meta.url)),
+  readFile(new URL("../assets/pets/tauta-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/pets/pancake-sprite.png", import.meta.url))
 ]);
 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-15");
+  assert.equal(buildId, "20260713-16");
 
-  assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
-  assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
-  assert.match(indexHtml, new RegExp(`main\\.js\\?v=${buildId}`));
-  assert.match(indexHtml, new RegExp(`sw\\.js\\?v=\\$\\{buildId\\}`));
+  for (const path of ["styles.css", "manifest.webmanifest", "src/main.js"]) {
+    assert.match(indexHtml, new RegExp(`${path.replaceAll(".", "\\.")}\\?v=${buildId}`));
+  }
   assert.match(indexHtml, new RegExp(`const buildId = "${buildId}";`));
-  assert.match(mainSource, new RegExp(`config\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`game-engine\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`misha-controller\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`profile-client\\.js\\?v=${buildId}`));
+  for (const moduleName of [
+    "config",
+    "game-engine",
+    "input-timing",
+    "pet-catalog",
+    "pet-controller",
+    "music-controller",
+    "profile-client",
+    "sound-controller"
+  ]) {
+    assert.match(workerSource, new RegExp(`${moduleName}\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  }
+  for (const moduleName of [
+    "config",
+    "game-engine",
+    "input-timing",
+    "pet-catalog",
+    "pet-controller",
+    "music-controller",
+    "profile-client",
+    "sound-controller"
+  ]) {
+    assert.match(mainSource, new RegExp(`${moduleName}\\.js\\?v=${buildId}`));
+  }
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
-  assert.match(workerSource, new RegExp(`input-timing\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, new RegExp(`misha-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
-  assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
-  assert.match(workerSource, /\.\/assets\/pets\/misha-climber\.png/);
-  assert.match(workerSource, /\.\/assets\/pets\/misha-sprite\.png/);
+  for (const path of [
+    "misha-climber.png",
+    "misha-sprite.png",
+    "foka-ice-floe.png",
+    "foka-sprite.png",
+    "kesha-perch.png",
+    "kesha-sprite.png",
+    "tauta-bed.png",
+    "tauta-sprite.png",
+    "pancake-sprite.png"
+  ]) {
+    assert.match(workerSource, new RegExp(`\\.\\/assets\\/pets\\/${path.replaceAll(".", "\\.")}`));
+  }
+  assert.doesNotMatch(workerSource, /pancake-tile|misha-controller/);
 
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
   assert.match(vercelIgnoreSource, /assets\/audio\/interactive-music-masters/);
-  assert.match(
-    workerSource,
-    /MUSIC_ASSET_PATHS\.has\(requestUrl\.pathname\)\)[\s\S]*cacheFirst\(event\.request\)/
-  );
-  assert.match(
-    workerSource,
-    /pathname\.startsWith\("\/assets\/audio\/"\)[\s\S]*fetch\(event\.request, \{ cache: "no-store" \}\)/
-  );
-  assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
+  assert.match(workerSource, /MUSIC_ASSET_PATHS\.has\(requestUrl\.pathname\)[\s\S]*cacheFirst/);
+  assert.match(workerSource, /pathname\.startsWith\("\/assets\/audio\/"\)[\s\S]*cache: "no-store"/);
 });
 
-test("the Misha nickname easter egg keeps separate menu and gameplay placements", () => {
-  assert.match(
-    indexHtml,
-    /id="misha-menu-scene"[\s\S]*data-climber="true"[\s\S]*hidden[\s\S]*aria-hidden="true"/
-  );
-  assert.match(
-    indexHtml,
-    /misha-climber--back[\s\S]*id="misha-menu-pet"[\s\S]*data-facing="front"[\s\S]*data-pose="awake"[\s\S]*hidden[\s\S]*misha-climber--front/
-  );
-  assert.match(
-    indexHtml,
-    /id="misha-game-pet"[\s\S]*data-facing="front"[\s\S]*hidden[\s\S]*aria-hidden="true"/
-  );
-  assert.match(
-    indexHtml,
-    /id="dialog-utility"[\s\S]*id="misha-menu-pet"[\s\S]*id="dialog-title"/,
-    "The menu cat must remain dialog-level so dedicated views cannot hide it with the utility header."
-  );
-  assert.match(
-    indexHtml,
-    /id="streak-meter"[\s\S]*id="misha-game-pet"[\s\S]*streak-meter__track/,
-    "The gameplay cat must perch directly above the speed-streak presentation."
-  );
-  assert.match(mishaSource, /MISHA_EASTER_EGG_NICKNAME = "misha_boy"/);
-  assert.match(mishaSource, /MISHA_IDLE_DELAY_MS = 5_000/);
-  assert.match(mishaSource, /session\?\.authenticated === true/);
-  assert.match(mishaSource, /nicknameConfirmed === true/);
-  assert.match(
-    mainSource,
-    /if \(result\.type === "ignored"\) return;\s*misha\.turnToward\(event\.clientX\);/
-  );
-  assert.match(mainSource, /misha\.handleNonGameTap\(event\.clientX/);
-  assert.match(stylesSource, /misha-sprite\.png/);
-  assert.match(stylesSource, /misha-climber\.png/);
-  assert.match(stylesSource, /image-rendering: pixelated/);
-  assert.match(stylesSource, /pointer-events: none/);
-  assert.match(stylesSource, /@keyframes misha-turn-left/);
-  assert.match(stylesSource, /@keyframes misha-turn-right/);
-  assert.match(stylesSource, /misha-pet--menu\[data-pose="sleeping"\][\s\S]*background-position: 100% 0/);
-  assert.match(stylesSource, /misha-menu-scene\[data-climber="false"\][\s\S]*display: none/);
-  assert.match(stylesSource, /max-height: 650px[\s\S]*\.misha-pet[\s\S]*width: 48px/);
-  assert.match(stylesSource, /prefers-reduced-motion[\s\S]*\.misha-pet--menu/);
+test("the Pet Shop ships five animated companions with separate menu and gameplay placements", () => {
+  assert.match(indexHtml, /id="menu-pet-scene"[\s\S]*data-pet="none"[\s\S]*data-habitat="true"[\s\S]*hidden/);
+  assert.match(indexHtml, /id="game-pet-scene"[\s\S]*data-habitat="false"[\s\S]*hidden/);
+  assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="menu-pet-scene"[\s\S]*id="dialog-title"/);
+  assert.match(indexHtml, /id="streak-meter"[\s\S]*id="game-pet-scene"[\s\S]*streak-meter__track/);
+  assert.match(indexHtml, /id="pet-shop-toggle"[\s\S]*id="settings-toggle"/);
 
-  assert.equal(mishaClimber.subarray(1, 4).toString("ascii"), "PNG");
-  assert.equal(mishaClimber.readUInt32BE(16), 64);
-  assert.equal(mishaClimber.readUInt32BE(20), 48);
-  assert.equal(mishaClimber.readUInt32BE(16) / 32, 2);
-  assert.equal(mishaSprite.subarray(1, 4).toString("ascii"), "PNG");
-  assert.equal(mishaSprite.readUInt32BE(16), 288);
-  assert.equal(mishaSprite.readUInt32BE(20), 32);
-  assert.equal(mishaSprite.readUInt32BE(16) / 32, 9);
+  for (const [id, name, price] of [
+    ["foka", "Foka", 10],
+    ["kesha", "Kesha", 20],
+    ["tauta", "Tauta", 50],
+    ["misha", "Misha", 100],
+    ["pancake", "Pancake", 500]
+  ]) {
+    assert.match(indexHtml, new RegExp(`data-pet-card="${id}"[\\s\\S]*?<strong>${name}<\\/strong>[\\s\\S]*?aria-label="${price} coins"[\\s\\S]*?data-pet-action="${id}">Buy<`));
+  }
+  assert.match(indexHtml, /Dancing pancake · Glow line/);
+  assert.match(mainSource, /action\.textContent = owned \? "Change" : "Buy"/);
+  assert.match(mainSource, /profileClient\.selectPet\(petId\)/);
+  assert.match(mainSource, /function invalidatePetShopMutation\(\)[\s\S]*petShopMutationId \+= 1;[\s\S]*petShopPendingPetId = null;/);
+  assert.match(mainSource, /async function refreshProfileSession\(\) \{\s*invalidatePetShopMutation\(\);/);
+  assert.match(mainSource, /async function logoutProfile\(\) \{\s*invalidatePetShopMutation\(\);/);
+  assert.match(mainSource, /pets\.handleGameplayTap\(event\.clientX\)/);
+  assert.match(mainSource, /pets\.handleNonGameTap\(event\.clientX/);
+  assert.match(mainSource, /leaderboard-entry__avatar/);
+  assert.match(petControllerSource, /LEGACY_MISHA_NICKNAME = "misha_boy"/);
+  assert.match(petControllerSource, /PET_IDLE_DELAY_MS = 5_000/);
+  assert.match(petControllerSource, /"half-left"[\s\S]*"half-right"/);
+  assert.match(petControllerSource, /resolvePancakeFacing/);
+  assert.match(stylesSource, /@keyframes pet-turn-half-left/);
+  assert.match(stylesSource, /@keyframes pet-turn-half-right/);
+  assert.match(stylesSource, /@keyframes pet-settle/);
+  assert.match(stylesSource, /@keyframes pet-wake/);
+  assert.match(stylesSource, /\[data-pet="pancake"\]\[data-facing="left"\][\s\S]*scaleX\(-1\)/);
+  assert.match(stylesSource, /\[data-pet="pancake"\] > \.pet-habitat--back[\s\S]*height: 2px/);
+  assert.match(stylesSource, /prefers-reduced-motion[\s\S]*\.pet-sprite/);
+
+  for (const sprite of [mishaSprite, fokaSprite, keshaSprite, tautaSprite, pancakeSprite]) {
+    assert.equal(sprite.subarray(1, 4).toString("ascii"), "PNG");
+    assert.equal(sprite.readUInt32BE(16), 320);
+    assert.equal(sprite.readUInt32BE(20), 32);
+  }
+  for (const habitat of [mishaClimber, fokaFloe, keshaPerch, tautaBed]) {
+    assert.equal(habitat.subarray(1, 4).toString("ascii"), "PNG");
+    assert.equal(habitat.readUInt32BE(16), 64);
+    assert.equal(habitat.readUInt32BE(20), 48);
+  }
+  assert.match(petCatalogSource, /priceCoins: 500/);
 });
 
 test("Arcade is the player-facing name for the compatible normal mode", () => {
@@ -451,8 +478,9 @@ test("result leaderboard navigation preserves result context and renders compact
   assert.match(stylesSource, /\.leaderboard-gap/);
   assert.match(
     stylesSource,
-    /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*38px\s+minmax\(0,\s*1fr\)\s+auto/s
+    /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*28px\s+36px\s+minmax\(0,\s*1fr\)\s+auto/s
   );
+  assert.match(stylesSource, /\.leaderboard-entry__avatar > \.pet-sprite/);
 });
 
 test("the settings shortcut uses simple music state copy and the app carries the OTC Software footer", () => {

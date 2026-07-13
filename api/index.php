@@ -11,6 +11,7 @@ use SpeedyTapper\HttpRequest;
 use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\MigrationRunner;
+use SpeedyTapper\PetShopService;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\SessionStore;
@@ -33,9 +34,11 @@ try {
         $config->seasonName,
     );
     $leaderboard->ensureSeason();
+    $pets = new PetShopService($database);
     $app = new App(
         config: $config,
-        players: new PlayerRepository($database),
+        players: new PlayerRepository($database, $pets),
+        pets: $pets,
         leaderboard: $leaderboard,
         runs: new RunSubmissionService($database, $leaderboard),
         session: new SessionStore($request->isSecure()),

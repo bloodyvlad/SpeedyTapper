@@ -9,6 +9,7 @@ final class App
     public function __construct(
         private readonly Config $config,
         private readonly PlayerRepository $players,
+        private readonly PetShopService $pets,
         private readonly LeaderboardRepository $leaderboard,
         private readonly RunSubmissionService $runs,
         private readonly SessionStore $session,
@@ -65,6 +66,36 @@ final class App
                 'profile' => $profile,
                 'ranks' => $this->leaderboard->rankings($profile['id']),
                 'leaderboard' => $this->leaderboard->payload($mode, $profile['id']),
+            ]);
+        }
+
+        if ($request->method === 'GET' && $request->path === '/api/pets') {
+            $playerId = $this->session->playerId();
+            $profile = $playerId === null ? null : $this->players->find($playerId);
+            if ($playerId !== null && $profile === null) {
+                $this->session->logout();
+            }
+            JsonResponse::send(200, [
+                'pets' => PetCatalog::all(),
+                'profile' => $profile,
+                'coinBalance' => $profile['coins'] ?? 0,
+            ]);
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/pets/select') {
+            $request->guardSameOriginMutation();
+            $profile = $this->requirePlayer();
+            $result = $this->pets->select($profile['id'], $request->json()['petId'] ?? null);
+            $profile = $this->players->find($profile['id'])
+                ?? throw new ApiException(401, 'Sign in with Google to continue.');
+            JsonResponse::send($result['purchased'] ? 201 : 200, [
+                'profile' => $profile,
+                'pet' => [
+                    'id' => $result['pet']['id'],
+                    'purchased' => $result['purchased'],
+                    'pricePaid' => $result['pricePaid'],
+                ],
+                'coinBalance' => $profile['coins'],
             ]);
         }
 

@@ -70,6 +70,17 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       return request("/api/profile", jsonRequest("PATCH", { nickname }));
     },
 
+    getPets() {
+      return request("/api/pets");
+    },
+
+    selectPet(petId) {
+      if (typeof petId !== "string" || petId.length === 0) {
+        throw new TypeError("A pet id is required.");
+      }
+      return request("/api/pets/select", jsonRequest("POST", { petId }));
+    },
+
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
     },
