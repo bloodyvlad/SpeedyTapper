@@ -1,0 +1,15 @@
+Options -Indexes
+
+RewriteEngine On
+
+# Application internals and local configuration must never be served.
+RewriteRule ^(?:server|vendor|\.git)(?:/|$) - [F,L,NC]
+RewriteRule ^api/.*\.js$ - [F,L,NC]
+
+<FilesMatch "^(?:\.env.*|composer\.(?:json|lock))$">
+    Require all denied
+</FilesMatch>
+
+# Keep the browser contract extensionless while routing to one PHP boundary.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^api(?:/.*)?$ api/index.php [QSA,L]

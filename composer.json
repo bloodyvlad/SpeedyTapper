@@ -1,0 +1,26 @@
+{
+  "name": "otcsoft/speedytapper",
+  "description": "SpeedyTapper PHP API for Hostinger.",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.3",
+    "ext-intl": "*",
+    "ext-json": "*",
+    "ext-mbstring": "*",
+    "ext-openssl": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "google/apiclient": "^2.18"
+  },
+  "autoload": {
+    "psr-4": {
+      "SpeedyTapper\\": "server/src/"
+    }
+  },
+  "config": {
+    "allow-plugins": false,
+    "optimize-autoloader": true,
+    "sort-packages": true
+  }
+}

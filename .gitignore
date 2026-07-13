@@ -5,3 +5,5 @@ coverage/
 .vercel
 .data/
 .env*
+vendor/
+server/config.local.php
