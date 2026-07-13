@@ -330,6 +330,7 @@ function renderStreak(snapshot) {
     : Math.max(0, Math.min(1, snapshot.streakProgress / snapshot.streakTarget));
   elements.streakMeter.style.setProperty("--streak-progress", String(progress));
   elements.streakMeter.classList.toggle("streak-meter--full", maximumReached);
+  elements.streakMeter.dataset.multiplier = String(snapshot.multiplier);
   elements.scoreMultiplier.textContent = `x${snapshot.multiplier}`;
   const nextMultiplier = Math.min(snapshot.maximumMultiplier, snapshot.multiplier + 1);
   elements.streakMeter.setAttribute(

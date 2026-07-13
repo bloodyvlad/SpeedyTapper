@@ -451,13 +451,14 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(mainSource, /showSpeedRating\(result\.speedRating\)/);
   assert.match(indexHtml, /id="speed-rating-overlay" aria-hidden="true"/);
   assert.match(indexHtml, /id="speed-summary-bar"/);
-  assert.match(indexHtml, /id="streak-meter"/);
+  assert.match(indexHtml, /id="streak-meter" data-multiplier="1"/);
   assert.match(indexHtml, /class="streak-meter__multiplier" id="score-multiplier">x1</);
   assert.doesNotMatch(indexHtml, /streak-meter-count|0 \/ 5/);
   assert.match(configSource, /tapsPerMultiplier:\s*5/);
   assert.match(configSource, /maximumMultiplier:\s*5/);
   assert.match(mainSource, /function renderStreak\(snapshot\)/);
   assert.match(mainSource, /classList\.toggle\("streak-meter--full", maximumReached\)/);
+  assert.match(mainSource, /streakMeter\.dataset\.multiplier = String\(snapshot\.multiplier\)/);
   assert.match(mainSource, /textContent = `x\$\{snapshot\.multiplier\}`/);
   assert.match(mainSource, /multiplierBasePoints/);
   assert.match(mainSource, /runId:\s*submittedResult\.runId/);
@@ -476,6 +477,10 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   );
   assert.match(stylesSource, /\.speed-summary__segment--perfect/);
   assert.match(stylesSource, /@keyframes streak-fill-sheen/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="2"\][\s\S]*--streak-track-background: #72e995/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="3"\][\s\S]*--streak-track-background: #67adff/);
+  assert.match(stylesSource, /\.streak-meter\[data-multiplier="4"\][\s\S]*--streak-track-background: #c68cff/);
+  assert.match(stylesSource, /\.streak-meter__track[\s\S]*background: var\(--streak-track-background\)/);
   assert.match(stylesSource, /\.streak-meter--full \.streak-meter__track/);
   assert.match(mainSource, /function hasConfirmedProfile\(\)/);
   assert.match(mainSource, /profile\?\.nicknameConfirmed === true/);

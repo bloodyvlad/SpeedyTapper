@@ -364,3 +364,16 @@ Decision: Godlike, Perfect, and Great reactions each advance the five-step strea
 Consequences: The visible meter now responds to every reaction rated Great or better, matching player expectations. Scores under this rule can rise faster than under D-026 and are therefore not directly comparable with earlier leaderboard rows; this decision does not authorize clearing production data.
 
 Revisit when: Playtesting indicates that Great makes multipliers too easy to sustain, Good should advance, the five-hit milestone needs adjustment, or leaderboard comparability requires a formal season boundary.
+
+## D-028 — Show the active multiplier tier beneath streak progress
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: A dark track at every multiplier makes the larger streak meter communicate only progress toward the next tier. Players also need the already-earned x2, x3, or x4 state to remain visually obvious while a new five-hit streak is filling.
+
+Decision: Keep the x1 track dark. At x2 through x5, give the track and multiplier label one shared tier color—green, blue, violet, then gold—and layer the existing animated progress gradient above the solid tier background. Keep the streak label above both layers and retain the full-meter glow.
+
+Consequences: The base color communicates the active multiplier even at zero progress, while the animated overlay continues to communicate progress toward the next multiplier. The meter gains no new text or gameplay rule.
+
+Revisit when: Physical-device playtesting finds the saturated base too bright, the overlay difficult to distinguish from a tier color, or the tier palette conflicts with target recognition.

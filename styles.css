@@ -480,6 +480,9 @@ button {
 
 .streak-meter {
   --streak-progress: 0;
+  --streak-tier-color: #d6daea;
+  --streak-tier-glow: rgba(214, 218, 234, 0.24);
+  --streak-track-background: rgba(255, 255, 255, 0.075);
   width: min(calc(100vw - 24px), calc(100dvh - 252px), 680px);
   min-height: 50px;
   padding: 6px 9px;
@@ -494,6 +497,30 @@ button {
   gap: 10px;
   align-items: center;
   backdrop-filter: blur(14px);
+}
+
+.streak-meter[data-multiplier="2"] {
+  --streak-tier-color: #72e995;
+  --streak-tier-glow: rgba(114, 233, 149, 0.52);
+  --streak-track-background: #72e995;
+}
+
+.streak-meter[data-multiplier="3"] {
+  --streak-tier-color: #67adff;
+  --streak-tier-glow: rgba(103, 173, 255, 0.52);
+  --streak-track-background: #67adff;
+}
+
+.streak-meter[data-multiplier="4"] {
+  --streak-tier-color: #c68cff;
+  --streak-tier-glow: rgba(198, 140, 255, 0.52);
+  --streak-track-background: #c68cff;
+}
+
+.streak-meter[data-multiplier="5"] {
+  --streak-tier-color: #ffd84d;
+  --streak-tier-glow: rgba(255, 216, 77, 0.56);
+  --streak-track-background: #ffd84d;
 }
 
 :root[data-theme="disco"] .streak-meter {
@@ -512,11 +539,11 @@ button {
   overflow: hidden;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.11);
-  background: rgba(255, 255, 255, 0.075);
+  background: var(--streak-track-background);
   box-shadow:
     inset 0 1px 4px rgba(0, 0, 0, 0.46),
     0 0 0 rgba(177, 104, 255, 0);
-  transition: box-shadow 180ms ease, border-color 180ms ease;
+  transition: background-color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .streak-meter__fill {
@@ -561,13 +588,14 @@ button {
 
 .streak-meter__multiplier {
   min-width: 46px;
-  color: #ffe264;
+  color: var(--streak-tier-color);
   font-size: 1.3rem;
   font-variant-numeric: tabular-nums;
   font-weight: 1000;
   line-height: 1;
   text-align: center;
-  text-shadow: 0 0 15px rgba(255, 216, 77, 0.52);
+  text-shadow: 0 0 15px var(--streak-tier-glow);
+  transition: color 180ms ease, text-shadow 180ms ease;
   white-space: nowrap;
 }
 
