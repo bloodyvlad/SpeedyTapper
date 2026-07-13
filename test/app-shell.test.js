@@ -414,6 +414,15 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
   assertClickHandler("gameMenuButton", "showMainMenu");
   assertClickHandler("mainMenuButton", "showMainMenu");
   assert.match(mainSource, /function showMainMenu\(\)[\s\S]*elements\.normalButton\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(stylesSource, /\.dialog\s*\{[^}]*width:\s*min\(100%,\s*460px\)/s);
+  assert.match(
+    stylesSource,
+    /\.dialog-utility \.brand-logo\s*\{[^}]*font-size:\s*clamp\(1\.05rem,\s*4\.7vw,\s*1\.45rem\)[^}]*line-height:\s*1\.08/s
+  );
+  assert.match(
+    stylesSource,
+    /\.overlay\s*\{[^}]*max\(10px,\s*env\(safe-area-inset-right\)\)[^}]*max\(10px,\s*env\(safe-area-inset-left\)\)/s
+  );
 });
 
 test("three-minute Zen, independent decoys, and speed feedback are wired into the shell", () => {

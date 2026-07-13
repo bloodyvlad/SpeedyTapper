@@ -158,7 +158,9 @@ button {
 .dialog-utility .brand-logo {
   min-width: 0;
   margin: 0;
-  font-size: clamp(1.35rem, 6vw, 1.85rem);
+  padding: 0 2px 2px 0;
+  font-size: clamp(1.05rem, 4.7vw, 1.45rem);
+  line-height: 1.08;
 }
 
 .dialog-utility__actions {
@@ -840,9 +842,9 @@ button {
   place-items: center;
   padding:
     max(18px, env(safe-area-inset-top))
-    max(18px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-right))
     max(18px, env(safe-area-inset-bottom))
-    max(18px, env(safe-area-inset-left));
+    max(10px, env(safe-area-inset-left));
   background: rgba(5, 6, 12, 0.78);
   backdrop-filter: blur(18px);
   transition: opacity 160ms ease;
@@ -864,7 +866,7 @@ button {
 }
 
 .dialog {
-  width: min(100%, 430px);
+  width: min(100%, 460px);
   max-height: 100%;
   overflow: auto;
   padding: clamp(22px, 6vw, 32px);
@@ -2042,7 +2044,7 @@ h1 {
   }
 
   .dialog-utility .brand-logo {
-    font-size: 1.08rem;
+    font-size: 1rem;
   }
 
   .dialog-utility__actions {
