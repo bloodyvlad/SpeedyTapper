@@ -428,10 +428,16 @@ test("five Godlike or Perfect taps unlock the next multiplier for the following 
   assert.equal(thresholdHit.multiplierRaised, true);
   assert.equal(thresholdHit.snapshot.streakProgress, 0);
 
+  const accumulatedBeforeMultiplier = thresholdHit.snapshot.points;
   const multipliedHit = hitRound(engine, 5_500, 350);
   assert.equal(multipliedHit.speedRating.id, SPEED_RATING_IDS.GREAT);
   assert.equal(multipliedHit.multiplierUsed, 2);
   assert.equal(multipliedHit.pointsAwarded, multipliedHit.basePointsAwarded * 2);
+  assert.equal(
+    multipliedHit.snapshot.points,
+    accumulatedBeforeMultiplier + multipliedHit.pointsAwarded,
+    "The multiplier applies only to the current tap and never rescales the accumulated run score."
+  );
   assert.equal(multipliedHit.snapshot.multiplier, 2);
 });
 

@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-7";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-7";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-8";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-8";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-7";
+} from "./input-timing.js?v=20260713-8";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-7";
-import { createSoundController } from "./sound-controller.js?v=20260713-7";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-7";
+} from "./music-controller.js?v=20260713-8";
+import { createSoundController } from "./sound-controller.js?v=20260713-8";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-8";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
@@ -59,6 +59,7 @@ const elements = {
   leaderboardBackButton: document.querySelector("#leaderboard-back-button"),
   leaderboardMenuButton: document.querySelector("#leaderboard-menu-button"),
   leaderboardPanel: document.querySelector("#leaderboard-panel"),
+  leaderboardPlayerPosition: document.querySelector("#leaderboard-player-position"),
   leaderboardStatus: document.querySelector("#leaderboard-status"),
   leaderboardTabs: [...document.querySelectorAll("[data-leaderboard-mode]")],
   leaderboardToggle: document.querySelector("#leaderboard-toggle"),
@@ -370,9 +371,7 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  const musicStatus = musicEnabled
-    ? interactiveMusicEnabled ? "interactive" : "on"
-    : "off";
+  const musicStatus = musicEnabled ? "on" : "off";
   elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicStatus}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
@@ -1220,15 +1219,40 @@ function renderLeaderboard(
   listElement.append(fragment);
 }
 
-function setLeaderboardSummary(totalEntries, playerRank = null) {
+function renderLeaderboardPlayerPosition(totalEntries, playerRank = null, topPercent = null) {
+  if (!profileSession.authenticated) {
+    elements.leaderboardPlayerPosition.hidden = true;
+    elements.leaderboardPlayerPosition.textContent = "";
+    return;
+  }
+
+  const safeTotal = Number.isInteger(totalEntries) && totalEntries > 0 ? totalEntries : 0;
+  const safeRank = Number.isInteger(playerRank) && playerRank > 0 ? playerRank : null;
+  if (safeTotal === 0 || safeRank === null) {
+    elements.leaderboardPlayerPosition.hidden = false;
+    elements.leaderboardPlayerPosition.textContent = "Your position: Unranked";
+    return;
+  }
+
+  const calculatedPercent = Math.ceil((safeRank / safeTotal) * 100);
+  const safePercent = Number.isFinite(topPercent)
+    ? Math.max(1, Math.min(100, Math.ceil(topPercent)))
+    : Math.max(1, Math.min(100, calculatedPercent));
+  elements.leaderboardPlayerPosition.hidden = false;
+  elements.leaderboardPlayerPosition.textContent =
+    `Your position: #${safeRank.toLocaleString()} · Top ${safePercent}%`;
+}
+
+function setLeaderboardSummary(totalEntries, playerRank = null, topPercent = null) {
   const safeTotal = Number.isInteger(totalEntries) ? totalEntries : 0;
+  renderLeaderboardPlayerPosition(safeTotal, playerRank, topPercent);
   if (safeTotal === 0) {
     setLeaderboardStatus("No ranked results yet.");
     return;
   }
   if (playerRank !== null) {
     setLeaderboardStatus(
-      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "player" : "players"} · You are #${playerRank.toLocaleString()}.`
+      `${safeTotal.toLocaleString()} ranked ${safeTotal === 1 ? "player" : "players"} · Showing the top ${Math.min(5, safeTotal)} and your nearby positions.`
     );
     return;
   }
@@ -1248,7 +1272,11 @@ function renderSubmittedLeaderboard(mode) {
   leaderboardRequestId += 1;
   selectLeaderboardMode(mode);
   renderLeaderboard(pendingResult.leaderboardEntries, mode, pendingResult.rank);
-  setLeaderboardSummary(pendingResult.leaderboardTotalEntries, pendingResult.rank);
+  setLeaderboardSummary(
+    pendingResult.leaderboardTotalEntries,
+    pendingResult.rank,
+    pendingResult.topPercent
+  );
   return true;
 }
 
@@ -1393,6 +1421,12 @@ async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardR
   const topScoreRevision = topScoreRevisions[mode] + 1;
   topScoreRevisions[mode] = topScoreRevision;
   setLeaderboardStatus("Loading scores…");
+  const cachedRank = currentRank(mode);
+  renderLeaderboardPlayerPosition(
+    cachedRank?.totalEntries ?? 0,
+    cachedRank?.rank ?? null,
+    cachedRank?.topPercent ?? null
+  );
   elements.leaderboardList.replaceChildren();
 
   try {
@@ -1401,7 +1435,7 @@ async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardR
     if (requestId !== leaderboardRequestId) return;
     const playerRank = body.playerRank ?? body.rank ?? null;
     renderLeaderboard(body.entries, mode, playerRank);
-    setLeaderboardSummary(body.totalEntries, playerRank);
+    setLeaderboardSummary(body.totalEntries, playerRank, body.topPercent);
     if (profileSession.authenticated) {
       profileSession = normalizeProfileSession({
         ...profileSession,
@@ -1421,6 +1455,8 @@ async function loadLeaderboard(mode = leaderboardMode, returnView = leaderboardR
   } catch (error) {
     if (requestId !== leaderboardRequestId) return;
     renderLeaderboard([], mode);
+    elements.leaderboardPlayerPosition.hidden = true;
+    elements.leaderboardPlayerPosition.textContent = "";
     setLeaderboardStatus(error.message, true);
   }
 }
@@ -1498,6 +1534,7 @@ async function submitPendingResult() {
     submittedResult.submitted = true;
     submittedResult.improved = body.improved === true;
     submittedResult.rank = body.playerRank ?? body.rank ?? null;
+    submittedResult.topPercent = body.topPercent ?? null;
     submittedResult.leaderboardEntries = body.entries;
     submittedResult.leaderboardTotalEntries = body.totalEntries;
     submittedResult.coinsEarned = Number.isInteger(body.coinsEarned) ? body.coinsEarned : 0;

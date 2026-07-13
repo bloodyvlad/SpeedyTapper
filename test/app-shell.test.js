@@ -17,7 +17,7 @@ const [indexHtml, mainSource, configSource, engineSource, musicSource, soundSour
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-7");
+  assert.equal(buildId, "20260713-8");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -66,7 +66,7 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
   assert.match(soundSetting, />\s*Beta\s*</i);
   assert.match(soundToggle, /role="switch"/);
   assert.match(soundToggle, /\bchecked\b/);
-  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music interactive</);
+  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
   assert.match(mainSource, /speedytapper\.soundFx\.v1/);
   assert.match(mainSource, /let soundFxEnabled = true;/);
   assert.match(mainSource, /soundFxEnabled = storedSoundFx !== "off";/);
@@ -334,6 +334,10 @@ test("result leaderboard navigation preserves result context and renders compact
   assert.match(indexHtml, /id="leaderboard-toggle"[\s\S]*id="leaderboard-rank" hidden/);
   assert.match(indexHtml, /class="leaderboard-utility"/);
   assert.match(indexHtml, /class="leaderboard-tabs" role="group" aria-label="Leaderboard mode"/);
+  assert.match(
+    indexHtml,
+    /class="leaderboard-tabs"[^>]*>[\s\S]*?<\/div>\s*<p class="leaderboard-player-position" id="leaderboard-player-position"/
+  );
   assert.doesNotMatch(indexHtml, /role="tab"|role="tablist"|aria-selected/);
   assert.match(mainSource, /let leaderboardReturnView = "menu";/);
   assert.match(mainSource, /function openResultLeaderboard\(\)/);
@@ -343,12 +347,24 @@ test("result leaderboard navigation preserves result context and renders compact
   assert.match(mainSource, /const entryRank = Number\.isInteger\(entry\.rank\) \? entry\.rank : index \+ 1/);
   assert.match(mainSource, /entryRank > previousRank \+ 1/);
   assert.match(mainSource, /currentBadge\.textContent = "You"/);
+  assert.match(mainSource, /function renderLeaderboardPlayerPosition\(/);
+  assert.match(mainSource, /`Your position: #\$\{safeRank\.toLocaleString\(\)\} · Top \$\{safePercent\}%`/);
+  assert.match(mainSource, /if \(!profileSession\.authenticated\) \{[\s\S]*leaderboardPlayerPosition\.hidden = true/);
+  assert.match(mainSource, /submittedResult\.topPercent = body\.topPercent \?\? null/);
   assert.match(stylesSource, /\.leaderboard-entry\.is-current/);
   assert.match(stylesSource, /\.leaderboard-gap/);
   assert.match(
     stylesSource,
     /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*38px\s+minmax\(0,\s*1fr\)\s+auto/s
   );
+});
+
+test("the settings shortcut uses simple music state copy and the app carries the OTC Software footer", () => {
+  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
+  assert.match(mainSource, /const musicStatus = musicEnabled \? "on" : "off";/);
+  assert.doesNotMatch(mainSource, /Music \$\{musicStatus\}[\s\S]*musicStatus[^\n]+interactive/);
+  assert.match(indexHtml, /<footer class="copyright-footer">Copyright © 2026 OTC Software<\/footer>/);
+  assert.match(stylesSource, /\.copyright-footer/);
 });
 
 test("player-facing profile and leaderboard copy uses personal bests without season jargon", () => {
@@ -373,6 +389,7 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
     /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="main-menu-button"/
   );
   assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="leaderboard-toggle"[\s\S]*id="profile-toggle"/);
+  assert.match(indexHtml, /id="coin-balance"[\s\S]*<ellipse cx="12" cy="6" rx="6\.5" ry="2\.5"/);
 
   assert.match(mainSource, /gameRestartButton:\s*document\.querySelector\("#game-restart-button"\)/);
   assert.match(mainSource, /gameMenuButton:\s*document\.querySelector\("#game-menu-button"\)/);

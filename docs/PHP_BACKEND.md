@@ -17,7 +17,7 @@ php server/bin/migrate.php
 npm run check:php
 ```
 
-The API automatically applies pending idempotent migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a fresh season, Google-backed internal player profiles, and one best leaderboard row per player, mode, and season. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and one best leaderboard row per player, mode, and season. The multiplier-scoring release deletes the existing leaderboard rows once through migration `004`; profiles and coin balances remain intact. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 

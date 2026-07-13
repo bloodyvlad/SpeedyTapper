@@ -309,7 +309,7 @@ Context: Reaction ratings are visible but do not currently create a longer perfo
 
 Decision: Godlike and Perfect taps advance a five-step boost meter. Each completed group of five unlocks the next multiplier for subsequent correct taps: 2×, 3×, 4×, then a 5× cap. The threshold tap uses the multiplier that was active when it appeared; the newly unlocked level begins on the next tap. Great scores at and preserves the current multiplier without advancing the meter. Good resets to 1× before it scores. Every mistake resets immediately in both modes. Decoy expiry is neutral and its fixed dodge points are never multiplied. Keep deterministic per-tier hit and base-point totals so the PHP boundary can exactly reconcile base score, multiplier bonus, dodges, and total score.
 
-Consequences: The meter appears directly below the board and shows progress toward the next tier or `MAX`. Multiplied scores are not comparable with pre-multiplier leaderboard rows, so this candidate must not be promoted into the existing ranking generation until a separately approved preservation or generation-change plan exists.
+Consequences: The meter appears directly below the board and shows progress toward the next tier or `MAX`. A multiplier affects only the current correct tap; it never rescales the accumulated run total, fixed dodge awards, or time-based coins. Multiplied scores are not comparable with pre-multiplier leaderboard rows, so migration `004_clear_leaderboard_for_multiplier_scoring.sql` removes those rows before the new scoring model goes live.
 
 Revisit when: Playtesting shows that Great should break or advance the meter, the threshold tap should receive the new multiplier, five hits is the wrong cadence, or multiplied scores overwhelm reaction readability.
 

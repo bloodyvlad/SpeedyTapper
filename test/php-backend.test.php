@@ -196,6 +196,29 @@ $maxMultiplierRun = ScoreSubmission::fromArray([
 ]);
 $assert($maxMultiplierRun->maxMultiplier === 5, 'Validated scoring supports the five-times multiplier cap.');
 
+$baseOnlySameDuration = ScoreSubmission::fromArray([
+    'runId' => 'd4d867d5-4077-45dd-8428-8b652fcf1299',
+    'mode' => 'normal',
+    'score' => 21_000,
+    'reactionBasePoints' => 21_000,
+    'multiplierBonusPoints' => 0,
+    'maxMultiplier' => 1,
+    'multiplierHitCounts' => ['one' => 21, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'multiplierBasePoints' => ['one' => 21_000, 'two' => 0, 'three' => 0, 'four' => 0, 'five' => 0],
+    'hits' => 21,
+    'dodges' => 0,
+    'survivalMs' => 120_000,
+    'fastestReactionMs' => 400,
+    'averageReactionMs' => 400,
+    'speedRatings' => ['godlike' => 0, 'perfect' => 0, 'great' => 0, 'good' => 21],
+]);
+$multipliedRunCoins = CoinProgression::accrue(0, $maxMultiplierRun->survivalMs);
+$baseOnlyRunCoins = CoinProgression::accrue(0, $baseOnlySameDuration->survivalMs);
+$assert(
+    $multipliedRunCoins == $baseOnlyRunCoins,
+    'Coin awards depend only on completed play time, not score or multiplier tiers.',
+);
+
 $milestoneRuns = [
     5 => [
         'runId' => '5e4f46d1-a132-4b97-b9a1-481090dca940',
@@ -301,10 +324,15 @@ $throwsApi(
 
 $schema = file_get_contents(dirname(__DIR__) . '/server/migrations/001_profiles_and_leaderboard.sql')
     . file_get_contents(dirname(__DIR__) . '/server/migrations/002_add_nickname_confirmation.sql')
-    . file_get_contents(dirname(__DIR__) . '/server/migrations/003_completed_runs_and_coins.sql');
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/003_completed_runs_and_coins.sql')
+    . file_get_contents(dirname(__DIR__) . '/server/migrations/004_clear_leaderboard_for_multiplier_scoring.sql');
 foreach (['google_subject_hash', 'nickname_confirmed', 'godlike_count', 'perfect_count', 'great_count', 'good_count', 'leaderboard_player_mode_season_unique', 'completed_runs', 'payload_hash', 'coin_time_remainder_ms', 'players_coin_remainder_range', 'total_play_ms', 'multiplier_5_hits', 'multiplier_5_base_points'] as $needle) {
     $assert(is_string($schema) && str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
+$assert(
+    is_string($schema) && str_contains($schema, 'DELETE FROM leaderboard_entries'),
+    'The multiplier-scoring migration clears all existing leaderboard scores.',
+);
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
 foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard'] as $route) {
@@ -325,6 +353,7 @@ $assert(
     && str_contains($runService, 'FOR UPDATE')
     && str_contains($runService, 'hash_equals')
     && str_contains($runService, 'CoinProgression::accrue')
+    && str_contains($runService, '$score->survivalMs')
     && str_contains($runService, 'updateBestInTransaction'),
     'Run accounting serializes player updates, detects mismatched retries, and updates progression with ranking.',
 );
