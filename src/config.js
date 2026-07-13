@@ -35,7 +35,7 @@ export const GAME_MODES = Object.freeze({
 
 export const GAME_CONFIG = Object.freeze({
   startingLives: 3,
-  zenDurationMs: 60_000,
+  zenDurationMs: 180_000,
   lifeLossRecoveryMs: 1_500,
   twoByTwoStartsAtHits: 4,
   phases: Object.freeze({
@@ -56,25 +56,17 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourMinimum: 200,
     fourByFourDecreasePerHit: 10
   }),
-  chances: Object.freeze({
-    soloWrongColor: 0.35,
-    rarePhaseWrongColor: 0.25,
-    rarePhaseMixedDecoy: 0.1,
-    fourByFourWrongColor: 0.25,
-    fourByFourChallengeWrongColor: 0.2,
-    fourByFourChallengeMixedDecoy: 0.2
-  }),
   endlessDifficulty: Object.freeze({
     hitsPerTier: 10,
     maximumDecoys: 6,
-    mixedChanceIncreasePerHit: 0.015,
-    maximumMixedDecoyChance: 0.8,
-    wrongColorDecreasePerTier: 0.02,
-    minimumWrongColorChance: 0.06,
     spawnMinimumDecreasePerTierMs: 15,
     spawnMaximumDecreasePerTierMs: 25,
     minimumSpawnDelayMs: 250,
-    maximumSpawnDelayFloorMs: 500
+    maximumSpawnDelayFloorMs: 500,
+    decoyMinimumDelayMs: 100,
+    decoyMaximumDelayFloorMs: 250,
+    decoyMinimumDecreasePerTierMs: 35,
+    decoyMaximumDecreasePerTierMs: 50
   }),
   spawnDelayRangesMs: Object.freeze({
     warmup: Object.freeze([550, 1_100]),
@@ -83,6 +75,18 @@ export const GAME_CONFIG = Object.freeze({
     rareDecoys: Object.freeze([475, 900]),
     fourByFourReset: Object.freeze([525, 950]),
     fourByFourChallenge: Object.freeze([425, 825])
+  }),
+  decoys: Object.freeze({
+    maximumLifetimeMs: 500,
+    lifetimeRangeMs: Object.freeze([300, 500]),
+    retryDelayMs: 150,
+    spawnDelayRangesMs: Object.freeze({
+      colorPatience: Object.freeze([900, 1_500]),
+      gentleRamp: Object.freeze([800, 1_300]),
+      rareDecoys: Object.freeze([600, 1_000]),
+      fourByFourReset: Object.freeze([900, 1_400]),
+      fourByFourChallenge: Object.freeze([350, 700])
+    })
   }),
   dodgePoints: 550,
   scoreFloor: 100,

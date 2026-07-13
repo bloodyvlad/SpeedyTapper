@@ -138,7 +138,7 @@ test("an exact-deadline contact is late and cannot be charged twice", () => {
   assert.equal(engine.misses, 1);
 });
 
-test("Zen input at or after sixty seconds finalizes without adding points", () => {
+test("Zen input at or after three minutes finalizes without adding points", () => {
   const engine = new GameEngine({ random: () => 0 });
   const startedAt = 1_000;
   const runDeadlineAt = startedAt + engine.config.zenDurationMs;

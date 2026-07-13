@@ -8,10 +8,24 @@ export const GAME_STATES = Object.freeze({
 });
 
 export const ROUND_KINDS = Object.freeze({
-  TARGET: "target",
-  WRONG_ONLY: "wrong-only",
-  MIXED: "mixed"
+  TARGET: "target"
 });
+
+export const SPEED_RATING_IDS = Object.freeze({
+  GODLIKE: "godlike",
+  PERFECT: "perfect",
+  GREAT: "great",
+  GOOD: "good"
+});
+
+export const SPEED_RATINGS = Object.freeze([
+  Object.freeze({ id: SPEED_RATING_IDS.GODLIKE, label: "Godlike", maximumExclusiveMs: 200 }),
+  Object.freeze({ id: SPEED_RATING_IDS.PERFECT, label: "Perfect", maximumExclusiveMs: 300 }),
+  Object.freeze({ id: SPEED_RATING_IDS.GREAT, label: "Great", maximumExclusiveMs: 400 }),
+  Object.freeze({ id: SPEED_RATING_IDS.GOOD, label: "Good", maximumExclusiveMs: Infinity })
+]);
+
+export const MAX_DECOY_LIFETIME_MS = 500;
 
 const EMPTY_CELL = Object.freeze({ kind: "idle", colorIndex: null });
 
@@ -21,15 +35,6 @@ function clamp(value, minimum, maximum) {
 
 function randomInteger(random, maximumExclusive) {
   return Math.floor(clamp(random(), 0, 0.999999999) * maximumExclusive);
-}
-
-function shuffled(values, random) {
-  const result = [...values];
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    const otherIndex = randomInteger(random, index + 1);
-    [result[index], result[otherIndex]] = [result[otherIndex], result[index]];
-  }
-  return result;
 }
 
 export function orthogonalNeighbors(index, dimension) {
@@ -46,7 +51,7 @@ export function orthogonalNeighbors(index, dimension) {
 }
 
 export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = GAME_CONFIG) {
-  const { phases, responseWindowsMs, chances, spawnDelayRangesMs } = config;
+  const { phases, responseWindowsMs, spawnDelayRangesMs } = config;
   const gridDimension =
     elapsedMs >= phases.fourByFourStartsAtMs
       ? 4
@@ -58,16 +63,16 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
   let phaseName = "Warm-up";
   let responseWindowMs = responseWindowsMs.comfortable;
   let spawnDelayRangeMs = spawnDelayRangesMs.warmup;
-  let wrongOnlyChance = 0;
-  let mixedDecoyChance = 0;
-  let decoyCount = 0;
+  let decoySpawnDelayRangeMs = null;
+  let maximumActiveDecoys = 0;
   let challengeTier = 0;
 
   if (elapsedMs >= phases.colorPatienceStartsAtMs) {
     phaseId = "color-patience";
     phaseName = "Color patience";
     spawnDelayRangeMs = spawnDelayRangesMs.colorPatience;
-    wrongOnlyChance = chances.soloWrongColor;
+    decoySpawnDelayRangeMs = config.decoys.spawnDelayRangesMs.colorPatience;
+    maximumActiveDecoys = 1;
   }
 
   if (elapsedMs >= phases.gentleRampStartsAtMs) {
@@ -80,6 +85,8 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
         (responseWindowsMs.comfortable - responseWindowsMs.gentleMinimum) * rampProgress
     );
     spawnDelayRangeMs = spawnDelayRangesMs.gentleRamp;
+    decoySpawnDelayRangeMs = config.decoys.spawnDelayRangesMs.gentleRamp;
+    maximumActiveDecoys = 1;
   }
 
   if (elapsedMs >= phases.rareDecoysStartAtMs) {
@@ -87,9 +94,8 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     phaseName = "Rare decoys";
     responseWindowMs = responseWindowsMs.gentleMinimum;
     spawnDelayRangeMs = spawnDelayRangesMs.rareDecoys;
-    wrongOnlyChance = chances.rarePhaseWrongColor;
-    mixedDecoyChance = chances.rarePhaseMixedDecoy;
-    decoyCount = 1;
+    decoySpawnDelayRangeMs = config.decoys.spawnDelayRangesMs.rareDecoys;
+    maximumActiveDecoys = 2;
   }
 
   if (elapsedMs >= phases.fourByFourStartsAtMs) {
@@ -97,9 +103,8 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     phaseName = "16-cell reset";
     responseWindowMs = responseWindowsMs.fourByFourStart;
     spawnDelayRangeMs = spawnDelayRangesMs.fourByFourReset;
-    wrongOnlyChance = chances.fourByFourWrongColor;
-    mixedDecoyChance = 0;
-    decoyCount = 0;
+    decoySpawnDelayRangeMs = config.decoys.spawnDelayRangesMs.fourByFourReset;
+    maximumActiveDecoys = 1;
   }
 
   if (elapsedMs >= phases.fourByFourChallengeStartsAtMs) {
@@ -131,17 +136,19 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
           challengeTier * endless.spawnMaximumDecreasePerTierMs
       )
     ];
-    wrongOnlyChance = Math.max(
-      endless.minimumWrongColorChance,
-      chances.fourByFourChallengeWrongColor -
-        challengeTier * endless.wrongColorDecreasePerTier
-    );
-    mixedDecoyChance = Math.min(
-      endless.maximumMixedDecoyChance,
-      chances.fourByFourChallengeMixedDecoy +
-        challengeHits * endless.mixedChanceIncreasePerHit
-    );
-    decoyCount = Math.min(endless.maximumDecoys, 1 + challengeTier);
+    decoySpawnDelayRangeMs = [
+      Math.max(
+        endless.decoyMinimumDelayMs,
+        config.decoys.spawnDelayRangesMs.fourByFourChallenge[0] -
+          challengeTier * endless.decoyMinimumDecreasePerTierMs
+      ),
+      Math.max(
+        endless.decoyMaximumDelayFloorMs,
+        config.decoys.spawnDelayRangesMs.fourByFourChallenge[1] -
+          challengeTier * endless.decoyMaximumDecreasePerTierMs
+      )
+    ];
+    maximumActiveDecoys = Math.min(endless.maximumDecoys, 2 + challengeTier);
   }
 
   return Object.freeze({
@@ -150,9 +157,8 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     phaseName,
     responseWindowMs,
     spawnDelayRangeMs,
-    wrongOnlyChance,
-    mixedDecoyChance,
-    decoyCount,
+    decoySpawnDelayRangeMs,
+    maximumActiveDecoys,
     challengeTier
   });
 }
@@ -161,6 +167,25 @@ export function scoreReaction(reactionMs, responseWindowMs, config = GAME_CONFIG
   const remainingRatio = clamp(1 - reactionMs / responseWindowMs, 0, 1);
   const range = config.scoreCeiling - config.scoreFloor;
   return Math.round(config.scoreFloor + range * remainingRatio ** 2);
+}
+
+export function classifyReaction(reactionMs) {
+  const displayedMs = Math.round(Math.max(0, reactionMs));
+  const rating = SPEED_RATINGS.find(({ maximumExclusiveMs }) => displayedMs < maximumExclusiveMs);
+  return Object.freeze({
+    id: rating.id,
+    label: rating.label,
+    displayedMs
+  });
+}
+
+function emptySpeedRatingCounts() {
+  return {
+    [SPEED_RATING_IDS.GODLIKE]: 0,
+    [SPEED_RATING_IDS.PERFECT]: 0,
+    [SPEED_RATING_IDS.GREAT]: 0,
+    [SPEED_RATING_IDS.GOOD]: 0
+  };
 }
 
 export class GameEngine {
@@ -185,6 +210,7 @@ export class GameEngine {
     this.dodges = 0;
     this.reactionTotalMs = 0;
     this.fastestReactionMs = null;
+    this.speedRatings = emptySpeedRatingCounts();
     this.startedAt = null;
     this.endedAt = null;
     this.endReason = null;
@@ -193,7 +219,8 @@ export class GameEngine {
     this.roundKind = null;
     this.activeAt = null;
     this.targetIndex = null;
-    this.cells = [];
+    this.activeDecoys = [];
+    this.nextDecoyId = 1;
     this.challengeStartHits = null;
   }
 
@@ -235,10 +262,36 @@ export class GameEngine {
     return Math.round(minimum + this.random() * (maximum - minimum));
   }
 
+  getNextDecoyDelayMs(now) {
+    if (this.state === GAME_STATES.IDLE || this.state === GAME_STATES.GAME_OVER) {
+      return null;
+    }
+
+    const elapsedMs = this.getElapsedMs(now);
+    if (elapsedMs < this.config.phases.colorPatienceStartsAtMs) {
+      return Math.ceil(this.config.phases.colorPatienceStartsAtMs - elapsedMs);
+    }
+
+    const difficulty = this.#currentDifficulty(now);
+    if (difficulty.gridDimension < 2 || difficulty.decoySpawnDelayRangeMs === null) {
+      return this.config.decoys.retryDelayMs;
+    }
+
+    const [minimum, maximum] = difficulty.decoySpawnDelayRangeMs;
+    return Math.round(minimum + this.random() * (maximum - minimum));
+  }
+
+  getNextDecoyExpiryAt() {
+    if (this.activeDecoys.length === 0) return null;
+    return Math.min(...this.activeDecoys.map(({ expiresAt }) => expiresAt));
+  }
+
   activateRound(now) {
     if (this.state !== GAME_STATES.WAITING) {
       return Object.freeze({ type: "ignored", reason: "not-waiting", snapshot: this.getSnapshot(now) });
     }
+
+    const settled = this.#settleExpiredDecoys(now);
 
     const elapsedMs = this.getElapsedMs(now);
     if (
@@ -255,62 +308,141 @@ export class GameEngine {
       this.config
     );
     const cellCount = difficulty.gridDimension ** 2;
-    const cells = Array.from({ length: cellCount }, () => ({ ...EMPTY_CELL }));
-    let roundKind = ROUND_KINDS.TARGET;
-
-    const roundKindRoll = this.random();
-    if (difficulty.wrongOnlyChance > 0 && roundKindRoll < difficulty.wrongOnlyChance) {
-      roundKind = ROUND_KINDS.WRONG_ONLY;
-    } else if (
-      difficulty.mixedDecoyChance > 0 &&
-      roundKindRoll < difficulty.wrongOnlyChance + difficulty.mixedDecoyChance
-    ) {
-      roundKind = ROUND_KINDS.MIXED;
+    const occupiedIndexes = new Set(this.activeDecoys.map(({ cellIndex }) => cellIndex));
+    const availableIndexes = Array.from({ length: cellCount }, (_, index) => index).filter(
+      (index) => !occupiedIndexes.has(index)
+    );
+    if (availableIndexes.length === 0) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "no-target-cell",
+        dodgesAwarded: settled.count,
+        dodgePointsAwarded: settled.pointsAwarded,
+        snapshot: this.getSnapshot(now)
+      });
     }
 
-    const litIndex = randomInteger(this.random, cellCount);
-    let targetIndex = litIndex;
-
-    if (roundKind === ROUND_KINDS.WRONG_ONLY) {
-      targetIndex = null;
-      cells[litIndex] = { kind: "wrong-only", colorIndex: this.#differentColorIndex() };
-    } else {
-      cells[targetIndex] = { kind: "target", colorIndex: this.playerColorIndex };
-    }
-
-    if (roundKind === ROUND_KINDS.MIXED) {
-      const adjacent = shuffled(
-        orthogonalNeighbors(targetIndex, difficulty.gridDimension),
-        this.random
-      );
-      const fallback = shuffled(
-        Array.from({ length: cellCount }, (_, index) => index).filter(
-          (index) => index !== targetIndex && !adjacent.includes(index)
-        ),
-        this.random
-      );
-      const decoyIndexes = [...adjacent, ...fallback].slice(
-        0,
-        Math.min(difficulty.decoyCount, cellCount - 1)
-      );
-      for (const decoyIndex of decoyIndexes) {
-        cells[decoyIndex] = { kind: "decoy", colorIndex: this.#differentColorIndex() };
-      }
-    }
+    const targetIndex = availableIndexes[randomInteger(this.random, availableIndexes.length)];
 
     this.state = GAME_STATES.ACTIVE;
     this.roundDifficulty = difficulty;
-    this.roundKind = roundKind;
+    this.roundKind = ROUND_KINDS.TARGET;
     this.activeAt = now;
     this.targetIndex = targetIndex;
-    this.cells = cells;
 
-    return Object.freeze({ type: "round-active", snapshot: this.getSnapshot(now) });
+    return Object.freeze({
+      type: "round-active",
+      dodgesAwarded: settled.count,
+      dodgePointsAwarded: settled.pointsAwarded,
+      snapshot: this.getSnapshot(now)
+    });
+  }
+
+  activateDecoy(now) {
+    if (this.state === GAME_STATES.IDLE || this.state === GAME_STATES.GAME_OVER) {
+      return Object.freeze({ type: "ignored", reason: "not-running", snapshot: this.getSnapshot(now) });
+    }
+
+    const settled = this.#settleExpiredDecoys(now);
+    const difficulty = this.#currentDifficulty(now);
+    const cellCount = difficulty.gridDimension ** 2;
+    const maximumActiveDecoys = Math.min(
+      difficulty.maximumActiveDecoys,
+      Math.max(0, cellCount - 1)
+    );
+
+    if (difficulty.decoySpawnDelayRangeMs === null || maximumActiveDecoys === 0) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "decoys-disabled",
+        dodgesAwarded: settled.count,
+        dodgePointsAwarded: settled.pointsAwarded,
+        snapshot: this.getSnapshot(now)
+      });
+    }
+
+    if (this.activeDecoys.length >= maximumActiveDecoys) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "decoy-capacity",
+        dodgesAwarded: settled.count,
+        dodgePointsAwarded: settled.pointsAwarded,
+        snapshot: this.getSnapshot(now)
+      });
+    }
+
+    const occupiedIndexes = new Set(this.activeDecoys.map(({ cellIndex }) => cellIndex));
+    if (this.targetIndex !== null) occupiedIndexes.add(this.targetIndex);
+    const availableIndexes = Array.from({ length: cellCount }, (_, index) => index).filter(
+      (index) => !occupiedIndexes.has(index)
+    );
+    if (availableIndexes.length === 0) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "no-decoy-cell",
+        dodgesAwarded: settled.count,
+        dodgePointsAwarded: settled.pointsAwarded,
+        snapshot: this.getSnapshot(now)
+      });
+    }
+
+    const [configuredMinimum, configuredMaximum] = this.config.decoys.lifetimeRangeMs;
+    const maximum = Math.min(
+      MAX_DECOY_LIFETIME_MS,
+      this.config.decoys.maximumLifetimeMs,
+      configuredMaximum
+    );
+    const minimum = Math.min(maximum, Math.max(0, configuredMinimum));
+    const lifetimeMs = Math.round(minimum + this.random() * (maximum - minimum));
+    const decoy = {
+      id: this.nextDecoyId,
+      cellIndex: availableIndexes[randomInteger(this.random, availableIndexes.length)],
+      colorIndex: this.#differentColorIndex(),
+      visibleAt: now,
+      expiresAt: now + lifetimeMs
+    };
+    this.nextDecoyId += 1;
+    this.activeDecoys.push(decoy);
+
+    return Object.freeze({
+      type: "decoy-active",
+      decoy: Object.freeze({ ...decoy }),
+      lifetimeMs,
+      dodgesAwarded: settled.count,
+      dodgePointsAwarded: settled.pointsAwarded,
+      snapshot: this.getSnapshot(now)
+    });
+  }
+
+  expireDecoys(now) {
+    if (this.state === GAME_STATES.IDLE || this.state === GAME_STATES.GAME_OVER) {
+      return Object.freeze({ type: "ignored", reason: "not-running", snapshot: this.getSnapshot(now) });
+    }
+
+    const settled = this.#settleExpiredDecoys(now);
+    if (settled.count === 0) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "not-expired",
+        nextExpiryAt: this.getNextDecoyExpiryAt(),
+        snapshot: this.getSnapshot(now)
+      });
+    }
+
+    return Object.freeze({
+      type: "decoys-dodged",
+      decoyIds: Object.freeze([...settled.decoyIds]),
+      dodgesAwarded: settled.count,
+      pointsAwarded: settled.pointsAwarded,
+      snapshot: this.getSnapshot(now)
+    });
   }
 
   tap(cellIndex, now) {
+    const settled = this.#settleExpiredDecoys(now);
+
     if (this.state === GAME_STATES.WAITING) {
-      return this.#miss("empty", now, null);
+      return this.#miss("empty", now, null, settled);
     }
 
     if (this.state !== GAME_STATES.ACTIVE) {
@@ -319,11 +451,11 @@ export class GameEngine {
 
     const reactionMs = Math.max(0, now - this.activeAt);
     if (reactionMs >= this.roundDifficulty.responseWindowMs) {
-      return this.#miss("late", now, reactionMs);
+      return this.#miss("late", now, reactionMs, settled);
     }
 
-    if (this.roundKind === ROUND_KINDS.WRONG_ONLY || cellIndex !== this.targetIndex) {
-      return this.#miss("wrong", now, reactionMs);
+    if (cellIndex !== this.targetIndex) {
+      return this.#miss("wrong", now, reactionMs, settled);
     }
 
     const pointsAwarded = scoreReaction(
@@ -338,6 +470,8 @@ export class GameEngine {
       this.fastestReactionMs === null
         ? reactionMs
         : Math.min(this.fastestReactionMs, reactionMs);
+    const speedRating = classifyReaction(reactionMs);
+    this.speedRatings[speedRating.id] += 1;
     this.#finishRound();
 
     const shouldChangeColor =
@@ -350,6 +484,10 @@ export class GameEngine {
       type: "hit",
       pointsAwarded,
       reactionMs,
+      displayedReactionMs: speedRating.displayedMs,
+      speedRating,
+      dodgesAwarded: settled.count,
+      dodgePointsAwarded: settled.pointsAwarded,
       colorChanged: shouldChangeColor,
       snapshot: this.getSnapshot(now)
     });
@@ -360,30 +498,20 @@ export class GameEngine {
       return Object.freeze({ type: "ignored", reason: "not-active", snapshot: this.getSnapshot(now) });
     }
 
+    const settled = this.#settleExpiredDecoys(now);
     const reactionMs = Math.max(0, now - this.activeAt);
     if (reactionMs < this.roundDifficulty.responseWindowMs) {
       return Object.freeze({
         type: "ignored",
         reason: "not-expired",
         remainingMs: this.roundDifficulty.responseWindowMs - reactionMs,
+        dodgesAwarded: settled.count,
+        dodgePointsAwarded: settled.pointsAwarded,
         snapshot: this.getSnapshot(now)
       });
     }
 
-    if (this.roundKind === ROUND_KINDS.WRONG_ONLY) {
-      const pointsAwarded = this.config.dodgePoints;
-      this.points += pointsAwarded;
-      this.dodges += 1;
-      this.#finishRound();
-      return Object.freeze({
-        type: "ignored-color",
-        pointsAwarded,
-        reactionMs,
-        snapshot: this.getSnapshot(now)
-      });
-    }
-
-    return this.#miss("late", now, reactionMs);
+    return this.#miss("late", now, reactionMs, settled);
   }
 
   finishTimedRun(now) {
@@ -400,15 +528,22 @@ export class GameEngine {
       });
     }
 
+    const runDeadlineAt = this.startedAt + this.config.zenDurationMs;
+    const settled = this.#settleExpiredDecoys(runDeadlineAt);
     this.state = GAME_STATES.GAME_OVER;
-    this.endedAt = this.startedAt + this.config.zenDurationMs;
+    this.endedAt = runDeadlineAt;
     this.endReason = "time";
-    this.cells = [];
+    this.activeDecoys = [];
     this.targetIndex = null;
     this.activeAt = null;
     this.roundKind = null;
     this.roundDifficulty = null;
-    return Object.freeze({ type: "time-up", snapshot: this.getSnapshot(now) });
+    return Object.freeze({
+      type: "time-up",
+      dodgesAwarded: settled.count,
+      dodgePointsAwarded: settled.pointsAwarded,
+      snapshot: this.getSnapshot(now)
+    });
   }
 
   isRunComplete() {
@@ -421,20 +556,18 @@ export class GameEngine {
 
   getSnapshot(now = this.startedAt ?? 0) {
     const elapsedMs = this.getElapsedMs(now);
-    const difficulty =
-      this.state === GAME_STATES.ACTIVE && this.roundDifficulty
-        ? this.roundDifficulty
-        : resolveDifficulty(
-            this.hits,
-            elapsedMs,
-            this.getChallengeHits(),
-            this.config
-          );
+    const difficulty = this.#currentDifficulty(now);
     const expectedCellCount = difficulty.gridDimension ** 2;
-    const cells =
-      this.state === GAME_STATES.ACTIVE && this.cells.length === expectedCellCount
-        ? this.cells.map((cell) => ({ ...cell }))
-        : Array.from({ length: expectedCellCount }, () => ({ ...EMPTY_CELL }));
+    const cells = Array.from({ length: expectedCellCount }, () => ({ ...EMPTY_CELL }));
+    const visibleDecoys = this.activeDecoys.filter(
+      ({ cellIndex, expiresAt }) => cellIndex < expectedCellCount && expiresAt > now
+    );
+    for (const decoy of visibleDecoys) {
+      cells[decoy.cellIndex] = { kind: "decoy", colorIndex: decoy.colorIndex };
+    }
+    if (this.state === GAME_STATES.ACTIVE && this.targetIndex !== null) {
+      cells[this.targetIndex] = { kind: "target", colorIndex: this.playerColorIndex };
+    }
     const reactionProgress =
       this.state === GAME_STATES.ACTIVE && this.activeAt !== null
         ? clamp(1 - (now - this.activeAt) / difficulty.responseWindowMs, 0, 1)
@@ -450,6 +583,7 @@ export class GameEngine {
       dodges: this.dodges,
       fastestReactionMs: this.fastestReactionMs,
       averageReactionMs: this.hits > 0 ? this.reactionTotalMs / this.hits : null,
+      speedRatings: Object.freeze({ ...this.speedRatings }),
       reactionProgress,
       elapsedMs,
       remainingMs: this.getRemainingMs(now),
@@ -457,6 +591,8 @@ export class GameEngine {
       playerColorIndex: this.playerColorIndex,
       playerColor: this.colors[this.playerColorIndex],
       targetIndex: this.targetIndex,
+      activeDecoys: Object.freeze(visibleDecoys.map((decoy) => Object.freeze({ ...decoy }))),
+      nextDecoyExpiryAt: this.getNextDecoyExpiryAt(),
       roundKind: this.roundKind,
       difficulty,
       cells
@@ -470,14 +606,14 @@ export class GameEngine {
 
   #finishRound() {
     this.state = GAME_STATES.WAITING;
-    this.cells = [];
+    this.activeDecoys = [];
     this.targetIndex = null;
     this.activeAt = null;
     this.roundKind = null;
     this.roundDifficulty = null;
   }
 
-  #miss(reason, now, reactionMs) {
+  #miss(reason, now, reactionMs, settled = { count: 0, pointsAwarded: 0 }) {
     const lifeLost = this.mode === GAME_MODES.NORMAL;
     if (lifeLost) {
       this.lives = Math.max(0, this.lives - 1);
@@ -488,7 +624,7 @@ export class GameEngine {
       this.state = GAME_STATES.GAME_OVER;
       this.endedAt = now;
       this.endReason = "lives";
-      this.cells = [];
+      this.activeDecoys = [];
       this.targetIndex = null;
       this.activeAt = null;
       this.roundKind = null;
@@ -502,7 +638,54 @@ export class GameEngine {
       reason,
       reactionMs,
       lifeLost,
+      dodgesAwarded: settled.count,
+      dodgePointsAwarded: settled.pointsAwarded,
       snapshot: this.getSnapshot(now)
     });
+  }
+
+  #currentDifficulty(now) {
+    return this.state === GAME_STATES.ACTIVE && this.roundDifficulty
+      ? this.roundDifficulty
+      : resolveDifficulty(
+          this.hits,
+          this.getElapsedMs(now),
+          this.getChallengeHits(),
+          this.config
+        );
+  }
+
+  #settleExpiredDecoys(now) {
+    if (
+      this.state === GAME_STATES.IDLE ||
+      this.state === GAME_STATES.GAME_OVER ||
+      this.activeDecoys.length === 0
+    ) {
+      return { count: 0, pointsAwarded: 0, decoyIds: [] };
+    }
+
+    const expired = [];
+    const retained = [];
+    for (const decoy of this.activeDecoys) {
+      if (decoy.expiresAt <= now) {
+        expired.push(decoy);
+      } else {
+        retained.push(decoy);
+      }
+    }
+
+    if (expired.length === 0) {
+      return { count: 0, pointsAwarded: 0, decoyIds: [] };
+    }
+
+    this.activeDecoys = retained;
+    const pointsAwarded = expired.length * this.config.dodgePoints;
+    this.points += pointsAwarded;
+    this.dodges += expired.length;
+    return {
+      count: expired.length,
+      pointsAwarded,
+      decoyIds: expired.map(({ id }) => id)
+    };
   }
 }
