@@ -22,7 +22,7 @@ Codex tasks share the filesystem but not their transcripts. Assume an unexplaine
 | Concern | Source of truth |
 | --- | --- |
 | Code and release contents | Git commit |
-| PHP production runtime | Hostinger deployment of the exact `php-main` commit |
+| PHP production runtime | Hostinger MCP artifact built from the recorded `php-main` commit |
 | Legacy rollback runtime | Immutable Vercel deployment attached to its commit |
 | Current setup and committed target behavior | `README.md` at the target commit |
 | Durable product and architecture decisions | `docs/DECISIONS.md` |
@@ -117,11 +117,13 @@ Production deployment requires explicit user authorization.
 3. Commit the exact release contents.
 4. Confirm the source tree for deployment is clean.
 5. Prefer merged `main`; for a manual release, deploy from an isolated worktree checked out at the exact commit.
-6. Deploy that exact commit to the isolated `speedytapper.otcsoft.com` document root through Hostinger Git, or an explicitly configured SSH/SFTP release path.
-7. Run the reviewed MySQL migration and keep runtime credentials in `~/.config/speedytapper/config.php`, outside Git and the web root.
-8. Smoke-test HTTPS, build ID, service worker, required assets, PHP health/session routes, Google sign-in, and both leaderboard modes.
-9. Record the commit SHA, build ID, Hostinger target/path, migration/season ID, and previous immutable Vercel rollback deployment.
-10. Retain the previous immutable Vercel deployment until the Hostinger release is verified.
+6. Build a root-flat, allowlisted runtime artifact from `git archive` of that commit in temporary staging. Never package the checkout, tests, docs, package files, or non-runtime audio masters.
+7. Install production Composer dependencies in staging and inject the ignored runtime config only into staging. Prefer `~/.config/speedytapper/config.php`; for MCP-only deployment, protected `server/config.local.php` is permitted only when it remains untracked and direct `/server` probes are denied after deployment.
+8. Deploy through Hostinger MCP `hosting_deployStaticWebsite` to the exact independent addon website `speedytapper.otcsoft.com`, never to `otcsoft.com` and never to a nested parent-site directory.
+9. Let the shared migration runner apply pending idempotent migrations under its advisory lock, then purge only the SpeedyTapper website cache.
+10. Smoke-test HTTPS, build ID, service worker, required assets, denied config/internal paths, PHP health/session routes, Google sign-in, and both leaderboard modes.
+11. Record the commit SHA, build ID, artifact SHA-256, Hostinger target/path, migration/season ID, and previous immutable Vercel rollback deployment.
+12. Retain the previous immutable Vercel deployment until the Hostinger release is verified.
 
 Never deploy a dirty shared checkout, even when unrelated files appear harmless.
 

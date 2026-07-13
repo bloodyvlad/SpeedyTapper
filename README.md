@@ -13,7 +13,7 @@ Start with [`AGENTS.md`](./AGENTS.md) for repository working rules and [`docs/DE
 | Concern | Source |
 | --- | --- |
 | Code and release contents | Git commit |
-| PHP production state | Hostinger deployment of the exact `php-main` commit |
+| PHP production state | Hostinger MCP artifact built from the recorded `php-main` commit |
 | Legacy rollback state | Immutable Vercel deployment for its commit |
 | Setup and committed target behavior | This README at the target commit |
 | Durable decisions | [`docs/DECISIONS.md`](./docs/DECISIONS.md) |
@@ -84,18 +84,19 @@ Use one backlog system. GitHub Issues is the simplest default after a remote is 
 
 ## PHP release and Hostinger deployment
 
-The PHP generation targets the isolated Hostinger document root for `speedytapper.otcsoft.com`. It uses same-origin PHP sessions and a dedicated MariaDB/MySQL database. Real credentials belong in `~/.config/speedytapper/config.php` under the hosting account home, never in Git or `public_html`. See [`docs/PHP_BACKEND.md`](./docs/PHP_BACKEND.md) for the API and configuration contract.
+The PHP generation targets the independent Hostinger addon website and document root for `speedytapper.otcsoft.com`. It uses same-origin PHP sessions and a dedicated MariaDB/MySQL database. Real credentials never belong in Git. A private home-directory config remains preferred; the MCP-only release path may inject the ignored `server/config.local.php` into the release artifact because every `/server` route is denied and the file is never part of the commit. See [`docs/PHP_BACKEND.md`](./docs/PHP_BACKEND.md) for the API and configuration contract.
 
 The existing Vercel site and Blob board remain a separate previous-generation rollback. Their name-only rows are not imported into the clean Google-profile season.
 
-Production must always correspond to a tested Git commit. Never deploy a dirty shared checkout. The intended workflow is:
+Production must always correspond to a tested Git commit plus a recorded artifact hash. Never deploy a dirty shared checkout or package an entire checkout. The intended workflow is:
 
-1. Review and commit one release on `php-main`, then push that exact commit to the private GitHub repository.
-2. In Hostinger hPanel Git, select the private repository, `php-main`, and the isolated subdomain document root.
-3. Install production Composer dependencies and deploy that commit.
-4. Back up the database when applicable, then run `php server/bin/migrate.php` with the private production configuration available.
-5. Smoke-test HTTPS, the build ID, app shell/service worker, `/api/health`, `/api/session`, Google sign-in/logout, nickname editing, and Normal/Zen leaderboard submissions.
-6. Keep the previous immutable Vercel deployment available until the Hostinger release and physical-iPhone flow are verified.
+1. Review and commit one release on `php-main`, then push that exact commit to the private GitHub repository for version history.
+2. Create a temporary staging tree from `git archive <commit>`, not from the working checkout. Keep only browser runtime files, `api/`, `server/`, `.htaccess`, and production Composer `vendor/`; exclude tests, docs, package files, source/rollback audio masters, `.git`, and every `.env` file.
+3. Inject the untracked production configuration only into the staging tree, set it to mode `0600`, verify the archive is root-flat, and record its SHA-256 digest.
+4. Deploy the prebuilt archive to the exact independent addon domain with Hostinger MCP `hosting_deployStaticWebsite`. Despite its static-oriented name, this endpoint transports and extracts prebuilt PHP files without a build step; PHP execution was validated on the isolated target before this workflow was accepted.
+5. The first API request applies pending idempotent migrations under a database advisory lock. The reviewed `php server/bin/migrate.php` remains available for an explicit maintenance run.
+6. Purge only the SpeedyTapper website cache, then smoke-test HTTPS, build ID, app shell/service worker, `/api/health`, `/api/session`, denied configuration paths, Google sign-in/logout, nickname editing, and Normal/Zen leaderboard submissions.
+7. Keep the previous immutable Vercel deployment available until the Hostinger release and physical-iPhone flow are verified.
 
 Before deployment:
 
@@ -103,10 +104,10 @@ Before deployment:
 - update every versioned HTML/module reference, `sw.js`, and the release-graph test;
 - use `rg` to confirm that no stale ID remains;
 - run `npm run check` and `git diff --check`;
-- confirm the deployment commit checkout is clean;
+- confirm the deployment commit checkout is clean and the archive manifest contains no development-only or private source assets;
 - confirm the Google Web client authorizes `https://speedytapper.otcsoft.com`.
 
-After deployment, record the commit SHA, build ID, Hostinger document root, migration/season ID, and the immutable Vercel rollback URL. The HTML, stylesheet, and JavaScript module graph share one release version. The service worker bypasses the browser HTTP cache, removes older app caches, and performs a one-time reload when an installed iPhone switches releases.
+After deployment, record the commit SHA, build ID, artifact SHA-256, Hostinger addon document root, migration/season ID, and the immutable Vercel rollback URL. The HTML, stylesheet, and JavaScript module graph share one release version. The service worker bypasses the browser HTTP cache, removes older app caches, and performs a one-time reload when an installed iPhone switches releases.
 
 ## Current committed rules
 

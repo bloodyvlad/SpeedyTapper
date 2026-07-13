@@ -260,3 +260,16 @@ Decision: Classify each correct reaction by the same rounded millisecond value s
 Consequences: Reaction classification, decoy creation, expiry, clearing, scoring, and statistics remain deterministic engine rules. Browser timers only request engine transitions and render snapshots. Playtesting must tune independent spawn intervals and visible duration without moving those rules into DOM code.
 
 Revisit when: Overlapping decoys obscure the target, dodge scoring dominates reaction scoring, or player data supports different rating boundaries.
+
+## D-020 — Deploy PHP through an isolated Hostinger MCP artifact
+
+- Date: 2026-07-13
+- Status: Accepted
+
+Context: Hostinger hPanel Git was configured against the parent website and overwrote `otcsoft.com`. The Hostinger MCP archive endpoint is labelled for static websites, but its implementation uploads and extracts a prebuilt root-flat archive into the exact selected website without inspecting file types. A harmless probe deployed to an independent `speedytapper.otcsoft.com` addon website executed successfully under PHP 8.3. The endpoint rejects a nested `vhost_type: subdomain` target with HTTP 403 but accepts an isolated `vhost_type: addon` website with its own document root.
+
+Decision: Keep GitHub and `php-main` as version history, but perform PHP releases through Hostinger MCP `hosting_deployStaticWebsite` using a curated prebuilt artifact from an exact clean commit. The target must be the independent addon website `speedytapper.otcsoft.com`, never `otcsoft.com` or a directory selected through the parent site. Build from `git archive` in temporary staging; include only runtime browser files, PHP API/server files, `.htaccess`, and production Composer dependencies. Exclude repository metadata, tests, docs, package files, and non-runtime audio sources. Prefer a private home-directory config; when MCP cannot write outside the document root, an ignored artifact-only `server/config.local.php` is permitted because `/server` is denied and production probes must verify that protection. Apply pending idempotent migrations automatically before API dispatch under a database-scoped advisory lock.
+
+Consequences: A release is identified by commit SHA, build ID, and artifact SHA-256 rather than by an hPanel Git hook. The MCP transport requires no browser session, SSH key, or manual file upload. The secret-bearing staging tree and archive must be tightly controlled and never committed. The database user retains schema-change privileges on only the dedicated game database so first-request migration can work. The previous immutable Vercel deployment remains the rollback generation until the PHP release and physical-iPhone flow are verified. This supersedes D-016 only for the production configuration-location exception and deployment/migration procedure; its PHP/MySQL architecture remains accepted.
+
+Revisit when: Hostinger exposes secret injection or a first-class generic PHP deployment API, SSH automation is intentionally enabled, migrations require a separate least-privilege deploy role, or the app moves to managed CI/CD.

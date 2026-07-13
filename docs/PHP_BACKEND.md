@@ -9,7 +9,7 @@ This document describes the backend target on the PHP branch. It does not descri
 - Composer dependencies installed with `composer install --no-dev --optimize-autoloader`.
 - Apache `mod_rewrite` enabled so the repository `.htaccess` can route extensionless `/api/*` requests to `api/index.php`.
 
-For production, copy `server/config.local.example.php` to `~/.config/speedytapper/config.php` under the private hosting-account home and fill in the database credentials and Google Web client ID. `SPEEDYTAPPER_CONFIG_PATH` can point to a different private path; individual environment variables with the same names take precedence. The ignored `server/config.local.php` fallback is only for local development. Never commit the real file or place production credentials under the public document root.
+For production, `~/.config/speedytapper/config.php` under the private hosting-account home remains the preferred location. `SPEEDYTAPPER_CONFIG_PATH` can point to another private path, and individual environment variables with the same names take precedence. The MCP-only deployment cannot write outside the target document root, so its curated artifact may instead contain the ignored `server/config.local.php`. That exception is acceptable only when the root `.htaccess` is present, direct requests to case variants of `/server/config.local.php` are verified as 403/404 with no body leakage, the archive is built from an exact commit in temporary staging, and the secret-bearing file is never committed or copied into a general source archive.
 
 ```bash
 composer install
@@ -17,7 +17,7 @@ php server/bin/migrate.php
 npm run check:php
 ```
 
-The migration creates a fresh season, Google-backed internal player profiles, and one best leaderboard row per player, mode, and season. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+The API automatically applies pending idempotent migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a fresh season, Google-backed internal player profiles, and one best leaderboard row per player, mode, and season. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 

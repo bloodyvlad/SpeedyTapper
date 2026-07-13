@@ -38,8 +38,8 @@ final readonly class Config
         if (is_string($home) && trim($home) !== '') {
             $candidatePaths[] = rtrim(trim($home), '/') . '/.config/speedytapper/config.php';
         }
-        // This ignored in-project fallback is for local development only. Production uses
-        // SPEEDYTAPPER_CONFIG_PATH or the private file under the hosting account home.
+        // This ignored fallback is used locally and by a curated MCP release artifact.
+        // A private home file or explicit path remains preferred for production.
         $candidatePaths[] = $projectRoot . '/server/config.local.php';
 
         $local = [];

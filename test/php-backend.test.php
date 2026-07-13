@@ -8,6 +8,7 @@ use SpeedyTapper\Nickname;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\Uuid;
 use SpeedyTapper\HttpRequest;
+use SpeedyTapper\MigrationRunner;
 
 require dirname(__DIR__) . '/server/autoload.php';
 
@@ -128,13 +129,48 @@ $assert(
     'Score submission requires a user-confirmed public nickname.',
 );
 
+$migrationStatements = MigrationRunner::splitStatements(
+    "CREATE TABLE example (id INT);\nINSERT INTO example (id) VALUES (1);\n",
+);
+$assert(count($migrationStatements) === 2, 'Migration SQL is split into executable statements.');
+$assert(str_starts_with($migrationStatements[1], 'INSERT INTO example'), 'Migration statement order is preserved.');
+
+$apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
+$migrationCli = file_get_contents(dirname(__DIR__) . '/server/bin/migrate.php');
+$assert(
+    is_string($apiBootstrap) && str_contains($apiBootstrap, 'new MigrationRunner'),
+    'The HTTP API applies pending migrations before dispatch.',
+);
+$assert(
+    is_string($migrationCli) && str_contains($migrationCli, 'new MigrationRunner'),
+    'The migration CLI uses the shared migration runner.',
+);
+$migrationRunner = file_get_contents(dirname(__DIR__) . '/server/src/MigrationRunner.php');
+$assert(
+    is_string($migrationRunner)
+    && str_contains($migrationRunner, 'GET_LOCK')
+    && str_contains($migrationRunner, 'finally')
+    && substr_count($migrationRunner, 'pendingPaths(') >= 2,
+    'Automatic migration is serialized and rechecks pending work after the lock.',
+);
+
 $configSource = file_get_contents(dirname(__DIR__) . '/server/src/Config.php');
+$gitignore = file_get_contents(dirname(__DIR__) . '/.gitignore');
+$htaccess = file_get_contents(dirname(__DIR__) . '/.htaccess');
 $assert(
     is_string($configSource)
     && str_contains($configSource, 'SPEEDYTAPPER_CONFIG_PATH')
     && str_contains($configSource, '/.config/speedytapper/config.php')
-    && str_contains($configSource, 'public_html'),
-    'Production configuration is resolved from a private path outside the web root.',
+    && str_contains($configSource, '/server/config.local.php'),
+    'Configuration prefers private paths and retains the ignored artifact/local fallback.',
+);
+$assert(
+    is_string($gitignore) && str_contains($gitignore, 'server/config.local.php'),
+    'The artifact/local configuration fallback cannot be committed accidentally.',
+);
+$assert(
+    is_string($htaccess) && str_contains($htaccess, '(?:server|vendor|\.git)'),
+    'The production web server denies the configuration and application-internal directories.',
 );
 
 fwrite(STDOUT, 'PHP backend tests passed (' . $assertions . ' assertions).' . PHP_EOL);

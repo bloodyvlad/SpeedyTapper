@@ -10,6 +10,7 @@ use SpeedyTapper\GoogleClientIdentityVerifier;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
+use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\SessionStore;
 
@@ -24,6 +25,7 @@ try {
     $request = HttpRequest::fromGlobals();
     $config = Config::load($projectRoot);
     $database = Database::connect($config);
+    (new MigrationRunner($database, $projectRoot . '/server/migrations'))->run();
     $leaderboard = new LeaderboardRepository(
         $database,
         $config->seasonId,

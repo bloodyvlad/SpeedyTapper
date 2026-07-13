@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-4";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-4";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-5";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-5";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,15 +8,15 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-4";
+} from "./input-timing.js?v=20260713-5";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-4";
-import { createSoundController } from "./sound-controller.js?v=20260713-4";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-4";
+} from "./music-controller.js?v=20260713-5";
+import { createSoundController } from "./sound-controller.js?v=20260713-5";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-5";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
