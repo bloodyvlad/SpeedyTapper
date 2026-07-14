@@ -234,3 +234,16 @@ final result: local candidate `20260713-16` passed automated and desktop browser
 - Pixel self-hosts the unmodified OFL-licensed Pixelify Sans variable font and includes it in the offline app shell. Light uses near-white panels, two thin CSS clouds, white board gaps/borders, and white gameplay glyphs; Pixel uses hard edges, stepped shadows, and an arcade grid.
 - `npm run check` passed with 157 JavaScript tests and 148 PHP assertions; Composer validation/audit, PHP syntax checks, and `git diff --check` also passed.
 - Physical iPhone Safari/PWA validation remains required for paid-theme purchases, font/readability at all views, per-theme audio latency and balance, the Pixel tone-bank timbre, and cache upgrades before this candidate is described as device- or production-validated.
+
+## Local Candidate 20260714-12 PimPoPom and Mitsuri QA
+
+- This is local candidate evidence only. It does not establish the active Hostinger deployment, and no deployment was performed at the time of this review.
+- The visible product and installable-PWA name is **PimPoPom**. Both wordmarks expose one accessible label and render `Pim`, `Po`, and `Pom` with three distinct code-native gradients; the internal repository, domain, PHP namespace, storage, and compatibility API keep the SpeedyTapper name.
+- Achievements, Pet Shop, and Themes use distinct theme-aware outline accents. Pet Shop and Themes render in an equal two-column grid with an 8px gap, plus paw and palette icons. Browser-runtime geometry measured both controls at 193px inside a 394px row, with no overlap or truncation in the inspected menu.
+- The server-authorized Mitsuri easter egg is restricted to a confirmed nickname saved exactly as lowercase Cyrillic `кокос`. Uppercase and Latin lookalikes fail deterministic backend coverage. Mitsuri is not purchasable, never affects coins or achievements, temporarily overrides the rendered companion, and disappears when another nickname is saved without changing the durable shop selection.
+- Mitsuri's final 320×32 ten-frame sprite has saturated red fur, no hair thread or ornament, and one pale light-pink stripe on the right ear. Its 64×48 cushion uses the existing two-layer habitat contract. Both alpha assets and all ten poses were visually inspected at original resolution.
+- Foka and the other directional ten-frame pets now begin right turns at the first right-facing sprite cell rather than replaying the duplicate front cell. Deterministic controller and release-graph coverage verifies half-right and full-right positions.
+- `npm run check` passed with 159 JavaScript tests and 152 PHP assertions. Composer validation/audit, every PHP syntax check, and `git diff --check` passed. Desktop browser-runtime review confirmed the updated menu, Theme Shop navigation, equal-width controls, and the new wordmark.
+- Physical iPhone Safari and installed-PWA validation remains required for narrow-screen logo fit, accent contrast in every purchased theme, Mitsuri's ear-stripe legibility, pet animation cadence, Google-authenticated activation, and cache upgrade behavior before this candidate is described as device-validated.
+
+final result: local candidate `20260714-12` passed automated and desktop browser-runtime QA; deployment and physical-iPhone validation remain pending

@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260714-11";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260714-12";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -216,7 +216,7 @@ export class GameEngine {
 
   constructor({ config = GAME_CONFIG, colors = COLORS, random = Math.random } = {}) {
     if (colors.length < 2) {
-      throw new Error("SpeedyTapper needs at least two colors.");
+      throw new Error("PimPoPom needs at least two colors.");
     }
 
     this.config = config;

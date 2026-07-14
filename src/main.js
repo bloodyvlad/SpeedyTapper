@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-11";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-11";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-12";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-12";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,31 +7,33 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-11";
+} from "./input-timing.js?v=20260714-12";
 import {
   getPet,
   isPetId,
+  isShopPetId,
+  isSpecialPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-11";
-import { createPetController } from "./pet-controller.js?v=20260714-11";
-import { createSoundController } from "./sound-controller.js?v=20260714-11";
-import { createMusicController } from "./music-controller.js?v=20260714-11";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-11";
+} from "./pet-catalog.js?v=20260714-12";
+import { createPetController } from "./pet-controller.js?v=20260714-12";
+import { createSoundController } from "./sound-controller.js?v=20260714-12";
+import { createMusicController } from "./music-controller.js?v=20260714-12";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-12";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260714-11";
+} from "./theme-catalog.js?v=20260714-12";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-11";
+const APP_BUILD_ID = "20260714-12";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -1518,7 +1520,7 @@ function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   elements.dialogTitle.textContent = "Profile";
   elements.dialogMessage.textContent = profileSession.authenticated
     ? "Manage your public nickname and review your best leaderboard position."
-    : "Use Google to keep one SpeedyTapper identity across devices.";
+    : "Use Google to keep one PimPoPom identity across devices.";
   elements.dialog.scrollTop = 0;
   renderProfile();
   if (profileSession.authenticated) {
@@ -2095,6 +2097,8 @@ function normalizeRank(value) {
 function normalizeProfile(value) {
   if (!value || typeof value !== "object") return null;
   const normalized = { ...value, isAdmin: value.isAdmin === true };
+  const specialPetId = isSpecialPetId(value.specialPetId) ? value.specialPetId : null;
+  normalized.specialPetId = specialPetId;
   const hasOwnedPetIds = Object.hasOwn(value, "ownedPetIds");
   const hasSelectedPetId = Object.hasOwn(value, "selectedPetId");
   const hasPetVisible = Object.hasOwn(value, "petVisible");
@@ -2104,9 +2108,9 @@ function normalizeProfile(value) {
   }
   if (hasOwnedPetIds || hasSelectedPetId || hasPetVisible || hasEquippedPetId) {
     const ownedPetIds = normalizeOwnedPetIds(normalized.ownedPetIds);
-    const legacyEquippedPetId = isPetId(value.equippedPetId) ? value.equippedPetId : null;
+    const legacyEquippedPetId = isShopPetId(value.equippedPetId) ? value.equippedPetId : null;
     const selectedCandidate = hasSelectedPetId ? value.selectedPetId : legacyEquippedPetId;
-    const selectedPetId = isPetId(selectedCandidate)
+    const selectedPetId = isShopPetId(selectedCandidate)
       && (!hasOwnedPetIds || ownedPetIds.includes(selectedCandidate))
       ? selectedCandidate
       : null;
@@ -2116,7 +2120,9 @@ function normalizeProfile(value) {
     normalized.ownedPetIds = ownedPetIds;
     normalized.selectedPetId = selectedPetId;
     normalized.petVisible = petVisible;
-    normalized.equippedPetId = petVisible ? selectedPetId : null;
+    normalized.equippedPetId = specialPetId ?? (petVisible ? selectedPetId : null);
+  } else if (specialPetId !== null) {
+    normalized.equippedPetId = specialPetId;
   }
   const ownedThemeIds = normalizeOwnedThemeIds(value.ownedThemeIds);
   normalized.ownedThemeIds = ownedThemeIds;
@@ -2220,9 +2226,9 @@ function currentPetShopState() {
       || Object.hasOwn(profileSession.profile, "petVisible")
       || Object.hasOwn(profileSession.profile, "equippedPetId"));
   const selectedPetId = hasPersistedPetState
-    ? isPetId(profileSession.profile?.selectedPetId)
+    ? isShopPetId(profileSession.profile?.selectedPetId)
       ? profileSession.profile.selectedPetId
-      : isPetId(profileSession.profile?.equippedPetId)
+      : isShopPetId(profileSession.profile?.equippedPetId)
         ? profileSession.profile.equippedPetId
         : null
     : displayedPetId;

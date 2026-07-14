@@ -10,7 +10,7 @@ export class ProfileApiError extends Error {
 async function readJson(response) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ProfileApiError(body.error || "SpeedyTapper services are temporarily unavailable.", {
+    throw new ProfileApiError(body.error || "PimPoPom services are temporarily unavailable.", {
       status: response.status,
       code: body.code || "request-failed"
     });

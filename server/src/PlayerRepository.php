@@ -107,6 +107,10 @@ final class PlayerRepository
     {
         $petState = $this->pets->state((string) $row['id']);
         $themeState = $this->themes->state((string) $row['id']);
+        $specialPetId = PetCatalog::specialForNickname(
+            $row['nickname'] ?? null,
+            (bool) ($row['nickname_confirmed'] ?? false),
+        );
         return [
             'id' => (string) $row['id'],
             'nickname' => (string) $row['nickname'],
@@ -116,7 +120,8 @@ final class PlayerRepository
             'ownedPetIds' => $petState['ownedPetIds'],
             'selectedPetId' => $petState['selectedPetId'],
             'petVisible' => $petState['petVisible'],
-            'equippedPetId' => $petState['equippedPetId'],
+            'equippedPetId' => $specialPetId ?? $petState['equippedPetId'],
+            'specialPetId' => $specialPetId,
             'ownedThemeIds' => $themeState['ownedThemeIds'],
             'selectedThemeId' => $themeState['selectedThemeId'],
             'isAdmin' => (bool) ($row['is_admin'] ?? false),

@@ -6,6 +6,9 @@ namespace SpeedyTapper;
 
 final class PetCatalog
 {
+    public const MITSURI_ID = 'mitsuri';
+    public const MITSURI_NICKNAME = 'кокос';
+
     /** @var list<array{id: string, name: string, priceCoins: int}> */
     private const PETS = [
         ['id' => 'foka', 'name' => 'Foka', 'priceCoins' => 10],
@@ -42,5 +45,18 @@ final class PetCatalog
             if (hash_equals($pet['id'], $petId)) return true;
         }
         return false;
+    }
+
+    public static function specialForNickname(mixed $nickname, bool $nicknameConfirmed): ?string
+    {
+        if (!$nicknameConfirmed || !is_string($nickname)) {
+            return null;
+        }
+        return hash_equals(self::MITSURI_NICKNAME, $nickname) ? self::MITSURI_ID : null;
+    }
+
+    public static function isRenderable(mixed $petId): bool
+    {
+        return self::includes($petId) || $petId === self::MITSURI_ID;
     }
 }

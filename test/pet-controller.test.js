@@ -121,6 +121,18 @@ function controllerFixture() {
 test("persisted selection is authoritative while old servers retain the Misha fallback", () => {
   assert.equal(normalizeLegacyMishaNickname("  Misha_Boy  "), "misha_boy");
   assert.equal(resolveEquippedPetId(persistedSession("tauta")), "tauta");
+  assert.equal(resolveEquippedPetId({
+    authenticated: true,
+    profile: {
+      nickname: "кокос",
+      nicknameConfirmed: true,
+      ownedPetIds: ["tauta"],
+      selectedPetId: "tauta",
+      petVisible: true,
+      equippedPetId: "mitsuri",
+      specialPetId: "mitsuri"
+    }
+  }), "mitsuri", "The server-authorized nickname pet temporarily overrides the shop selection.");
   assert.equal(resolveEquippedPetId(legacyMishaSession("Misha_Boy")), "misha");
   assert.equal(resolveEquippedPetId(legacyMishaSession("misha-boy")), null);
   assert.equal(resolveEquippedPetId({ ...legacyMishaSession(), authenticated: false }), null);
@@ -199,6 +211,28 @@ test("pets settle at five seconds, use the intermediate pose, and wake toward ta
   scheduler.advance(PET_TRANSITION_DURATION_MS);
   assert.equal(menuScene.dataset.pose, "awake");
   assert.equal(menuScene.dataset.facing, "left", "The selected pose persists after the turn animation.");
+});
+
+test("the server-authorized Mitsuri rabbit uses the standard pet lifecycle", () => {
+  const { controller, gameplayScene, menuScene } = controllerFixture();
+  const session = {
+    authenticated: true,
+    profile: {
+      nickname: "кокос",
+      nicknameConfirmed: true,
+      ownedPetIds: ["foka"],
+      selectedPetId: "foka",
+      petVisible: false,
+      equippedPetId: "mitsuri",
+      specialPetId: "mitsuri"
+    }
+  };
+  assert.equal(controller.setProfileSession(session), "mitsuri");
+  assert.equal(menuScene.dataset.pet, "mitsuri");
+  assert.equal(menuScene.hidden, false);
+  controller.setGameplayVisible(true);
+  assert.equal(gameplayScene.dataset.pet, "mitsuri");
+  assert.equal(gameplayScene.dataset.habitat, "false");
 });
 
 test("cancelled idle work cannot override a newer pet tap", () => {

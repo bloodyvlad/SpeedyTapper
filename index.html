@@ -7,23 +7,24 @@
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
+    <meta name="apple-mobile-web-app-title" content="PimPoPom" />
     <meta name="format-detection" content="telephone=no" />
-    <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260714-11"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260714-11" />
+    <meta name="description" content="PimPoPom is a fast color-reaction game." />
+    <script src="./src/early-bootstrap.js?v=20260714-12"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260714-12" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-11" />
-    <title>SpeedyTapper</title>
+    <link rel="stylesheet" href="./styles.css?v=20260714-12" />
+    <title>PimPoPom</title>
   </head>
   <body>
     <div id="app" inert>
       <div class="game-header">
         <div class="game-utility" id="game-utility" hidden>
-          <div class="brand-logo brand-logo--game" role="img" aria-label="SpeedyTapper">
-            <span class="brand-logo__speedy" aria-hidden="true">Speedy</span>
-            <span class="brand-logo__tapper" aria-hidden="true">Tapper</span>
+          <div class="brand-logo brand-logo--game" role="img" aria-label="PimPoPom">
+            <span class="brand-logo__pim" aria-hidden="true">Pim</span>
+            <span class="brand-logo__po" aria-hidden="true">Po</span>
+            <span class="brand-logo__pom" aria-hidden="true">Pom</span>
             <span class="brand-logo__pulse" aria-hidden="true"></span>
           </div>
           <nav class="game-utility__actions" aria-label="Game controls">
@@ -132,8 +133,8 @@
     <div class="overlay" id="overlay">
       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <header class="dialog-utility" id="dialog-utility">
-          <div class="brand-logo" aria-label="SpeedyTapper">
-            <span class="brand-logo__speedy">Speedy</span><span class="brand-logo__tapper">Tapper</span>
+          <div class="brand-logo" role="img" aria-label="PimPoPom">
+            <span class="brand-logo__pim" aria-hidden="true">Pim</span><span class="brand-logo__po" aria-hidden="true">Po</span><span class="brand-logo__pom" aria-hidden="true">Pom</span>
             <span class="brand-logo__pulse" aria-hidden="true"></span>
           </div>
           <nav class="dialog-utility__actions" aria-label="Player shortcuts">
@@ -298,7 +299,7 @@
             </fieldset>
             <div class="menu-spacer" aria-hidden="true"></div>
             <button
-              class="secondary-button settings-toggle achievements-toggle is-auth-gated"
+              class="secondary-button settings-toggle achievements-toggle menu-feature-accent menu-feature-accent--achievements is-auth-gated"
               id="achievements-toggle"
               type="button"
               aria-controls="achievements-view"
@@ -310,23 +311,37 @@
             </button>
             <div class="menu-feature-actions">
               <button
-                class="secondary-button settings-toggle menu-feature-button is-auth-gated"
+                class="secondary-button settings-toggle menu-feature-button menu-feature-accent menu-feature-accent--pets is-auth-gated"
                 id="pet-shop-toggle"
                 type="button"
                 aria-controls="pet-shop-view"
                 aria-disabled="true"
               >
-                <span>Pet Shop</span>
+                <span class="menu-feature-button__title">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M7.4 10.1c1.5 0 2.6-1.5 2.6-3.3S8.9 3.5 7.4 3.5 4.8 5 4.8 6.8s1.1 3.3 2.6 3.3Zm9.2 0c1.5 0 2.6-1.5 2.6-3.3s-1.1-3.3-2.6-3.3S14 5 14 6.8s1.1 3.3 2.6 3.3ZM3.3 14.8c1.2 0 2.1-1.2 2.1-2.7s-.9-2.7-2.1-2.7-2.1 1.2-2.1 2.7.9 2.7 2.1 2.7Zm17.4 0c1.2 0 2.1-1.2 2.1-2.7s-.9-2.7-2.1-2.7-2.1 1.2-2.1 2.7.9 2.7 2.1 2.7ZM12 10.4c-3.7 0-6.7 3.2-6.7 6.5 0 2.3 1.8 3.6 3.9 3.6 1.1 0 2-.5 2.8-1.3.8.8 1.7 1.3 2.8 1.3 2.1 0 3.9-1.3 3.9-3.6 0-3.3-3-6.5-6.7-6.5Z"></path>
+                  </svg>
+                  <span>Pet Shop</span>
+                </span>
                 <span class="settings-toggle__value" id="pet-shop-current">No pet</span>
               </button>
               <button
-                class="secondary-button settings-toggle menu-feature-button"
+                class="secondary-button settings-toggle menu-feature-button menu-feature-accent menu-feature-accent--themes"
                 id="themes-toggle"
                 type="button"
                 aria-controls="themes-view"
                 aria-expanded="false"
               >
-                <span>Themes</span>
+                <span class="menu-feature-button__title">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 3a9 9 0 1 0 0 18h1.4a2.1 2.1 0 0 0 1.3-3.8 1.3 1.3 0 0 1 .8-2.3H18A3 3 0 0 0 21 12a9 9 0 0 0-9-9Z"></path>
+                    <circle cx="7.5" cy="10" r="1"></circle>
+                    <circle cx="10" cy="6.8" r="1"></circle>
+                    <circle cx="14" cy="6.8" r="1"></circle>
+                    <circle cx="16.5" cy="10" r="1"></circle>
+                  </svg>
+                  <span>Themes</span>
+                </span>
                 <span class="settings-toggle__value" id="themes-current">Default</span>
               </button>
             </div>
@@ -799,7 +814,7 @@
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260714-11"></script>
-    <script type="module" src="./src/main.js?v=20260714-11"></script>
+    <script src="./src/service-worker-registration.js?v=20260714-12"></script>
+    <script type="module" src="./src/main.js?v=20260714-12"></script>
   </body>
 </html>

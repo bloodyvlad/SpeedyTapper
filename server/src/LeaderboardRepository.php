@@ -222,7 +222,7 @@ final class LeaderboardRepository
             : ' OR rank_position BETWEEN ' . max(1, $contextRank - LeaderboardWindow::CONTEXT_RADIUS)
                 . ' AND ' . ($contextRank + LeaderboardWindow::CONTEXT_RADIUS);
         $statement = $this->database->prepare(
-            'WITH ranked AS (SELECT e.id, e.player_id, p.nickname, ps.pet_id, e.mode, e.score, e.duration_ms, '
+            'WITH ranked AS (SELECT e.id, e.player_id, p.nickname, p.nickname_confirmed, ps.pet_id, e.mode, e.score, e.duration_ms, '
             . 'e.fastest_reaction_ms, e.average_reaction_ms, e.correct_taps, e.dodge_count, '
             . 'e.godlike_count, e.perfect_count, e.great_count, e.good_count, e.achieved_at, '
             . 'e.verification_status, '
@@ -269,11 +269,16 @@ final class LeaderboardRepository
     {
         $fastest = $row['fastest_reaction_ms'] === null ? null : (int) $row['fastest_reaction_ms'];
         $average = $row['average_reaction_ms'] === null ? null : (int) $row['average_reaction_ms'];
+        $specialPetId = PetCatalog::specialForNickname(
+            $row['nickname'] ?? null,
+            (bool) ($row['nickname_confirmed'] ?? false),
+        );
         return [
             'id' => (string) $row['id'],
             'rank' => (int) $row['rank_position'],
             'name' => (string) $row['nickname'],
-            'petId' => PetCatalog::includes($row['pet_id'] ?? null) ? (string) $row['pet_id'] : null,
+            'petId' => $specialPetId
+                ?? (PetCatalog::includes($row['pet_id'] ?? null) ? (string) $row['pet_id'] : null),
             'mode' => (string) $row['mode'],
             'score' => (int) $row['score'],
             'survivalMs' => (int) $row['duration_ms'],

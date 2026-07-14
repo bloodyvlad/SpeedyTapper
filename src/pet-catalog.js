@@ -36,7 +36,16 @@ export const PET_CATALOG = Object.freeze([
   })
 ]);
 
-const PETS_BY_ID = new Map(PET_CATALOG.map((pet) => [pet.id, pet]));
+export const MITSURI_PET = Object.freeze({
+  id: "mitsuri",
+  name: "Mitsuri",
+  kind: "Red rabbit",
+  idlePose: "sleeping",
+  nicknameOnly: true
+});
+
+const SHOP_PETS_BY_ID = new Map(PET_CATALOG.map((pet) => [pet.id, pet]));
+const PETS_BY_ID = new Map([...SHOP_PETS_BY_ID, [MITSURI_PET.id, MITSURI_PET]]);
 
 export function getPet(petId) {
   return typeof petId === "string" ? PETS_BY_ID.get(petId) ?? null : null;
@@ -46,9 +55,17 @@ export function isPetId(petId) {
   return getPet(petId) !== null;
 }
 
+export function isShopPetId(petId) {
+  return typeof petId === "string" && SHOP_PETS_BY_ID.has(petId);
+}
+
+export function isSpecialPetId(petId) {
+  return petId === MITSURI_PET.id;
+}
+
 export function normalizeOwnedPetIds(value) {
   if (!Array.isArray(value)) return Object.freeze([]);
-  return Object.freeze([...new Set(value.filter(isPetId))]);
+  return Object.freeze([...new Set(value.filter(isShopPetId))]);
 }
 
 export function resolvePetShopAction({ owned = false, selected = false, visible = false } = {}) {

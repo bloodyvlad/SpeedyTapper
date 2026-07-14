@@ -119,6 +119,18 @@ $assert(
     'Pet catalog ids, names, prices, and order are stable.',
 );
 $throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
+$throwsApi(static fn () => PetCatalog::require('mitsuri'), 'The nickname-only Mitsuri pet cannot be purchased.');
+$assert(
+    PetCatalog::specialForNickname('кокос', true) === 'mitsuri',
+    'The exact confirmed lowercase Cyrillic nickname enables Mitsuri.',
+);
+$assert(
+    PetCatalog::specialForNickname('КОКОС', true) === null
+    && PetCatalog::specialForNickname('kokoc', true) === null
+    && PetCatalog::specialForNickname('кокос', false) === null,
+    'Uppercase, Latin lookalikes, and unconfirmed nicknames do not enable Mitsuri.',
+);
+$assert(PetCatalog::isRenderable('mitsuri'), 'Mitsuri is a renderable server-authorized cosmetic.');
 $assert(count(AchievementCatalog::all()) === 5, 'The achievement catalog exposes five active goals.');
 $assert(
     ThemeCatalog::all() === [
@@ -591,6 +603,7 @@ $assert(
         && str_contains($leaderboardRepository, 'LEFT JOIN player_pet_selection')
         && str_contains($leaderboardRepository, 'ps.is_visible = 1')
         && str_contains($leaderboardRepository, "'petId' =>")
+        && str_contains($leaderboardRepository, 'PetCatalog::specialForNickname')
         && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
     'Only ranked verification states are visible and accepted result rows remain immutable.',
 );
@@ -750,8 +763,10 @@ $assert(
         && str_contains($playerRepository, "role.role = 'leaderboard_admin'")
         && str_contains($playerRepository, "'isAdmin' =>")
         && str_contains($playerRepository, "'ownedThemeIds' =>")
-        && str_contains($playerRepository, "'selectedThemeId' =>"),
-    'Profile capabilities and server-authoritative theme ownership are exposed without raw identity data.',
+        && str_contains($playerRepository, "'selectedThemeId' =>")
+        && str_contains($playerRepository, 'PetCatalog::specialForNickname')
+        && str_contains($playerRepository, "'specialPetId' =>"),
+    'Profile capabilities, nickname cosmetics, and theme ownership are server-authoritative without raw identity data.',
 );
 
 $migrationStatements = MigrationRunner::splitStatements(

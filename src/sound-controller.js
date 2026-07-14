@@ -1,4 +1,4 @@
-import { getThemeAudio, normalizeThemeAudioId } from "./theme-audio.js?v=20260714-11";
+import { getThemeAudio, normalizeThemeAudioId } from "./theme-audio.js?v=20260714-12";
 
 const LIFE_LOSS_URL = "./assets/audio/oops.wav";
 

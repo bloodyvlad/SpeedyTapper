@@ -3,6 +3,9 @@ import test from "node:test";
 
 import {
   getPet,
+  isShopPetId,
+  isSpecialPetId,
+  MITSURI_PET,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
@@ -20,10 +23,15 @@ test("the pet catalog keeps stable ids, names, prices, and order", () => {
     ]
   );
   assert.equal(getPet("pancake").kind, "Dancing meme");
+  assert.equal(getPet("mitsuri"), MITSURI_PET);
+  assert.equal(MITSURI_PET.kind, "Red rabbit");
+  assert.equal(isSpecialPetId("mitsuri"), true);
+  assert.equal(isShopPetId("mitsuri"), false);
 });
 
 test("owned pet ids are deduplicated and unknown values are ignored", () => {
   assert.deepEqual(normalizeOwnedPetIds(["misha", "unknown", "misha", "foka"]), ["misha", "foka"]);
+  assert.deepEqual(normalizeOwnedPetIds(["mitsuri", "foka"]), ["foka"]);
   assert.deepEqual(normalizeOwnedPetIds(null), []);
 });
 

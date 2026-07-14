@@ -739,3 +739,20 @@ Give every theme an immutable menu/background/tone manifest. Default retains Day
 Consequences: Themes become durable cosmetic progression without affecting gameplay, scoring, achievements, or coin earning. Purchases serialize with run credits and pet spending, retries cannot charge an already-owned theme, and moderation cannot accidentally restore spent coins. Theme preference follows an authenticated profile after session refresh; free selection also remains locally convenient. Because the browser must receive theme CSS and audio to render them, this is entitlement enforcement through the supported UI/API rather than tamper-proof digital-rights protection. Automated audio and responsive-browser checks do not replace physical-iPhone Safari/PWA listening and visual validation.
 
 Revisit when: Themes need previews before purchase, refunds or gifts, remote catalog administration, per-theme life-loss cues, downloadable content delivery, stronger native-client entitlement protection, or a shared cross-device accessibility preference.
+
+## D-055 — Adopt PimPoPom branding and a server-authorized nickname companion
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: The prototype needs a more playful public identity, clearer customization shortcuts, and one hidden companion tied to an exact saved nickname. The existing two-part SpeedyTapper wordmark, neutral menu borders, and duplicate-front right-turn frame made those elements feel less distinct. A nickname cosmetic inferred only in browser code would also appear without the server-confirmed saved profile state.
+
+Decision: Present the product and installable PWA as **PimPoPom** while retaining SpeedyTapper as the repository, domain, PHP namespace, storage-key, CSRF-header, and compatibility API name. Render the wordmark as code-native `Pim`, `Po`, and `Pom` spans with three distinct gradients and one accessible combined label; do not ship a raster text logo. Give Achievements, Pet Shop, and Themes their own theme-aware outline colors. Put Pet Shop and Themes in an equal two-column grid and pair their labels with a paw and palette icon.
+
+Add **Mitsuri**, a bright red rabbit with one pale light-pink stripe on her right ear, as a non-purchasable nickname easter egg. The server returns `specialPetId: mitsuri` only for an authenticated, confirmed nickname whose normalized stored value is exactly lowercase Cyrillic `кокос`; uppercase or Latin lookalikes do not qualify. This derived presentation temporarily overrides the visible purchased pet without altering its ownership, selection, visibility, wallet, achievement state, or ledger. Saving any other nickname removes Mitsuri and restores the stored selection. The leaderboard derives the same override from server-held nickname data, while the browser never decides eligibility from typed text. Keep the regular five-pet shop unchanged.
+
+Make authored right turns symmetric by skipping the duplicate front cell: half-right moves through frames 5–6 and full-right through frames 5–7. This corrects Foka's delayed half/full right turn and applies to every ten-frame directional pet with the same sheet contract.
+
+Consequences: The public name changes without a risky backend namespace or persistence migration. Menu customization destinations remain distinct in every theme and fit narrow phones without literal 50%-plus-gap overflow. Mitsuri appears immediately after the exact nickname save, disappears just as immediately after a different save, cannot be purchased or forged through the supported API, and never disturbs durable pet state. Physical-iPhone Safari/PWA review is still required for logo fit, outline contrast, stripe legibility, and turn cadence.
+
+Revisit when: The domain/repository/backend names should follow the public brand, nickname cosmetics become permanent inventory, special pets need hiding or selection controls, or more menu destinations require a different information hierarchy.

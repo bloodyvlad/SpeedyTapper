@@ -1,4 +1,4 @@
-import { getPet, isPetId } from "./pet-catalog.js?v=20260714-11";
+import { getPet, isPetId, isSpecialPetId } from "./pet-catalog.js?v=20260714-12";
 
 export const LEGACY_MISHA_NICKNAME = "misha_boy";
 export const PET_IDLE_DELAY_MS = 5_000;
@@ -22,6 +22,9 @@ export function normalizeLegacyMishaNickname(value) {
 export function resolveEquippedPetId(session) {
   if (session?.authenticated !== true || !session.profile || typeof session.profile !== "object") {
     return null;
+  }
+  if (isSpecialPetId(session.profile.specialPetId)) {
+    return session.profile.specialPetId;
   }
   if (isPetId(session.profile.equippedPetId)) {
     return session.profile.equippedPetId;

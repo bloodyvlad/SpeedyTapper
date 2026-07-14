@@ -1,4 +1,4 @@
-const BUILD_ID = "20260714-11";
+const BUILD_ID = "20260714-12";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [
@@ -34,7 +34,9 @@ const APP_SHELL = [
   "./assets/pets/kesha-sprite.png",
   "./assets/pets/tauta-bed.png",
   "./assets/pets/tauta-sprite.png",
-  "./assets/pets/pancake-sprite.png"
+  "./assets/pets/pancake-sprite.png",
+  "./assets/pets/mitsuri-cushion.png",
+  "./assets/pets/mitsuri-sprite.png"
 ];
 
 self.addEventListener("install", (event) => {

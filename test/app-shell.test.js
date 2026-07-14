@@ -26,6 +26,8 @@ const [
   tautaBed,
   tautaSprite,
   pancakeSprite,
+  mitsuriCushion,
+  mitsuriSprite,
   pixelFont,
   pixelFontLicense
 ] = await Promise.all([
@@ -52,6 +54,8 @@ const [
   readFile(new URL("../assets/pets/tauta-bed.png", import.meta.url)),
   readFile(new URL("../assets/pets/tauta-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/pancake-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/pets/mitsuri-cushion.png", import.meta.url)),
+  readFile(new URL("../assets/pets/mitsuri-sprite.png", import.meta.url)),
   readFile(new URL("../assets/fonts/pixelify-sans-variable.ttf", import.meta.url)),
   readFile(new URL("../assets/fonts/OFL-PixelifySans.txt", import.meta.url), "utf8")
 ]);
@@ -61,11 +65,12 @@ const [audioFiles, sourceFiles] = await Promise.all([
   readdir(new URL("../src/", import.meta.url))
 ]);
 const htaccessSource = await readFile(new URL("../.htaccess", import.meta.url), "utf8");
+const manifestSource = await readFile(new URL("../manifest.webmanifest", import.meta.url), "utf8");
 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-11");
+  assert.equal(buildId, "20260714-12");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -113,7 +118,9 @@ test("the complete browser module graph uses one release version", () => {
     "kesha-sprite.png",
     "tauta-bed.png",
     "tauta-sprite.png",
-    "pancake-sprite.png"
+    "pancake-sprite.png",
+    "mitsuri-cushion.png",
+    "mitsuri-sprite.png"
   ]) {
     assert.match(workerSource, new RegExp(`\\.\\/assets\\/pets\\/${path.replaceAll(".", "\\.")}`));
   }
@@ -157,7 +164,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
 });
 
-test("the Pet Shop ships five animated companions with separate menu and gameplay placements", () => {
+test("the Pet Shop ships five companions plus the server-authorized Mitsuri easter egg", () => {
   assert.match(indexHtml, /id="menu-pet-scene"[\s\S]*data-pet="none"[\s\S]*data-habitat="true"[\s\S]*hidden/);
   assert.match(indexHtml, /id="game-pet-scene"[\s\S]*data-habitat="false"[\s\S]*hidden/);
   assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="menu-pet-scene"[\s\S]*id="dialog-title"/);
@@ -195,23 +202,45 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
   assert.match(stylesSource, /pancake-dance 1440ms/);
   assert.match(stylesSource, /pancake-line-glow 1440ms/);
   assert.match(petControllerSource, /LEGACY_MISHA_NICKNAME = "misha_boy"/);
+  assert.match(petControllerSource, /isSpecialPetId\(session\.profile\.specialPetId\)/);
+  assert.match(mainSource, /normalized\.specialPetId = specialPetId/);
+  assert.match(mainSource, /isShopPetId\(profileSession\.profile\?\.selectedPetId\)/);
+  assert.match(mainSource, /isShopPetId\(profileSession\.profile\?\.equippedPetId\)/);
+  assert.match(petCatalogSource, /id: "mitsuri"[\s\S]*name: "Mitsuri"[\s\S]*kind: "Red rabbit"/);
+  assert.doesNotMatch(indexHtml, /data-pet-card="mitsuri"/);
   assert.match(petControllerSource, /PET_IDLE_DELAY_MS = 5_000/);
   assert.match(petControllerSource, /resolvePancakeFacing/);
   assert.match(stylesSource, /@keyframes pet-turn-half-left/);
   assert.match(stylesSource, /@keyframes pet-turn-half-right/);
   assert.match(stylesSource, /prefers-reduced-motion[\s\S]*\.pet-sprite/);
 
-  for (const sprite of [mishaSprite, fokaSprite, keshaSprite, tautaSprite, pancakeSprite]) {
+  for (const sprite of [mishaSprite, fokaSprite, keshaSprite, tautaSprite, pancakeSprite, mitsuriSprite]) {
     assert.equal(sprite.subarray(1, 4).toString("ascii"), "PNG");
     assert.equal(sprite.readUInt32BE(16), 320);
     assert.equal(sprite.readUInt32BE(20), 32);
   }
-  for (const habitat of [mishaClimber, fokaFloe, keshaPerch, tautaBed]) {
+  for (const habitat of [mishaClimber, fokaFloe, keshaPerch, tautaBed, mitsuriCushion]) {
     assert.equal(habitat.subarray(1, 4).toString("ascii"), "PNG");
     assert.equal(habitat.readUInt32BE(16), 64);
     assert.equal(habitat.readUInt32BE(20), 48);
   }
   assert.match(petCatalogSource, /priceCoins: 500/);
+  assert.match(stylesSource, /\[data-pet="mitsuri"\] > \.pet-sprite[\s\S]*mitsuri-sprite\.png/);
+  assert.match(stylesSource, /\[data-pet="mitsuri"\] > \.pet-habitat[\s\S]*mitsuri-cushion\.png/);
+  assert.match(stylesSource, /@keyframes pet-turn-half-right[\s\S]*50%[\s\S]*55\.556%[\s\S]*100%[\s\S]*66\.667%/);
+  assert.match(stylesSource, /@keyframes pet-turn-right[\s\S]*34%[\s\S]*55\.556%[\s\S]*67%[\s\S]*66\.667%[\s\S]*100%[\s\S]*77\.778%/);
+});
+
+test("PimPoPom branding uses three accessible gradient wordmark segments", () => {
+  assert.match(indexHtml, /<title>PimPoPom<\/title>/);
+  assert.match(indexHtml, /apple-mobile-web-app-title" content="PimPoPom"/);
+  assert.equal((indexHtml.match(/role="img" aria-label="PimPoPom"/g) ?? []).length, 2);
+  for (const segment of ["pim", "po", "pom"]) {
+    assert.equal((indexHtml.match(new RegExp(`class="brand-logo__${segment}"`, "g")) ?? []).length, 2);
+    assert.match(stylesSource, new RegExp(`\\.brand-logo__${segment}\\s*\\{[\\s\\S]*linear-gradient`));
+  }
+  assert.match(manifestSource, /"name": "PimPoPom"/);
+  assert.match(manifestSource, /"short_name": "PimPoPom"/);
 });
 
 test("Arcade is the player-facing name for the compatible normal mode", () => {
@@ -624,8 +653,17 @@ test("Pet Shop balance and achievement rewards use explicit coin presentation", 
   assert.match(mainSource, /card\?\.classList\.toggle\("is-owned", owned\)/);
   assert.match(stylesSource, /\.pet-card\.is-owned \.pet-card__price\s*\{[^}]+filter:\s*grayscale\(1\)/s);
   assert.match(indexHtml, /class="menu-feature-actions">[\s\S]*id="pet-shop-toggle"[\s\S]*id="themes-toggle"/);
-  assert.match(stylesSource, /\.menu-feature-button\s*\{[^}]+width:\s*45%;[^}]+flex:\s*0 0 45%;/s);
+  assert.match(stylesSource, /\.menu-feature-actions\s*\{[^}]+grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[^}]+gap:\s*8px;/s);
+  assert.match(stylesSource, /\.menu-feature-button\s*\{[^}]+width:\s*100%;[^}]+min-width:\s*0;/s);
   assert.match(stylesSource, /\.settings-toggle\.menu-feature-button\s*\{[^}]+min-height:\s*48px;[^}]+gap:\s*2px;/s);
+  assert.match(indexHtml, /id="pet-shop-toggle"[\s\S]*menu-feature-button__title[\s\S]*<span>Pet Shop<\/span>/);
+  assert.match(indexHtml, /id="themes-toggle"[\s\S]*menu-feature-button__title[\s\S]*<span>Themes<\/span>/);
+  for (const accent of ["achievements", "pets", "themes"]) {
+    assert.match(indexHtml, new RegExp(`menu-feature-accent--${accent}`));
+  }
+  for (const theme of ["disco", "light", "pixel"]) {
+    assert.match(stylesSource, new RegExp(`:root\\[data-theme="${theme}"\\][\\s\\S]*menu-feature-accent`));
+  }
   assert.equal((indexHtml.match(/class="pixel-coin pixel-coin--achievement"/g) ?? []).length, 5);
   assert.match(mainSource, /function renderAchievementReward\(/);
   assert.match(mainSource, /coinBalance\.querySelector\("\.pixel-coin"\)\?\.cloneNode\(true\)/);

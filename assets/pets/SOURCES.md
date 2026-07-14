@@ -10,8 +10,11 @@ The built-in OpenAI image-generation workflow produced the source art used for:
 - `kesha-sprite.png` and `kesha-perch.png`: a bright green-yellow parrot with directional turns, a rollover transition, and upside-down sleep on a wooden perch;
 - `tauta-sprite.png` and `tauta-bed.png`: a black-white border collie with full and half turns, a half-standing transition, and curled sleep on a cozy brown bed;
 - the added intermediate frame in `misha-sprite.png`: a cool neutral-grey tabby matching the user-supplied Misha photo, with only a tiny beige accent, rising between the established sitting and sleeping poses.
+- `mitsuri-sprite.png` and `mitsuri-cushion.png`: a bright red rabbit with one pale light-pink right-ear stripe, plus a bubblegum-pink two-layer cushion. Mitsuri's generated ten-frame source was edited to remove its initial pink hair curl while preserving the exact front/left/right/settling/sleeping frame order. The final sprite contains no loose hair thread.
 
 Prompts required isolated, orthographic 32×32 game-sprite poses; crisp deliberate pixel clusters; a fixed center/contact baseline; transparent-friendly flat chroma backgrounds; no text; and separate habitat layers. Generated sources were chroma-keyed, reduced with nearest-neighbor sampling, and assembled into ten-cell 320×32 pet sheets or two-cell 64×48 habitat sheets. The existing `misha-climber.png` was retained.
+
+Mitsuri used the built-in OpenAI image-generation tool with `foka-sprite.png` and `misha-sprite.png` as style/frame-order references. The final edit prompt required exactly ten equally spaced poses, saturated scarlet fur, no hair ornament, and one much lighter/paler stripe on the rabbit's right ear in every direction. A separate two-cell prompt used the existing floe/bed sheets as layer references for the cushion. Both sources were generated over a flat green chroma key, locally keyed, scrubbed of residual green, reduced with nearest-neighbor sampling, and validated as alpha PNGs at the established runtime dimensions.
 
 ## Pancake
 

@@ -17,12 +17,18 @@
   --panel-border: rgba(255, 255, 255, 0.09);
   --muted: #9da4bc;
   --board-gap: clamp(4px, 1.5vw, 8px);
+  --feature-achievements: #ffd84d;
+  --feature-pets: #ff79ad;
+  --feature-themes: #63efff;
 }
 
 :root[data-theme="disco"] {
   --panel: rgba(12, 15, 22, 0.9);
   --panel-border: rgba(218, 239, 244, 0.13);
   --muted: #a8afb9;
+  --feature-achievements: #ffe66f;
+  --feature-pets: #ff68d6;
+  --feature-themes: #61f5ff;
 }
 
 :root[data-theme="light"] {
@@ -32,6 +38,9 @@
   --panel-border: rgba(80, 122, 153, 0.2);
   --muted: #5e7187;
   --board-gap: clamp(5px, 1.65vw, 9px);
+  --feature-achievements: #a66a00;
+  --feature-pets: #c53868;
+  --feature-themes: #087fa7;
 }
 
 :root[data-theme="pixel"] {
@@ -42,6 +51,9 @@
   --panel-border: rgba(113, 238, 255, 0.38);
   --muted: #b0aed0;
   --board-gap: clamp(3px, 1.1vw, 6px);
+  --feature-achievements: #ffe14f;
+  --feature-pets: #ff5fc8;
+  --feature-themes: #63efff;
 }
 
 * {
@@ -320,6 +332,10 @@ button {
   background-image: url("./assets/pets/pancake-sprite.png");
 }
 
+[data-pet="mitsuri"] > .pet-sprite {
+  background-image: url("./assets/pets/mitsuri-sprite.png");
+}
+
 [data-pet="pancake"] > .pet-sprite::before {
   content: "";
   position: absolute;
@@ -382,6 +398,10 @@ button {
 
 [data-pet="misha"] > .pet-habitat {
   background-image: url("./assets/pets/misha-climber.png");
+}
+
+[data-pet="mitsuri"] > .pet-habitat {
+  background-image: url("./assets/pets/mitsuri-cushion.png");
 }
 
 [data-habitat="false"] > .pet-habitat,
@@ -1041,11 +1061,7 @@ button {
     background-position: 0 0;
   }
 
-  34% {
-    background-position: 44.444% 0;
-  }
-
-  67% {
+  50% {
     background-position: 55.556% 0;
   }
 
@@ -1059,15 +1075,11 @@ button {
     background-position: 0 0;
   }
 
-  25% {
-    background-position: 44.444% 0;
-  }
-
-  50% {
+  34% {
     background-position: 55.556% 0;
   }
 
-  75% {
+  67% {
     background-position: 66.667% 0;
   }
 
@@ -1674,13 +1686,13 @@ button {
   font-size: clamp(1.55rem, 7vw, 2.15rem);
   font-style: italic;
   font-weight: 950;
-  letter-spacing: -0.075em;
+  letter-spacing: -0.065em;
   line-height: 1;
   filter: drop-shadow(0 0 15px rgba(67, 244, 255, 0.26));
   transform: skewX(-3deg);
 }
 
-.brand-logo__speedy {
+.brand-logo__pim {
   background: linear-gradient(105deg, #58fff3 8%, #84ff83 58%, #ffe659 100%);
   background-clip: text;
   color: transparent;
@@ -1688,8 +1700,16 @@ button {
   -webkit-text-fill-color: transparent;
 }
 
-.brand-logo__tapper {
-  background: linear-gradient(105deg, #ffe659 0%, #ff6fc8 48%, #a58aff 100%);
+.brand-logo__po {
+  background: linear-gradient(105deg, #ffe659 0%, #ff9a56 44%, #ff6fc8 100%);
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-logo__pom {
+  background: linear-gradient(105deg, #ff6fc8 0%, #a58aff 48%, #69d7ff 100%);
   background-clip: text;
   color: transparent;
   -webkit-background-clip: text;
@@ -2078,20 +2098,38 @@ h1 {
 
 .menu-feature-actions {
   width: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   align-items: stretch;
-  justify-content: space-between;
 }
 
 .menu-feature-button {
-  width: 45%;
-  flex: 0 0 45%;
+  width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
   text-align: center;
+}
+
+.menu-feature-button__title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.menu-feature-button__title svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  fill: currentColor;
 }
 
 .menu-spacer {
@@ -3977,6 +4015,63 @@ h1 {
 :root[data-theme="pixel"] .primary-button,
 :root[data-theme="pixel"] .secondary-button {
   box-shadow: 4px 4px 0 #070713;
+}
+
+.menu-feature-accent--achievements {
+  --feature-accent: var(--feature-achievements);
+}
+
+.menu-feature-accent--pets {
+  --feature-accent: var(--feature-pets);
+}
+
+.menu-feature-accent--themes {
+  --feature-accent: var(--feature-themes);
+}
+
+:root .settings-toggle.menu-feature-accent,
+:root .settings-toggle.menu-feature-accent[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--feature-accent) 78%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--feature-accent) 10%, transparent), transparent 62%),
+    var(--panel);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--feature-accent) 14%, transparent),
+    0 0 14px color-mix(in srgb, var(--feature-accent) 19%, transparent),
+    0 7px 18px rgba(0, 0, 0, 0.16);
+}
+
+.menu-feature-accent--achievements > span:first-child,
+.menu-feature-accent .menu-feature-button__title {
+  color: var(--feature-accent);
+}
+
+:root[data-theme="disco"] .settings-toggle.menu-feature-accent,
+:root[data-theme="disco"] .settings-toggle.menu-feature-accent[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--feature-accent) 88%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--feature-accent) 18%, transparent),
+    0 0 17px color-mix(in srgb, var(--feature-accent) 31%, transparent),
+    0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="light"] .settings-toggle.menu-feature-accent,
+:root[data-theme="light"] .settings-toggle.menu-feature-accent[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--feature-accent) 72%, white 28%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--feature-accent) 9%, white 91%), rgba(255, 255, 255, 0.92)),
+    white;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--feature-accent) 9%, transparent),
+    0 7px 18px rgba(63, 121, 157, 0.09);
+}
+
+:root[data-theme="pixel"] .settings-toggle.menu-feature-accent,
+:root[data-theme="pixel"] .settings-toggle.menu-feature-accent[aria-expanded="true"] {
+  border-width: 2px;
+  border-color: var(--feature-accent);
+  background: #17172e;
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--feature-accent) 24%, #070713 76%);
 }
 
 :root[data-theme="pixel"] .tile:active,
