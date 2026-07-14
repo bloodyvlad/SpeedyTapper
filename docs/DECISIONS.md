@@ -668,7 +668,7 @@ Revisit when: Physical-device testing calls for a different low-end balance or g
 ## D-050 — Pair Power Grid tap tones with a lighter fixed background
 
 - Date: 2026-07-14
-- Status: Accepted locally; not yet deployed
+- Status: Accepted
 
 Context: Direct listening favored the Power Grid uniform tap bank over Deep Current. Objective inspection also showed that every archived backing opening remained dominated by energy below 80 Hz, making even the brighter Power Grid backing feel heavier and more pressing than the requested calm, lightly uplifting bed. The Disco presentation also needs atmosphere without reintroducing adaptive-music timing or lifecycle complexity.
 
