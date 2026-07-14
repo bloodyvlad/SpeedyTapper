@@ -52,6 +52,7 @@ const [audioFiles, sourceFiles] = await Promise.all([
   readdir(new URL("../assets/audio/", import.meta.url)),
   readdir(new URL("../src/", import.meta.url))
 ]);
+const htaccessSource = await readFile(new URL("../.htaccess", import.meta.url), "utf8");
 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
@@ -104,6 +105,7 @@ test("the complete browser module graph uses one release version", () => {
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
+  assert.match(htaccessSource, /AddType audio\/mp4 \.m4a/);
   assert.deepEqual(audioFiles.toSorted(), [
     "SOURCES.md",
     "background-deep-current.m4a",

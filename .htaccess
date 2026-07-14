@@ -1,5 +1,9 @@
 Options -Indexes
 
+<IfModule mod_mime.c>
+    AddType audio/mp4 .m4a
+</IfModule>
+
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"
