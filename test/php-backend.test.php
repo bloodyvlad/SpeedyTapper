@@ -12,8 +12,10 @@ use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\Nickname;
 use SpeedyTapper\PetCatalog;
+use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProof;
 use SpeedyTapper\RunProofValidator;
+use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
 use SpeedyTapper\Uuid;
@@ -116,7 +118,11 @@ $assert(
     'Pet catalog ids, names, prices, and order are stable.',
 );
 $throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
-$assert(count(AchievementCatalog::all()) === 6, 'The achievement catalog exposes six stable goals.');
+$assert(count(AchievementCatalog::all()) === 5, 'The achievement catalog exposes five active goals.');
+$throwsApi(
+    static fn () => AchievementCatalog::require('complete_zen'),
+    'The obsolete timed-Zen achievement cannot be unlocked or claimed.',
+);
 $assert(
     AchievementCatalog::require(AchievementCatalog::BUY_A_PET)['rewardCoins'] === 10,
     'Buying a pet unlocks the ten-coin achievement reward.',
@@ -130,6 +136,34 @@ $assert(
     'Debt-free credits become spendable coins.',
 );
 $assert(CoinEconomy::fromNet(-4) === ['coins' => 0, 'debt' => 4], 'Negative entitlement becomes coin debt.');
+
+$unrankedAttemptService = (new ReflectionClass(RunAttemptService::class))->newInstanceWithoutConstructor();
+try {
+    $unrankedAttemptService->start(
+        Uuid::v4(),
+        str_repeat('b', 32),
+        'zen',
+        RunProofValidator::BUILD_ID,
+    );
+    $assert(false, 'Zen must not issue a ranked run ticket.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 409 && str_contains($error->getMessage(), 'unranked practice'),
+        'Zen start requests are rejected before any database or coin accounting work.',
+    );
+}
+
+$unrankedSubmissionService = (new ReflectionClass(RunSubmissionService::class))->newInstanceWithoutConstructor();
+$unrankedProof = RunProof::fromArray($zenProof('b2392db0-7cfa-4cbc-a2b2-6dadf2b76310'));
+try {
+    $unrankedSubmissionService->submit(Uuid::v4(), str_repeat('b', 32), $unrankedProof);
+    $assert(false, 'Zen must not submit a leaderboard result.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 409 && str_contains($error->getMessage(), 'does not submit scores or award coins'),
+        'Zen finish requests are rejected before validation, leaderboard, achievement, or coin work.',
+    );
+}
 
 $singleHitPayload = $normalProof('4f27f9de-37de-4c31-8090-279a037bf76a');
 $singleHit = ScoreSubmission::fromArray($singleHitPayload);
@@ -368,8 +402,11 @@ $firstHalfMinute = CoinProgression::accrue(0, 30_000);
 $secondHalfMinute = CoinProgression::accrue($firstHalfMinute->remainderMs, 30_000);
 $assert($firstHalfMinute->coinsEarned === 0, 'An incomplete cumulative minute does not award a coin yet.');
 $assert($secondHalfMinute->coinsEarned === 1 && $secondHalfMinute->remainderMs === 0, 'Verified partial run time carries into the next eligible run.');
-$zenCoins = CoinProgression::accrue(0, ScoreSubmission::ZEN_DURATION_MS);
-$assert($zenCoins->coinsEarned === 3 && $zenCoins->remainderMs === 0, 'A verified Zen run awards three coins.');
+$threeMinuteProgression = CoinProgression::accrue(0, ScoreSubmission::ZEN_DURATION_MS);
+$assert(
+    $threeMinuteProgression->coinsEarned === 3 && $threeMinuteProgression->remainderMs === 0,
+    'The generic progression helper remains duration-based; unranked Zen is rejected before accounting.',
+);
 $assert(
     CoinProgression::accrue(0, $singleHit->survivalMs) == CoinProgression::accrue(0, 1_006),
     'Coin accounting depends on derived play time, not score or multiplier.',
@@ -630,6 +667,8 @@ $achievementService = file_get_contents(dirname(__DIR__) . '/server/src/Achievem
 $assert(
     is_string($achievementService)
         && str_contains($achievementService, 'unlockBuyPetInTransaction')
+        && str_contains($achievementService, "\$score->mode !== 'normal'")
+        && !str_contains($achievementService, 'COMPLETE_ZEN')
         && str_contains($achievementService, "verification_status = 'verified'")
         && str_contains($achievementService, 'achievement_reward')
         && str_contains($achievementService, 'CoinEconomy::applyCredit'),

@@ -138,18 +138,16 @@ test("an exact-deadline contact is late and cannot be charged twice", () => {
   assert.equal(engine.misses, 1);
 });
 
-test("Zen input at or after three minutes finalizes without adding points", () => {
+test("Zen input after three minutes remains a live practice hit", () => {
   const engine = new GameEngine({ random: () => 0 });
   const startedAt = 1_000;
-  const runDeadlineAt = startedAt + engine.config.zenDurationMs;
   engine.start(startedAt, GAME_MODES.ZEN);
-  engine.activateRound(runDeadlineAt - 100);
-  const inputAt = runDeadlineAt;
-  const result = reachedDeadline(inputAt, runDeadlineAt)
-    ? engine.finishTimedRun(inputAt)
-    : engine.tap(0, inputAt);
+  const active = engine.activateRound(startedAt + 180_000);
+  const inputAt = startedAt + 180_250;
+  const result = engine.tap(active.snapshot.targetIndex, inputAt);
 
-  assert.equal(result.type, "time-up");
-  assert.equal(result.snapshot.points, 0);
-  assert.equal(result.snapshot.elapsedMs, engine.config.zenDurationMs);
+  assert.equal(result.type, "hit");
+  assert.ok(result.snapshot.points > 0);
+  assert.equal(result.snapshot.elapsedMs, 180_250);
+  assert.equal(result.snapshot.remainingMs, null);
 });

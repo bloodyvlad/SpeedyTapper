@@ -6,7 +6,6 @@ namespace SpeedyTapper;
 
 final class AchievementCatalog
 {
-    public const COMPLETE_ZEN = 'complete_zen';
     public const COMPLETE_ARCADE = 'complete_arcade';
     public const GODLIKE_SPEED = 'godlike_speed';
     public const COLLECT_FIVE_COINS = 'collect_5_coins';
@@ -14,12 +13,6 @@ final class AchievementCatalog
     public const BUY_A_PET = 'buy_a_pet';
 
     private const DEFINITIONS = [
-        [
-            'id' => self::COMPLETE_ZEN,
-            'title' => 'Complete Zen mode',
-            'description' => 'Finish a full three-minute Zen run.',
-            'rewardCoins' => 1,
-        ],
         [
             'id' => self::COMPLETE_ARCADE,
             'title' => 'Complete Arcade mode',

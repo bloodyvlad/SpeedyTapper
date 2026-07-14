@@ -52,12 +52,11 @@ final class AchievementService
             throw new \LogicException('Run achievements must unlock inside the run transaction.');
         }
 
-        $this->unlock(
-            $playerId,
-            $score->mode === 'zen'
-                ? AchievementCatalog::COMPLETE_ZEN
-                : AchievementCatalog::COMPLETE_ARCADE,
-        );
+        if ($score->mode !== 'normal') {
+            return;
+        }
+
+        $this->unlock($playerId, AchievementCatalog::COMPLETE_ARCADE);
         if ($score->godlikeCount > 0) {
             $this->unlock($playerId, AchievementCatalog::GODLIKE_SPEED);
         }
@@ -206,7 +205,6 @@ final class AchievementService
         $runs = $this->database->prepare(
             'SELECT '
             . "COALESCE(MAX(mode = 'normal'), 0) AS completed_arcade, "
-            . "COALESCE(MAX(mode = 'zen' AND duration_ms = 180000), 0) AS completed_zen, "
             . 'COALESCE(MAX(score > 100000), 0) AS scored_over_100k '
             . "FROM completed_runs WHERE player_id = :player_id "
             . "AND economy_generation = :economy_generation "
@@ -220,9 +218,6 @@ final class AchievementService
 
         if ((bool) ($runEligibility['completed_arcade'] ?? false)) {
             $this->unlock($playerId, AchievementCatalog::COMPLETE_ARCADE);
-        }
-        if ((bool) ($runEligibility['completed_zen'] ?? false)) {
-            $this->unlock($playerId, AchievementCatalog::COMPLETE_ZEN);
         }
         if ((bool) ($runEligibility['scored_over_100k'] ?? false)) {
             $this->unlock($playerId, AchievementCatalog::SCORE_OVER_100K);

@@ -25,6 +25,9 @@ final class RunSubmissionService
 
     public function submit(string $playerId, string $sessionBindingHash, RunProof $proof): array
     {
+        if ($proof->mode !== 'normal') {
+            throw new ApiException(409, 'Zen practice does not submit scores or award coins.');
+        }
         $record = $this->record($playerId, $sessionBindingHash, $proof, true);
         $payload = $this->leaderboard->payload($proof->mode, $playerId, $proof->runId);
         $hasExactSubmittedContext = is_string($payload['contextEntryId'])

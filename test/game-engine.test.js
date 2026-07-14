@@ -66,9 +66,9 @@ test("run proof records rounded target and hit timing without exposing mutable s
   assert.deepEqual(engine.getRunProofEvents(), []);
 });
 
-test("proof time stays monotonic after separately rounded target and reaction intervals", () => {
+test("Normal proof time stays monotonic after separately rounded target and reaction intervals", () => {
   const engine = makeEngine(() => 0);
-  engine.start(0.2, GAME_MODES.ZEN);
+  engine.start(0.2, GAME_MODES.NORMAL);
   engine.hits = 4;
   const target = engine.activateRound(10_000.8);
   const hit = engine.tap(target.snapshot.targetIndex, 10_186.4, 10_186.4);
@@ -84,6 +84,11 @@ test("proof time stays monotonic after separately rounded target and reaction in
 });
 
 test("Zen target cadence starts at one second and moves halfway toward each reaction", () => {
+  assert.equal(GAME_CONFIG.zen.durationMs, null);
+  assert.equal(GAME_CONFIG.zen.decoysEnabled, false);
+  assert.equal(GAME_CONFIG.zen.ranked, false);
+  assert.equal(GAME_CONFIG.zen.awardsCoins, false);
+
   let randomCalls = 0;
   const engine = makeEngine(() => {
     randomCalls += 1;
@@ -561,7 +566,7 @@ test("Arcade survival uses the same integer logical instant as the terminal proo
   assert.deepEqual(finish, [5, 301, 306]);
 });
 
-test("Zen records mistakes without losing lives and ends at exactly three minutes", () => {
+test("Zen is endless practice and records mistakes without losing lives", () => {
   const engine = makeEngine();
   engine.start(1_000, GAME_MODES.ZEN);
   const miss = engine.tap(0, 1_100);
@@ -570,38 +575,28 @@ test("Zen records mistakes without losing lives and ends at exactly three minute
   assert.equal(miss.lifeLost, false);
   assert.equal(miss.snapshot.lives, 3);
   assert.equal(miss.snapshot.recoveryRemainingMs, 0);
-  assert.equal(engine.finishTimedRun(180_999).reason, "time-remaining");
-  const result = engine.finishTimedRun(181_000);
-  assert.equal(result.type, "time-up");
-  assert.equal(result.snapshot.elapsedMs, 180_000);
-  assert.equal(result.snapshot.remainingMs, 0);
-  assert.equal(result.snapshot.endReason, "time");
-  assert.equal(engine.isRunComplete(), true);
+  const result = engine.finishTimedRun(10_001_000);
+  assert.equal(result.type, "ignored");
+  assert.equal(result.reason, "not-timed");
+  assert.equal(result.snapshot.elapsedMs, 10_000_000);
+  assert.equal(result.snapshot.remainingMs, null);
+  assert.equal(result.snapshot.endReason, null);
+  assert.equal(result.snapshot.state, GAME_STATES.WAITING);
+  assert.equal(engine.isRunComplete(), false);
+  assert.deepEqual(engine.getRunProofEvents(), []);
 });
 
-test("Zen proof records its logical deadline separately from delayed handling", () => {
+test("Zen remains playable beyond the former three-minute boundary", () => {
   const engine = makeEngine();
-  engine.start(1_000, GAME_MODES.ZEN);
-
-  engine.finishTimedRun(181_010.4);
-  engine.finishTimedRun(181_020);
-
-  assert.deepEqual(engine.getRunProofEvents(), [[5, 180_000, 180_010]]);
-});
-
-test("Zen keeps an exact logical finish when a pre-deadline hit advances the handled clock", () => {
-  const engine = makeEngine();
-  engine.start(0.2, GAME_MODES.ZEN);
-  const active = engine.activateRound(179_901.0);
-  const hit = engine.tap(active.snapshot.targetIndex, 180_000.1, 180_001.2);
+  engine.start(0, GAME_MODES.ZEN);
+  const active = engine.activateRound(180_000);
+  const hit = engine.tap(active.snapshot.targetIndex, 181_000, 181_001);
   assert.equal(hit.type, "hit");
-
-  const result = engine.finishTimedRun(180_001.3);
-  assert.equal(result.type, "time-up");
-  assert.deepEqual(engine.getRunProofEvents().slice(-2), [
-    [1, 180_000, 180_001, active.snapshot.targetIndex],
-    [5, 180_000, 180_001]
-  ]);
+  assert.equal(hit.snapshot.elapsedMs, 181_000);
+  assert.ok(hit.snapshot.points > 0);
+  assert.equal(hit.snapshot.state, GAME_STATES.WAITING);
+  assert.equal(engine.isRunComplete(), false);
+  assert.deepEqual(engine.getRunProofEvents(), []);
 });
 
 test("Zen targets stay active through wrong taps and have no response deadline", () => {
@@ -630,33 +625,21 @@ test("Zen targets stay active through wrong taps and have no response deadline",
   assert.equal(hit.snapshot.state, GAME_STATES.WAITING);
 });
 
-test("a Zen mistake clears live decoys but retains the correct target", () => {
+test("Zen disables decoy cadence and activation at every difficulty", () => {
   const engine = makeEngine(() => 0);
   engine.start(0, GAME_MODES.ZEN);
-  engine.hits = 4;
-  const active = engine.activateRound(35_000);
-  const decoy = engine.activateDecoy(35_050);
+  engine.hits = 100;
+  const active = engine.activateRound(300_000);
+  assert.equal(active.snapshot.difficulty.maximumActiveDecoys, 0);
+  assert.equal(active.snapshot.difficulty.decoySpawnDelayRangeMs, null);
+  assert.equal(engine.getNextDecoyDelayMs(300_001), null);
 
-  const result = engine.tap(decoy.decoy.cellIndex, 35_100);
-  assert.equal(result.type, "miss");
-  assert.equal(result.targetRetained, true);
-  assert.equal(result.snapshot.targetIndex, active.snapshot.targetIndex);
+  const result = engine.activateDecoy(300_001);
+  assert.equal(result.type, "ignored");
+  assert.equal(result.reason, "decoys-disabled");
   assert.equal(result.snapshot.activeDecoys.length, 0);
   assert.equal(result.snapshot.dodges, 0);
-});
-
-test("Zen completion clears an expiring decoy without a post-deadline dodge", () => {
-  const engine = makeEngine(() => 0);
-  engine.start(0, GAME_MODES.ZEN);
-  engine.hits = 4;
-  const decoy = engine.activateDecoy(179_700);
-  assert.equal(decoy.decoy.expiresAt, 180_150);
-
-  const result = engine.finishTimedRun(180_010);
-  assert.equal(result.type, "time-up");
-  assert.equal(result.dodgesAwarded, 0);
-  assert.equal(result.snapshot.dodges, 0);
-  assert.equal(result.snapshot.points, 0);
+  assert.deepEqual(engine.getRunProofEvents(), []);
 });
 
 test("speed ratings classify the same rounded milliseconds shown to players", () => {
@@ -765,20 +748,24 @@ test("Godlike overflow carries into the next multiplier and the threshold tap us
   assert.equal(nextPerfect.snapshot.streakProgress, 2);
 });
 
-test("mistakes reset the multiplier in both game modes while dodges are neutral", () => {
+test("mistakes reset the multiplier in both game modes while Normal dodges are neutral", () => {
   for (const mode of Object.values(GAME_MODES)) {
     const engine = makeEngine(() => 0);
     engine.start(0, mode);
     for (let hit = 0; hit < 3; hit += 1) {
       hitRound(engine, 100 + hit * 1_000, 150);
     }
-    engine.hits = Math.max(engine.hits, 4);
-    const decoy = engine.activateDecoy(10_100);
-    const dodge = engine.expireDecoys(decoy.decoy.expiresAt);
-    assert.equal(dodge.snapshot.multiplier, 2);
-    assert.equal(dodge.snapshot.streakProgress, 1);
+    let missedAt = 10_100;
+    if (mode === GAME_MODES.NORMAL) {
+      engine.hits = Math.max(engine.hits, 4);
+      const decoy = engine.activateDecoy(missedAt);
+      const dodge = engine.expireDecoys(decoy.decoy.expiresAt);
+      assert.equal(dodge.snapshot.multiplier, 2);
+      assert.equal(dodge.snapshot.streakProgress, 1);
+      missedAt = decoy.decoy.expiresAt + 10;
+    }
 
-    const miss = engine.tap(0, decoy.decoy.expiresAt + 10);
+    const miss = engine.tap(0, missedAt);
     assert.equal(miss.type, "miss");
     assert.equal(miss.snapshot.multiplier, 1);
     assert.equal(miss.snapshot.streakProgress, 0);

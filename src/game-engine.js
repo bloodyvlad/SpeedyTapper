@@ -211,6 +211,7 @@ function emptyMultiplierHitCounts(maximumMultiplier) {
 export class GameEngine {
   #runProofEvents = [];
   #runProofFinished = false;
+  #runProofEnabled = false;
   #proofClockFloor = 0;
 
   constructor({ config = GAME_CONFIG, colors = COLORS, random = Math.random } = {}) {
@@ -262,6 +263,7 @@ export class GameEngine {
     this.proofTargetAt = null;
     this.#runProofEvents = [];
     this.#runProofFinished = false;
+    this.#runProofEnabled = false;
     this.#proofClockFloor = 0;
     this.zenTargetDelayMs = this.config.zen.initialTargetDelayMs;
   }
@@ -274,6 +276,7 @@ export class GameEngine {
     this.reset();
     this.state = GAME_STATES.WAITING;
     this.mode = mode;
+    this.#runProofEnabled = mode === GAME_MODES.NORMAL;
     this.startedAt = now;
     this.playerColorIndex = randomInteger(this.random, this.colors.length);
     return this.getSnapshot(now);
@@ -288,9 +291,8 @@ export class GameEngine {
     return this.#runProofEvents.map((event) => [...event]);
   }
 
-  getRemainingMs(now) {
-    if (this.mode !== GAME_MODES.ZEN || this.startedAt === null) return null;
-    return Math.max(0, this.config.zenDurationMs - this.getElapsedMs(now));
+  getRemainingMs() {
+    return null;
   }
 
   getChallengeHits() {
@@ -322,6 +324,9 @@ export class GameEngine {
 
   getNextDecoyDelayMs(now) {
     if (this.state === GAME_STATES.IDLE || this.state === GAME_STATES.GAME_OVER) {
+      return null;
+    }
+    if (this.mode === GAME_MODES.ZEN) {
       return null;
     }
 
@@ -420,6 +425,15 @@ export class GameEngine {
   activateDecoy(now) {
     if (this.state === GAME_STATES.IDLE || this.state === GAME_STATES.GAME_OVER) {
       return Object.freeze({ type: "ignored", reason: "not-running", snapshot: this.getSnapshot(now) });
+    }
+    if (this.mode === GAME_MODES.ZEN) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "decoys-disabled",
+        dodgesAwarded: 0,
+        dodgePointsAwarded: 0,
+        snapshot: this.getSnapshot(now)
+      });
     }
     const recoveryGuard = this.#recoveryGuard(now);
     if (recoveryGuard) return recoveryGuard;
@@ -647,45 +661,12 @@ export class GameEngine {
   }
 
   finishTimedRun(now) {
-    if (this.mode !== GAME_MODES.ZEN) {
-      return Object.freeze({ type: "ignored", reason: "not-timed", snapshot: this.getSnapshot(now) });
-    }
-
-    if (this.getElapsedMs(now) < this.config.zenDurationMs) {
-      return Object.freeze({
-        type: "ignored",
-        reason: "time-remaining",
-        remainingMs: this.getRemainingMs(now),
-        snapshot: this.getSnapshot(now)
-      });
-    }
-
-    const runDeadlineAt = this.startedAt + this.config.zenDurationMs;
-    this.#recordFinishElapsed(this.config.zenDurationMs, this.#proofElapsed(now));
-    this.state = GAME_STATES.GAME_OVER;
-    this.endedAt = runDeadlineAt;
-    this.endReason = "time";
-    this.activeDecoys = [];
-    this.targetIndex = null;
-    this.activeAt = null;
-    this.roundKind = null;
-    this.roundDifficulty = null;
-    this.recoveryUntil = null;
-    this.proofTargetAt = null;
-    return Object.freeze({
-      type: "time-up",
-      dodgesAwarded: 0,
-      dodgePointsAwarded: 0,
-      snapshot: this.getSnapshot(now)
-    });
+    return Object.freeze({ type: "ignored", reason: "not-timed", snapshot: this.getSnapshot(now) });
   }
 
   isRunComplete() {
     if (this.state !== GAME_STATES.GAME_OVER) return false;
-    if (this.mode === GAME_MODES.NORMAL) {
-      return this.lives === 0 && this.endReason === "lives";
-    }
-    return this.getRemainingMs(this.endedAt ?? this.startedAt) === 0 && this.endReason === "time";
+    return this.mode === GAME_MODES.NORMAL && this.lives === 0 && this.endReason === "lives";
   }
 
   getSnapshot(now = this.startedAt ?? 0) {
@@ -867,7 +848,7 @@ export class GameEngine {
   }
 
   #currentDifficulty(now) {
-    return this.state === GAME_STATES.ACTIVE && this.roundDifficulty
+    const difficulty = this.state === GAME_STATES.ACTIVE && this.roundDifficulty
       ? this.roundDifficulty
       : resolveDifficulty(
           this.hits,
@@ -875,6 +856,12 @@ export class GameEngine {
           this.getChallengeHits(),
           this.config
         );
+    if (this.mode !== GAME_MODES.ZEN) return difficulty;
+    return Object.freeze({
+      ...difficulty,
+      decoySpawnDelayRangeMs: null,
+      maximumActiveDecoys: 0
+    });
   }
 
   #proofElapsed(now) {
@@ -886,6 +873,7 @@ export class GameEngine {
   }
 
   #recordProofEvent(event) {
+    if (!this.#runProofEnabled) return;
     this.#runProofEvents.push(Object.freeze([...event]));
     const clockIndex = [1, 2, 5].includes(event[0]) ? 2 : 1;
     this.#proofClockFloor = Math.max(this.#proofClockFloor, event[clockIndex] ?? 0);
