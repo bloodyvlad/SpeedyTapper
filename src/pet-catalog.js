@@ -3,35 +3,35 @@ export const PET_CATALOG = Object.freeze([
     id: "foka",
     name: "Foka",
     priceCoins: 10,
-    home: "Ice floe",
+    kind: "Baby seal",
     idlePose: "sleeping"
   }),
   Object.freeze({
     id: "kesha",
     name: "Kesha",
     priceCoins: 20,
-    home: "Perch",
+    kind: "Green-yellow parrot",
     idlePose: "sleeping"
   }),
   Object.freeze({
     id: "tauta",
     name: "Tauta",
     priceCoins: 50,
-    home: "Cozy brown bed",
+    kind: "Border collie",
     idlePose: "sleeping"
   }),
   Object.freeze({
     id: "misha",
     name: "Misha",
     priceCoins: 100,
-    home: "Climber",
+    kind: "Grey cat",
     idlePose: "sleeping"
   }),
   Object.freeze({
     id: "pancake",
     name: "Pancake",
     priceCoins: 500,
-    home: "Side-view glow line",
+    kind: "Dancing meme",
     idlePose: "stopped"
   })
 ]);
@@ -49,4 +49,10 @@ export function isPetId(petId) {
 export function normalizeOwnedPetIds(value) {
   if (!Array.isArray(value)) return Object.freeze([]);
   return Object.freeze([...new Set(value.filter(isPetId))]);
+}
+
+export function resolvePetShopAction({ owned = false, selected = false, visible = false } = {}) {
+  if (!owned) return "Buy";
+  if (!selected) return "Select";
+  return visible ? "Hide" : "Show";
 }

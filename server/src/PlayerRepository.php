@@ -110,6 +110,8 @@ final class PlayerRepository
             'coins' => (int) $row['coins'],
             'totalPlayMs' => (int) $row['total_play_ms'],
             'ownedPetIds' => $petState['ownedPetIds'],
+            'selectedPetId' => $petState['selectedPetId'],
+            'petVisible' => $petState['petVisible'],
             'equippedPetId' => $petState['equippedPetId'],
             'createdAt' => self::isoDate((string) $row['created_at']),
             'updatedAt' => self::isoDate((string) $row['updated_at']),

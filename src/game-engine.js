@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260714-2";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260714-3";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",

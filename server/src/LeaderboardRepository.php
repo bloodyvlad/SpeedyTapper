@@ -228,7 +228,7 @@ final class LeaderboardRepository
             . 'e.verification_status, '
             . 'ROW_NUMBER() OVER (ORDER BY ' . self::rankingOrderSql('e.') . ') AS rank_position '
             . 'FROM leaderboard_entries e INNER JOIN players p ON p.id = e.player_id '
-            . 'LEFT JOIN player_pet_selection ps ON ps.player_id = e.player_id '
+            . 'LEFT JOIN player_pet_selection ps ON ps.player_id = e.player_id AND ps.is_visible = 1 '
             . "WHERE e.season_id = :season_id AND e.mode = :mode "
             . "AND e.verification_status IN ('legacy', 'verified')) "
             . 'SELECT * FROM ranked WHERE rank_position <= ' . LeaderboardWindow::TOP_COUNT

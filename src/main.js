@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-2";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-2";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-3";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-3";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,26 +8,27 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-2";
+} from "./input-timing.js?v=20260714-3";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260714-2";
+} from "./music-controller.js?v=20260714-3";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
-  PET_CATALOG
-} from "./pet-catalog.js?v=20260714-2";
-import { createPetController } from "./pet-controller.js?v=20260714-2";
-import { createSoundController } from "./sound-controller.js?v=20260714-2";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-2";
+  PET_CATALOG,
+  resolvePetShopAction
+} from "./pet-catalog.js?v=20260714-3";
+import { createPetController } from "./pet-controller.js?v=20260714-3";
+import { createSoundController } from "./sound-controller.js?v=20260714-3";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-3";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
-const APP_BUILD_ID = "20260714-2";
+const APP_BUILD_ID = "20260714-3";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
@@ -113,7 +114,6 @@ const elements = {
   petShopBalance: document.querySelector("#pet-shop-balance"),
   petShopCards: [...document.querySelectorAll("[data-pet-card]")],
   petShopCurrent: document.querySelector("#pet-shop-current"),
-  petShopEquippedBadges: [...document.querySelectorAll("[data-pet-equipped]")],
   petShopPreviews: [...document.querySelectorAll("[data-pet-preview]")],
   petShopStatus: document.querySelector("#pet-shop-status"),
   petShopToggle: document.querySelector("#pet-shop-toggle"),
@@ -1344,7 +1344,7 @@ function openPetShop() {
   elements.petShopView.hidden = false;
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Pet Shop";
-  elements.dialogMessage.textContent = "Tap a pet to preview its animation. Buy equips immediately; Change selects a pet you own.";
+  elements.dialogMessage.textContent = "Tap a pet to preview its animation. Buy a new pet, or select, hide, and show pets you own.";
   elements.dialog.scrollTop = 0;
   elements.petShopToggle.setAttribute("aria-expanded", "true");
   setPetShopStatus(
@@ -1689,16 +1689,27 @@ function normalizeProfile(value) {
   if (!value || typeof value !== "object") return null;
   const normalized = { ...value };
   const hasOwnedPetIds = Object.hasOwn(value, "ownedPetIds");
+  const hasSelectedPetId = Object.hasOwn(value, "selectedPetId");
+  const hasPetVisible = Object.hasOwn(value, "petVisible");
   const hasEquippedPetId = Object.hasOwn(value, "equippedPetId");
   if (hasOwnedPetIds) {
     normalized.ownedPetIds = normalizeOwnedPetIds(value.ownedPetIds);
   }
-  if (hasEquippedPetId) {
-    const equippedPetId = isPetId(value.equippedPetId) ? value.equippedPetId : null;
-    normalized.equippedPetId = equippedPetId !== null
-      && (!hasOwnedPetIds || normalized.ownedPetIds.includes(equippedPetId))
-      ? equippedPetId
+  if (hasOwnedPetIds || hasSelectedPetId || hasPetVisible || hasEquippedPetId) {
+    const ownedPetIds = normalizeOwnedPetIds(normalized.ownedPetIds);
+    const legacyEquippedPetId = isPetId(value.equippedPetId) ? value.equippedPetId : null;
+    const selectedCandidate = hasSelectedPetId ? value.selectedPetId : legacyEquippedPetId;
+    const selectedPetId = isPetId(selectedCandidate)
+      && (!hasOwnedPetIds || ownedPetIds.includes(selectedCandidate))
+      ? selectedCandidate
       : null;
+    const petVisible = selectedPetId !== null && (
+      hasPetVisible ? value.petVisible === true : legacyEquippedPetId === selectedPetId
+    );
+    normalized.ownedPetIds = ownedPetIds;
+    normalized.selectedPetId = selectedPetId;
+    normalized.petVisible = petVisible;
+    normalized.equippedPetId = petVisible ? selectedPetId : null;
   }
   return Object.freeze(normalized);
 }
@@ -1760,10 +1771,11 @@ function renderUtilityRank() {
   const rank = currentRank(leaderboardMode)?.rank ?? null;
   elements.leaderboardRank.hidden = rank === null;
   elements.leaderboardRank.textContent = rank === null ? "" : `#${rank.toLocaleString()}`;
-  elements.coinCount.textContent = profileSession.coinBalance.toLocaleString();
+  const coinLabel = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
+  elements.coinCount.textContent = coinLabel;
   elements.coinBalance.setAttribute(
     "aria-label",
-    `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`
+    coinLabel
   );
   elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
   pets.setProfileSession(profileSession);
@@ -1771,13 +1783,30 @@ function renderUtilityRank() {
 }
 
 function currentPetShopState() {
-  const equippedPetId = pets.getState().petId;
+  const displayedPetId = pets.getState().petId;
   const ownedPetIds = new Set(normalizeOwnedPetIds(profileSession.profile?.ownedPetIds));
   const hasPersistedPetState = profileSession.profile
     && (Object.hasOwn(profileSession.profile, "ownedPetIds")
+      || Object.hasOwn(profileSession.profile, "selectedPetId")
+      || Object.hasOwn(profileSession.profile, "petVisible")
       || Object.hasOwn(profileSession.profile, "equippedPetId"));
-  if (!hasPersistedPetState && equippedPetId !== null) ownedPetIds.add(equippedPetId);
-  return { equippedPetId, ownedPetIds };
+  const selectedPetId = hasPersistedPetState
+    ? isPetId(profileSession.profile?.selectedPetId)
+      ? profileSession.profile.selectedPetId
+      : isPetId(profileSession.profile?.equippedPetId)
+        ? profileSession.profile.equippedPetId
+        : null
+    : displayedPetId;
+  const petVisible = selectedPetId !== null && (
+    hasPersistedPetState ? profileSession.profile?.petVisible !== false : true
+  );
+  if (!hasPersistedPetState && selectedPetId !== null) ownedPetIds.add(selectedPetId);
+  return {
+    selectedPetId,
+    equippedPetId: petVisible ? selectedPetId : null,
+    petVisible,
+    ownedPetIds
+  };
 }
 
 function setPetShopStatus(message = "", isError = false) {
@@ -1786,32 +1815,32 @@ function setPetShopStatus(message = "", isError = false) {
 }
 
 function renderPetShop() {
-  const { equippedPetId, ownedPetIds } = currentPetShopState();
-  const equippedPet = getPet(equippedPetId);
-  elements.petShopCurrent.textContent = equippedPet?.name ?? "No pet";
+  const { selectedPetId, petVisible, ownedPetIds } = currentPetShopState();
+  const selectedPet = getPet(selectedPetId);
+  elements.petShopCurrent.textContent = selectedPet
+    ? `${selectedPet.name}${petVisible ? "" : " · hidden"}`
+    : "No pet";
   elements.petShopBalance.textContent = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
 
   for (const pet of PET_CATALOG) {
     const owned = ownedPetIds.has(pet.id);
-    const equipped = equippedPetId === pet.id;
+    const selected = selectedPetId === pet.id;
     const card = elements.petShopCards.find((item) => item.dataset.petCard === pet.id);
     const action = elements.petShopActions.find((item) => item.dataset.petAction === pet.id);
-    const badge = elements.petShopEquippedBadges.find(
-      (item) => item.dataset.petEquipped === pet.id
-    );
-    card?.classList.toggle("is-equipped", equipped);
-    if (!action || !badge) continue;
-    action.textContent = owned ? "Change" : "Buy";
-    action.hidden = equipped;
-    badge.hidden = !equipped;
+    card?.classList.toggle("is-selected", selected);
+    card?.classList.toggle("is-hidden-pet", selected && !petVisible);
+    if (!action) continue;
+    action.textContent = resolvePetShopAction({ owned, selected, visible: petVisible });
     action.disabled = petShopPendingPetId !== null
       || !profileSession.authenticated
       || (!owned && profileSession.coinBalance < pet.priceCoins);
     action.setAttribute(
       "aria-label",
-      owned
-        ? `Change pet to ${pet.name}`
-        : `Buy ${pet.name} for ${pet.priceCoins} coins and equip immediately`
+      !owned
+        ? `Buy ${pet.name} for ${pet.priceCoins} coins and show immediately`
+        : selected
+          ? `${petVisible ? "Hide" : "Show"} ${pet.name}`
+          : `Select and show ${pet.name}`
     );
   }
 }
@@ -1839,14 +1868,14 @@ function invalidatePetShopMutation() {
   petShopPendingPetId = null;
 }
 
-async function selectPet(petId) {
+async function handlePetAction(petId) {
   const pet = getPet(petId);
   if (!pet || petShopPendingPetId !== null) return;
   if (!profileSession.authenticated) {
     setPetShopStatus("Sign in from Profile before buying or changing pets.", true);
     return;
   }
-  const { ownedPetIds } = currentPetShopState();
+  const { selectedPetId, petVisible, ownedPetIds } = currentPetShopState();
   if (!ownedPetIds.has(petId) && profileSession.coinBalance < pet.priceCoins) {
     setPetShopStatus(`You need ${pet.priceCoins.toLocaleString()} coins to buy ${pet.name}.`, true);
     return;
@@ -1855,10 +1884,20 @@ async function selectPet(petId) {
   const mutationId = petShopMutationId + 1;
   petShopMutationId = mutationId;
   petShopPendingPetId = petId;
-  setPetShopStatus(ownedPetIds.has(petId) ? `Changing to ${pet.name}…` : `Buying ${pet.name}…`);
+  const togglingVisibility = selectedPetId === petId;
+  const nextVisibility = togglingVisibility ? !petVisible : true;
+  setPetShopStatus(
+    !ownedPetIds.has(petId)
+      ? `Buying ${pet.name}…`
+      : togglingVisibility
+        ? `${nextVisibility ? "Showing" : "Hiding"} ${pet.name}…`
+        : `Selecting ${pet.name}…`
+  );
   renderPetShop();
   try {
-    const body = await profileClient.selectPet(petId);
+    const body = togglingVisibility
+      ? await profileClient.setPetVisibility(petId, nextVisibility)
+      : await profileClient.selectPet(petId);
     if (mutationId !== petShopMutationId) return;
     profileSession = normalizeProfileSession({
       ...body,
@@ -1873,8 +1912,10 @@ async function selectPet(petId) {
     }
     setPetShopStatus(
       body.pet?.purchased === true
-        ? `${pet.name} is yours and equipped.`
-        : `${pet.name} is equipped.`
+        ? `${pet.name} is yours and selected.`
+        : togglingVisibility
+          ? `${pet.name} is now ${nextVisibility ? "shown" : "hidden"}.`
+          : `${pet.name} is selected.`
     );
     elements.petShopPreviews
       .find((button) => button.dataset.petPreview === petId)
@@ -2514,7 +2555,7 @@ for (const button of elements.petShopPreviews) {
   button.addEventListener("click", () => playPetPreview(button));
 }
 for (const button of elements.petShopActions) {
-  button.addEventListener("click", () => void selectPet(button.dataset.petAction));
+  button.addEventListener("click", () => void handlePetAction(button.dataset.petAction));
 }
 elements.achievementsToggle.addEventListener("click", openAchievements);
 elements.achievementsBackButton.addEventListener("click", () => showMenuView(elements.achievementsToggle));

@@ -95,6 +95,27 @@ final class App
             ]);
         }
 
+        if ($request->method === 'PATCH' && $request->path === '/api/pets/selection') {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $body = $request->json();
+            $result = $this->pets->setVisibility(
+                $profile['id'],
+                $body['petId'] ?? null,
+                $body['visible'] ?? null,
+            );
+            $profile = $this->players->find($profile['id'])
+                ?? throw new ApiException(401, 'Sign in with Google to continue.');
+            JsonResponse::send(200, [
+                'profile' => $profile,
+                'pet' => [
+                    'id' => $result['pet']['id'],
+                    'visible' => $result['visible'],
+                ],
+                'coinBalance' => $profile['coins'],
+            ]);
+        }
+
         if ($request->path === '/api/leaderboard' && $request->method === 'GET') {
             $mode = $this->modeFromQuery($request);
             $playerId = $this->session->playerId();

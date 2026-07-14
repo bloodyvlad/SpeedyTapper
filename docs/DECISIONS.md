@@ -547,8 +547,21 @@ Revisit when: Refunds, gifts, chargebacks, real-money purchases, cross-profile t
 
 Context: Physical iPhone SE playtesting found the shop animals visually too low against their beds and surfaces, with a smaller version of the same issue in the menu. The existing direction resolver also divided the whole viewport or board into horizontal bands. Because the menu pet is anchored near the right edge, a tap beside that pet selected a full-right pose and made its half-left/right poses effectively unreachable near the animal.
 
-Decision: Raise only Pet Shop sprites by 8 px and menu sprites by 4 px; keep the approved gameplay sprite placement unchanged. Resolve the four directional animals from the actual visible 64 px pet-sprite center using both pointer coordinates. A tap horizontally centered within 2 px keeps the front pose. Otherwise, an angular displacement up to and including 30 degrees from the vertical axis selects the corresponding persistent half-left or half-right pose; a wider displacement through 90 degrees selects the full left or right pose. Keep Pancake's authored binary left/right behavior.
+Decision: Raise Pet Shop sprites by a base 8 px and menu sprites by a base 4 px; raise Foka and Kesha an additional 5 px in the shop and 2 px in menus, while keeping the approved gameplay sprite placement unchanged. Render Misha above both climber layers. Resolve the four directional animals from the actual visible 64 px pet-sprite center using both pointer coordinates. A tap horizontally centered within 2 px keeps the front pose. Otherwise, an angular displacement up to and including 30 degrees from the vertical axis selects the corresponding persistent half-left or half-right pose; a wider displacement through 90 degrees selects the full left or right pose. Keep Pancake's authored binary left/right behavior.
 
 Consequences: Non-game pets sit higher without changing habitat assets, card dimensions, board clearance, or gameplay scoring. Direction now follows the pet instead of the screen layout, so the same nearby tap behaves consistently across compact phones, menus, and gameplay. Automated geometry and responsive browser checks do not replace a physical iPhone Safari/PWA confirmation of the corrected composition.
 
-Revisit when: A habitat needs a pet-specific baseline, taps above the pet should use different poses, more direction frames are authored, or device testing favors a larger front dead zone or a threshold other than 30 degrees.
+Revisit when: Another habitat needs a pet-specific baseline, taps above the pet should use different poses, more direction frames are authored, or device testing favors a larger front dead zone or a threshold other than 30 degrees.
+
+## D-042 — Separate selected-pet ownership from visibility
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: A single equipped state cannot express the requested shop actions. Hiding the current pet must remove it from menus, gameplay, and leaderboard portraits without selling it or forgetting which owned pet should receive the **Show** action.
+
+Decision: Retain one durable selected pet row and add a persistent visibility flag. Buying or selecting a pet always selects and shows it. The selected visible pet presents **Hide**; the same pet while hidden presents **Show**; every other owned pet presents **Select**; and unowned pets retain **Buy**. A hidden selection remains owned and remembered, but the public `equippedPetId` is `null` and leaderboard joins exclude hidden selections. Visibility changes are authenticated, same-origin, CSRF-protected mutations scoped to the exact selected pet.
+
+Consequences: Hide and Show are reversible presentation choices with no coin, achievement, scoring, or ownership effect. Selecting a different owned pet also shows it. Profile payloads distinguish `selectedPetId`, `petVisible`, and the compatibility/display field `equippedPetId`, allowing older clients to keep a safe null-equipment interpretation.
+
+Revisit when: Profiles need multiple simultaneously visible companions, per-screen visibility, pet refunds, or historical leaderboard portraits.

@@ -66,7 +66,7 @@ test("verified run submissions contain proof rather than authoritative score agg
     mode: "normal",
     proofVersion: 1,
     ruleset: "reaction-proof-v2",
-    buildId: "20260714-2",
+    buildId: "20260714-3",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -90,11 +90,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("zen", "20260714-2");
+  await client.startRun("zen", "20260714-3");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260714-2" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260714-3" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
@@ -111,7 +111,7 @@ test("profile context requests are mode-specific", async () => {
   assert.equal(calls[0][0], "/api/profile?mode=zen");
 });
 
-test("pet catalog reads and buy-or-change mutations use the dedicated same-origin routes", async () => {
+test("pet catalog reads plus selection and visibility mutations use dedicated same-origin routes", async () => {
   const calls = [];
   const client = createProfileClient({
     fetchImpl: async (...args) => {
@@ -124,6 +124,7 @@ test("pet catalog reads and buy-or-change mutations use the dedicated same-origi
 
   await client.getPets();
   await client.selectPet("misha");
+  await client.setPetVisibility("misha", false);
   assert.equal(calls[0][0], "/api/pets");
   assert.equal(calls[1][0], "/api/session");
   assert.equal(calls[2][0], "/api/pets/select");
@@ -134,7 +135,12 @@ test("pet catalog reads and buy-or-change mutations use the dedicated same-origi
     "csrf-token-with-more-than-thirty-two-characters"
   );
   assert.deepEqual(JSON.parse(calls[2][1].body), { petId: "misha" });
+  assert.equal(calls[3][0], "/api/pets/selection");
+  assert.equal(calls[3][1].method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[3][1].body), { petId: "misha", visible: false });
   assert.throws(() => client.selectPet(""), TypeError);
+  assert.throws(() => client.setPetVisibility("", true), TypeError);
+  assert.throws(() => client.setPetVisibility("misha", "yes"), TypeError);
 });
 
 test("achievement reads and claims stay same-origin, CSRF-protected, and send only the achievement ID", async () => {

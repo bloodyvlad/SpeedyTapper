@@ -53,7 +53,7 @@ const [
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-2");
+  assert.equal(buildId, "20260714-3");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -129,7 +129,10 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
   ]) {
     assert.match(indexHtml, new RegExp(`data-pet-card="${id}"[\\s\\S]*?<strong>${name}<\\/strong>[\\s\\S]*?aria-label="${price} coins"[\\s\\S]*?data-pet-action="${id}">Buy<`));
   }
-  assert.match(mainSource, /action\.textContent = owned \? "Change" : "Buy"/);
+  assert.match(indexHtml, /<strong>Pancake<\/strong><small>Dancing meme<\/small>/);
+  assert.doesNotMatch(indexHtml, /data-pet-equipped|>Equipped</);
+  assert.match(mainSource, /resolvePetShopAction\(\{ owned, selected, visible: petVisible \}\)/);
+  assert.match(mainSource, /profileClient\.setPetVisibility\(petId, nextVisibility\)/);
   assert.match(mainSource, /profileClient\.selectPet\(petId\)/);
   assert.match(
     mainSource,
@@ -139,7 +142,14 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
   assert.match(mainSource, /pets\.handleGameplayTap\(event\.clientX, event\.clientY\)/);
   assert.match(mainSource, /pets\.handleNonGameTap\(event\.clientX, event\.clientY\)/);
   assert.match(stylesSource, /\.pet-scene--menu > \.pet-sprite \{[\s\S]*?top: -4px;/);
+  assert.match(stylesSource, /\.pet-scene--menu\[data-pet="foka"\][\s\S]*?top: -6px;/);
   assert.match(stylesSource, /\.pet-preview-scene > \.pet-sprite \{[\s\S]*?top: -8px;/);
+  assert.match(stylesSource, /\.pet-preview-scene\[data-pet="foka"\][\s\S]*?top: -13px;/);
+  assert.match(stylesSource, /\[data-pet="misha"\] > \.pet-sprite \{[\s\S]*?z-index: 4;/);
+  assert.match(stylesSource, /\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?box-shadow: 10px 0 #140905;/);
+  assert.match(stylesSource, /\.leaderboard-entry__avatar\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?top: 12px;[\s\S]*?box-shadow: 5px 0 #140905;/);
+  assert.match(stylesSource, /pancake-dance 1440ms/);
+  assert.match(stylesSource, /pancake-line-glow 1440ms/);
   assert.match(petControllerSource, /LEGACY_MISHA_NICKNAME = "misha_boy"/);
   assert.match(petControllerSource, /PET_IDLE_DELAY_MS = 5_000/);
   assert.match(petControllerSource, /resolvePancakeFacing/);
@@ -275,6 +285,7 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   );
   assert.match(indexHtml, /id="leaderboard-rank" hidden/);
   assert.match(indexHtml, /id="coin-balance"[^>]+aria-label="0 coins"/);
+  assert.match(indexHtml, /id="coin-count">0 coins<\/strong>/);
   assert.ok(
     indexHtml.indexOf('id="coin-balance"') < indexHtml.indexOf('id="leaderboard-toggle"'),
     "The coin balance must sit immediately left of the leaderboard shortcut."

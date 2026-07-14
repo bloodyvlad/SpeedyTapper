@@ -437,6 +437,7 @@ foreach ([
     'completed_runs_leaderboard_entry_unique',
     'player_pets',
     'player_pet_selection',
+    'is_visible',
     'player_pet_selection_owned_foreign',
     'legacy_easter_egg',
     'player_achievements',
@@ -451,7 +452,7 @@ foreach ([
 $assert(str_contains($schema, "ENUM(''legacy'',''verified'',''review'',''quarantined'',''deleted'')"), 'Schema preserves auditable verification and moderation states.');
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
@@ -500,6 +501,7 @@ $assert(
         && str_contains($leaderboardRepository, "['verified', 'review', 'quarantined']")
         && str_contains($leaderboardRepository, "\$parameters['id'] = \$score->runId")
         && str_contains($leaderboardRepository, 'LEFT JOIN player_pet_selection')
+        && str_contains($leaderboardRepository, 'ps.is_visible = 1')
         && str_contains($leaderboardRepository, "'petId' =>")
         && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
     'Only ranked verification states are visible and accepted result rows remain immutable.',
@@ -544,8 +546,10 @@ $assert(
         && str_contains($petShopService, 'unlockBuyPetInTransaction')
         && str_contains($petShopService, 'pet_purchase')
         && str_contains($petShopService, 'ON DUPLICATE KEY UPDATE pet_id')
+        && str_contains($petShopService, 'is_visible = 1')
+        && str_contains($petShopService, 'setVisibility')
         && str_contains($petShopService, 'rollBack'),
-    'Buy and Change share one atomic, guarded, retry-safe selection transaction.',
+    'Buy and Select share one atomic, guarded, retry-safe transaction while visibility is durable.',
 );
 $assert(
     preg_match(

@@ -192,3 +192,13 @@ final result: local candidate `20260713-16` passed automated and desktop browser
 - `npm run check` passed on the unified `20260714-2` graph with 151 JavaScript tests and 116 PHP assertions; `git diff --check` also passed.
 - Local evidence: `/tmp/speedytapper-20260714-2-shop-375x667.png`, `/tmp/speedytapper-20260714-2-shop-320x568.png`, and `/tmp/speedytapper-20260714-2-shop-misha-320x568.png`.
 - Physical iPhone Safari and installed-PWA confirmation remains required, especially for the menu baseline and real touch-angle feel.
+
+## Local Candidate 20260714-3 Pet Shop Controls QA
+
+- This is local candidate evidence only. It does not establish the active Hostinger deployment, and no deployment was performed.
+- The utility header shows the full localized coin label and remains on one line at 320×568. Pet Shop repeats the balance in its top-right heading, removes habitat names, lets the longer Kesha kind wrap, enlarges prices, and uses compact Buy/Select/Hide/Show actions.
+- Deterministic action coverage confirms the four requested states. Server state keeps ownership and the selected pet while persisting visibility separately; a hidden pet is omitted from menu/game rendering and leaderboard portraits, while selecting or buying a pet shows it.
+- Browser inspection passed at 320×568 and the 2022 iPhone SE CSS viewport of 375×667 without horizontal overflow. Foka and Kesha use the requested additional shop offsets, Misha's computed sprite z-index is above the climber, and Pancake's two 4px dark eyes remain readable at the shipped 64px rendering. Pancake's stepped sprite and glow cycles now last 1,440ms instead of 720ms.
+- `npm run check` passed on the unified `20260714-3` graph with 152 JavaScript tests and 118 PHP assertions; Composer validation/audit, every PHP syntax check, and `git diff --check` also passed. Browser console inspection returned no errors.
+- Local evidence: `/tmp/speedytapper-20260714-3-main-320x568.png`, `/tmp/speedytapper-20260714-3-shop-320x568.png`, `/tmp/speedytapper-20260714-3-shop-375x667.png`, and `/tmp/speedytapper-20260714-3-pancake-320x568.png`.
+- Physical iPhone Safari and installed-PWA confirmation remains required for touch feel, live pet switching, animation pacing, migration upgrade behavior, and cache refresh before this candidate is described as device-validated.

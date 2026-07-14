@@ -19,7 +19,7 @@ npm run check:php
 
 Run `php server/bin/purge-run-attempts.php --apply` from a daily Hostinger cron job. It deletes only bounded batches of unranked stale attempt metadata (7-day abandoned/expired retention and 30-day rejected retention); dry-run is the default, and completed/ranked/reviewed runs are never eligible.
 
-The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; and `009` adds debt-aware economy events. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; and `010` keeps the selected pet while persisting whether it is shown. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 
@@ -99,7 +99,7 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 
 ### `POST /api/runs`
 
-Starts a ranked run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260714-2" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. A failed request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260714-3" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. A failed request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -113,7 +113,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260714-2",
+  "buildId": "20260714-3",
   "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [
@@ -131,9 +131,9 @@ Event opcodes represent target presentation, accepted pointer input, misses, dec
 
 Authentication is required. The read returns the six catalog goals with per-player unlock/claim state. Claim body: `{ "achievementId": "stable_catalog_id" }`. Only protocol-verified, coin-eligible runs unlock gameplay goals. A claim is idempotent, pays any outstanding coin debt before increasing spendable coins, and records one immutable `achievement_reward` ledger event.
 
-### `GET /api/pets` and `POST /api/pets/select`
+### `GET /api/pets`, `POST /api/pets/select`, and `PATCH /api/pets/selection`
 
-Authentication and a confirmed nickname are required for selection. The public read returns the server catalog, owned IDs, current selection, and spendable coin balance. Selection body: `{ "petId": "stable_catalog_id" }`. An owned pet is equipped free. A first purchase locks the player, debits the authoritative price, records ownership, unlocks **Buy a pet**, equips the pet, and appends a negative `pet_purchase` ledger event in one transaction.
+Authentication and a confirmed nickname are required for selection. The public read returns the server catalog, owned IDs, remembered selection, visibility, shown/equipped pet, and spendable coin balance. Selection body: `{ "petId": "stable_catalog_id" }`. An owned pet is selected and shown free. A first purchase locks the player, debits the authoritative price, records ownership, unlocks **Buy a pet**, selects and shows the pet, and appends a negative `pet_purchase` ledger event in one transaction. Visibility body: `{ "petId": "stable_catalog_id", "visible": false }`; it can hide or show only that profile's current selection and never removes ownership.
 
 Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can never award a result.
 

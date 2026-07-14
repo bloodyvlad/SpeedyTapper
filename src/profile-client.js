@@ -93,6 +93,16 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       return mutation("/api/pets/select", "POST", { petId });
     },
 
+    setPetVisibility(petId, visible) {
+      if (typeof petId !== "string" || petId.length === 0) {
+        throw new TypeError("A pet id is required.");
+      }
+      if (typeof visible !== "boolean") {
+        throw new TypeError("Pet visibility must be true or false.");
+      }
+      return mutation("/api/pets/selection", "PATCH", { petId, visible });
+    },
+
     getAchievements() {
       return request("/api/achievements");
     },

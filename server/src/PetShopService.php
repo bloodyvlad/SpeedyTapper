@@ -16,7 +16,14 @@ final class PetShopService
     ) {
     }
 
-    /** @return array{ownedPetIds: list<string>, equippedPetId: ?string} */
+    /**
+     * @return array{
+     *   ownedPetIds: list<string>,
+     *   selectedPetId: ?string,
+     *   petVisible: bool,
+     *   equippedPetId: ?string
+     * }
+     */
     public function state(string $playerId): array
     {
         $owned = $this->database->prepare(
@@ -29,17 +36,22 @@ final class PetShopService
         ));
 
         $selected = $this->database->prepare(
-            'SELECT pet_id FROM player_pet_selection WHERE player_id = :player_id LIMIT 1'
+            'SELECT pet_id, is_visible FROM player_pet_selection WHERE player_id = :player_id LIMIT 1'
         );
         $selected->execute(['player_id' => $playerId]);
-        $equipped = $selected->fetchColumn();
-        $equippedPetId = is_string($equipped) && in_array($equipped, $ownedPetIds, true)
-            ? $equipped
+        $selection = $selected->fetch();
+        $selectedPetId = is_array($selection)
+            && is_string($selection['pet_id'] ?? null)
+            && in_array($selection['pet_id'], $ownedPetIds, true)
+            ? $selection['pet_id']
             : null;
+        $petVisible = $selectedPetId !== null && (bool) ($selection['is_visible'] ?? false);
 
         return [
             'ownedPetIds' => $ownedPetIds,
-            'equippedPetId' => $equippedPetId,
+            'selectedPetId' => $selectedPetId,
+            'petVisible' => $petVisible,
+            'equippedPetId' => $petVisible ? $selectedPetId : null,
         ];
     }
 
@@ -49,6 +61,31 @@ final class PetShopService
     public function select(string $playerId, mixed $petId): array
     {
         return $this->selectInTransaction($playerId, PetCatalog::require($petId), true);
+    }
+
+    /** @return array{pet: array{id: string, name: string, priceCoins: int}, visible: bool} */
+    public function setVisibility(string $playerId, mixed $petId, mixed $visible): array
+    {
+        $pet = PetCatalog::require($petId);
+        if (!is_bool($visible)) {
+            throw new ApiException(400, 'Choose whether to show or hide the pet.');
+        }
+
+        $statement = $this->database->prepare(
+            'UPDATE player_pet_selection SET is_visible = :is_visible, equipped_at = UTC_TIMESTAMP(3) '
+            . 'WHERE player_id = :player_id AND pet_id = :pet_id'
+        );
+        $statement->bindValue('is_visible', $visible ? 1 : 0, PDO::PARAM_INT);
+        $statement->bindValue('player_id', $playerId);
+        $statement->bindValue('pet_id', $pet['id']);
+        $statement->execute();
+
+        $state = $this->state($playerId);
+        if ($state['selectedPetId'] !== $pet['id']) {
+            throw new ApiException(409, 'Your selected pet changed. Try again.');
+        }
+
+        return ['pet' => $pet, 'visible' => $state['petVisible']];
     }
 
     /**
@@ -108,8 +145,10 @@ final class PetShopService
             }
 
             $select = $this->database->prepare(
-                'INSERT INTO player_pet_selection (player_id, pet_id) VALUES (:player_id, :pet_id) '
-                . 'ON DUPLICATE KEY UPDATE pet_id = VALUES(pet_id), equipped_at = UTC_TIMESTAMP(3)'
+                'INSERT INTO player_pet_selection (player_id, pet_id, is_visible) '
+                . 'VALUES (:player_id, :pet_id, 1) '
+                . 'ON DUPLICATE KEY UPDATE pet_id = VALUES(pet_id), is_visible = 1, '
+                . 'equipped_at = UTC_TIMESTAMP(3)'
             );
             $select->execute([
                 'player_id' => $playerId,

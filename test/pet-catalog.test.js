@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getPet, normalizeOwnedPetIds, PET_CATALOG } from "../src/pet-catalog.js";
+import {
+  getPet,
+  normalizeOwnedPetIds,
+  PET_CATALOG,
+  resolvePetShopAction
+} from "../src/pet-catalog.js";
 
 test("the pet catalog keeps stable ids, names, prices, and order", () => {
   assert.deepEqual(
@@ -14,10 +19,17 @@ test("the pet catalog keeps stable ids, names, prices, and order", () => {
       { id: "pancake", name: "Pancake", priceCoins: 500 }
     ]
   );
-  assert.equal(getPet("pancake").home, "Side-view glow line");
+  assert.equal(getPet("pancake").kind, "Dancing meme");
 });
 
 test("owned pet ids are deduplicated and unknown values are ignored", () => {
   assert.deepEqual(normalizeOwnedPetIds(["misha", "unknown", "misha", "foka"]), ["misha", "foka"]);
   assert.deepEqual(normalizeOwnedPetIds(null), []);
+});
+
+test("shop actions distinguish buying, selecting, hiding, and showing", () => {
+  assert.equal(resolvePetShopAction(), "Buy");
+  assert.equal(resolvePetShopAction({ owned: true }), "Select");
+  assert.equal(resolvePetShopAction({ owned: true, selected: true, visible: true }), "Hide");
+  assert.equal(resolvePetShopAction({ owned: true, selected: true, visible: false }), "Show");
 });

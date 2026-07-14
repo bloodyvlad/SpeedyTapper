@@ -128,6 +128,17 @@ test("persisted selection is authoritative while old servers retain the Misha fa
     ...legacyMishaSession(),
     profile: { ...legacyMishaSession().profile, ownedPetIds: [], equippedPetId: null }
   }), null);
+  assert.equal(resolveEquippedPetId({
+    authenticated: true,
+    profile: {
+      nickname: "Player",
+      nicknameConfirmed: true,
+      ownedPetIds: ["tauta"],
+      selectedPetId: "tauta",
+      petVisible: false,
+      equippedPetId: null
+    }
+  }), null, "A hidden selected pet remains out of both menu and gameplay scenes.");
 });
 
 test("pet taps resolve full and half-facing positions", () => {

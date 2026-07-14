@@ -15,6 +15,6 @@ Prompts required isolated, orthographic 32×32 game-sprite poses; crisp delibera
 
 ## Pancake
 
-`pancake-sprite.png` is not an image-generation reinterpretation. Its source poses were extracted from the user-supplied `Screen Recording 2026-07-13 at 23.58.22.mov`: the upright pose near 0.05 seconds and down/rest pose near 0.30 seconds. Background removal and nearest-neighbor reduction preserve the recording's pancake body, black face, arms, and legs. Repeated upright/down cells provide the dance; CSS mirrors the same source horizontally for left-facing movement and draws the separate two-pixel glow line.
+`pancake-sprite.png` is not an image-generation reinterpretation. Its source poses were extracted from the user-supplied `Screen Recording 2026-07-13 at 23.58.22.mov`: the upright pose near 0.05 seconds and down/rest pose near 0.30 seconds. Background removal and nearest-neighbor reduction preserve the recording's pancake body, black face, arms, and legs. Repeated upright/down cells provide the dance; CSS mirrors the same source horizontally for left-facing movement, draws the separate two-pixel glow line, and overlays two bold dark eye dots for legibility in the shipped 64px scenes and 32px leaderboard portraits. The PNG source sheet remains unchanged.
 
 The recording was supplied for this implementation. Independent copyright or redistribution clearance for its online source was not established in the repository; confirm distribution rights before a public production release.
