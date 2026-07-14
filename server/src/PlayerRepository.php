@@ -13,6 +13,7 @@ final class PlayerRepository
     public function __construct(
         private readonly PDO $database,
         private readonly PetShopService $pets,
+        private readonly ThemeShopService $themes,
     ) {
     }
 
@@ -105,6 +106,7 @@ final class PlayerRepository
     private function publicProfile(array $row): array
     {
         $petState = $this->pets->state((string) $row['id']);
+        $themeState = $this->themes->state((string) $row['id']);
         return [
             'id' => (string) $row['id'],
             'nickname' => (string) $row['nickname'],
@@ -115,6 +117,8 @@ final class PlayerRepository
             'selectedPetId' => $petState['selectedPetId'],
             'petVisible' => $petState['petVisible'],
             'equippedPetId' => $petState['equippedPetId'],
+            'ownedThemeIds' => $themeState['ownedThemeIds'],
+            'selectedThemeId' => $themeState['selectedThemeId'],
             'isAdmin' => (bool) ($row['is_admin'] ?? false),
             'createdAt' => self::isoDate((string) $row['created_at']),
             'updatedAt' => self::isoDate((string) $row['updated_at']),

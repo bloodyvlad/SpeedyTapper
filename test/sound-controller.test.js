@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createSoundController } from "../src/sound-controller.js";
+import { THEME_AUDIO } from "../src/theme-audio.js";
 
 const TONE_BANK_URL = "./assets/audio/tap-tones.wav";
 const LIFE_LOSS_URL = "./assets/audio/oops.wav";
@@ -224,7 +225,7 @@ test("the controller uses Web Audio tap tones and a life-loss cue without hum or
 
   assert.match(source, /AudioContext/);
   assert.match(source, /latencyHint:\s*["']interactive["']/);
-  assert.match(source, /assets\/audio\/tap-tones\.wav/);
+  assert.match(source, /themeAudio\.toneBankUrl/);
   assert.match(source, /assets\/audio\/oops\.wav/);
   assert.match(source, /TONE_GAIN = 0\.375/);
   assert.match(source, /LIFE_LOSS_GAIN = TONE_GAIN/);
@@ -259,6 +260,7 @@ test("disabled Sound FX creates no context and performs no fetch, decode, or pla
   const sound = createController(fetchRecorder.fetchImpl);
 
   sound.setEnabled(false);
+  sound.setTheme("pixel");
   await sound.unlock();
   await sound.startRun();
   assert.equal(sound.playCorrectTap(1), false);
@@ -267,6 +269,61 @@ test("disabled Sound FX creates no context and performs no fetch, decode, or pla
 
   assert.equal(FakeAudioContext.instances.length, 0);
   assert.equal(fetchRecorder.calls.length, 0);
+});
+
+test("changing an enabled theme reuses the unlocked context and replaces only its tone bank", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  const firstContext = FakeAudioContext.instances[0];
+  assert.equal(await sound.startRun(), true);
+  assert.equal(sound.setTheme("disco"), "disco");
+  await flushAsyncWork();
+
+  assert.equal(firstContext.closeCalls, 0);
+  assert.equal(FakeAudioContext.instances.length, 1);
+  assert.equal(firstContext.resumeCalls, 1, "A theme swap must not require another user activation.");
+  assert.deepEqual(
+    fetchRecorder.calls.slice(-1).map(({ url }) => url),
+    [THEME_AUDIO.disco.toneBankUrl]
+  );
+  assert.equal(sound.playCorrectTap(1), true);
+  assert.equal(firstContext.bufferSources.at(-1)?.buffer.id, THEME_AUDIO.disco.toneBankUrl);
+  assert.equal(fetchRecorder.calls.some(({ url }) => url === THEME_AUDIO.light.toneBankUrl), false);
+});
+
+test("a superseded deferred tone bank cannot decode or replace the newer theme", async () => {
+  const fetchRecorder = createDeferredFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+
+  sound.setEnabled(true);
+  assert.equal(fetchRecorder.calls.length, 2);
+  assert.equal(sound.setTheme("pixel"), "pixel");
+  assert.equal(fetchRecorder.calls.length, 4);
+  assert.equal(fetchRecorder.calls[0].options.signal.aborted, true);
+  assert.equal(fetchRecorder.calls[1].options.signal.aborted, true);
+
+  fetchRecorder.calls.slice(0, 2).forEach((call, request) => call.resolve({
+    ok: true,
+    async arrayBuffer() {
+      return { request, url: call.url };
+    }
+  }));
+  fetchRecorder.calls.slice(2).forEach((call, offset) => call.resolve({
+    ok: true,
+    async arrayBuffer() {
+      return { request: offset + 2, url: call.url };
+    }
+  }));
+  await flushAsyncWork();
+
+  const context = FakeAudioContext.instances[0];
+  assert.deepEqual(context.decodeCalls.map(({ request }) => request), [2, 3]);
+  assert.equal(await sound.startRun(), true);
+  assert.equal(sound.playCorrectTap(1), true);
+  assert.equal(context.bufferSources.at(-1)?.buffer.id, THEME_AUDIO.pixel.toneBankUrl);
 });
 
 test("enabling prepares the tone bank and life-loss cue with interactive Web Audio", async () => {

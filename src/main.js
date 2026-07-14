@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-10";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-10";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-11";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-11";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,24 +7,31 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-10";
+} from "./input-timing.js?v=20260714-11";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-10";
-import { createPetController } from "./pet-controller.js?v=20260714-10";
-import { createSoundController } from "./sound-controller.js?v=20260714-10";
-import { createMusicController } from "./music-controller.js?v=20260714-10";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-10";
+} from "./pet-catalog.js?v=20260714-11";
+import { createPetController } from "./pet-controller.js?v=20260714-11";
+import { createSoundController } from "./sound-controller.js?v=20260714-11";
+import { createMusicController } from "./music-controller.js?v=20260714-11";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-11";
+import {
+  getTheme,
+  isThemeId,
+  normalizeOwnedThemeIds,
+  THEME_CATALOG,
+  resolveThemeShopAction
+} from "./theme-catalog.js?v=20260714-11";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-10";
+const APP_BUILD_ID = "20260714-11";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -176,7 +183,11 @@ const elements = {
   streakMeter: document.querySelector("#streak-meter"),
   statusLabel: document.querySelector("#status-label"),
   statusValue: document.querySelector("#status-value"),
-  themeInputs: [...document.querySelectorAll('input[name="theme"]')],
+  themeShopActions: [...document.querySelectorAll("[data-theme-action]")],
+  themeShopBalance: document.querySelector("#themes-balance"),
+  themeShopCards: [...document.querySelectorAll("[data-theme-card]")],
+  themeShopCoinCount: document.querySelector("#themes-coin-count"),
+  themeShopStatus: document.querySelector("#themes-status"),
   themeColorMeta: document.querySelector('meta[name="theme-color"]'),
   themesBackButton: document.querySelector("#themes-back-button"),
   themesCurrent: document.querySelector("#themes-current"),
@@ -238,6 +249,9 @@ let profileMode = GAME_MODES.NORMAL;
 let profileRequestId = 0;
 let petShopMutationId = 0;
 let petShopPendingPetId = null;
+let themeShopMutationId = 0;
+let themeShopPendingThemeId = null;
+let themeShopRequestId = 0;
 const petPreviewTimers = new Map();
 let achievementsRequestId = 0;
 let achievementsPayload = null;
@@ -452,7 +466,7 @@ function normalizeVolumePercentage(value) {
 }
 
 function isTheme(value) {
-  return Object.values(THEMES).includes(value);
+  return isThemeId(value);
 }
 
 function getDisplayColor(colorIndex) {
@@ -462,10 +476,10 @@ function getDisplayColor(colorIndex) {
 function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
-  const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
+  const theme = getTheme(activeTheme) ?? THEME_CATALOG[0];
   const soundFxPercentage = Math.round(soundFxVolume * 100);
   const musicPercentage = Math.round(musicVolume * 100);
-  elements.themesCurrent.textContent = themeName;
+  elements.themesCurrent.textContent = theme.name;
   elements.settingsCurrent.textContent = `FX ${soundFxEnabled ? "on" : "off"} · Music ${musicEnabled ? "on" : "off"}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
@@ -478,15 +492,18 @@ function renderDisplaySettings() {
   elements.musicVolume.disabled = !musicEnabled;
   elements.musicVolume.setAttribute("aria-valuetext", `${musicPercentage}%`);
   elements.musicVolumeOutput.value = `${musicPercentage}%`;
-  elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
-  for (const input of elements.themeInputs) {
-    input.checked = input.value === activeTheme;
-  }
+  elements.themeColorMeta.content = {
+    [THEMES.DISCO]: "#050606",
+    [THEMES.LIGHT]: "#dff4ff",
+    [THEMES.PIXEL]: "#111126"
+  }[activeTheme] ?? "#0b0d18";
 }
 
 function initializeDisplaySettings() {
   const storedTheme = readStoredPreference(THEME_STORAGE_KEY);
-  activeTheme = isTheme(storedTheme) ? storedTheme : THEMES.CLASSIC;
+  activeTheme = storedTheme === THEMES.CLASSIC || storedTheme === THEMES.DISCO
+    ? storedTheme
+    : THEMES.CLASSIC;
   const storedColorBlindMode = readStoredPreference(COLOR_BLIND_STORAGE_KEY);
   colorBlindMode = storedColorBlindMode !== "off";
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
@@ -494,6 +511,7 @@ function initializeDisplaySettings() {
   soundFxVolume = normalizeVolumePercentage(
     readStoredPreference(SOUND_FX_VOLUME_STORAGE_KEY)
   ) / 100;
+  sound.setTheme(activeTheme);
   sound.setVolume(soundFxVolume);
   sound.setEnabled(soundFxEnabled);
   const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
@@ -501,6 +519,7 @@ function initializeDisplaySettings() {
   musicVolume = normalizeVolumePercentage(
     readStoredPreference(MUSIC_VOLUME_STORAGE_KEY)
   ) / 100;
+  music.setTheme(activeTheme);
   music.setVolume(musicVolume);
   music.setEnabled(musicEnabled);
   renderDisplaySettings();
@@ -509,8 +528,11 @@ function initializeDisplaySettings() {
 function applyTheme(theme) {
   if (!isTheme(theme)) return;
   activeTheme = theme;
+  sound.setTheme(theme);
+  music.setTheme(theme);
   renderDisplaySettings();
   writeStoredPreference(THEME_STORAGE_KEY, theme);
+  renderThemeShop();
   render();
 }
 
@@ -1445,8 +1467,10 @@ function openThemes() {
   elements.themesToggle.setAttribute("aria-expanded", "true");
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Themes";
-  elements.dialogMessage.textContent = "Choose the visual style for menus and gameplay.";
+  elements.dialogMessage.textContent = "Each theme changes the visuals, menu music, gameplay background, and tap tones.";
   elements.dialog.scrollTop = 0;
+  renderThemeShop();
+  void loadThemeShop();
   elements.themesBackButton.focus({ preventScroll: true });
 }
 
@@ -1517,6 +1541,10 @@ function returnFromProfile() {
   }
   if (profileReturnView === "result" && pendingResult) {
     showResultView(elements.profileToggle);
+    return;
+  }
+  if (profileReturnView === "themes") {
+    openThemes();
     return;
   }
   showMenuView(elements.profileToggle);
@@ -2090,6 +2118,12 @@ function normalizeProfile(value) {
     normalized.petVisible = petVisible;
     normalized.equippedPetId = petVisible ? selectedPetId : null;
   }
+  const ownedThemeIds = normalizeOwnedThemeIds(value.ownedThemeIds);
+  normalized.ownedThemeIds = ownedThemeIds;
+  normalized.selectedThemeId = isTheme(value.selectedThemeId)
+    && ownedThemeIds.includes(value.selectedThemeId)
+    ? value.selectedThemeId
+    : THEMES.CLASSIC;
   return Object.freeze(normalized);
 }
 
@@ -2161,8 +2195,20 @@ function renderUtilityRank() {
     : "Coins unavailable while signed out");
   if (profileSession.authenticated) elements.authGateInfo.hidden = true;
   elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
+  const profileTheme = profileSession.authenticated
+    ? profileSession.profile?.selectedThemeId
+    : null;
+  const allowedTheme = profileSession.authenticated
+    ? normalizeOwnedThemeIds(profileSession.profile?.ownedThemeIds).includes(profileTheme)
+      ? profileTheme
+      : THEMES.CLASSIC
+    : activeTheme === THEMES.CLASSIC || activeTheme === THEMES.DISCO
+      ? activeTheme
+      : THEMES.CLASSIC;
+  if (allowedTheme !== activeTheme) applyTheme(allowedTheme);
   pets.setProfileSession(profileSession);
   renderPetShop();
+  renderThemeShop();
 }
 
 function currentPetShopState() {
@@ -2228,6 +2274,142 @@ function renderPetShop() {
           ? `${petVisible ? "Hide" : "Show"} ${pet.name}`
           : `Select and show ${pet.name}`
     );
+  }
+}
+
+function currentThemeShopState() {
+  return {
+    selectedThemeId: activeTheme,
+    ownedThemeIds: new Set(normalizeOwnedThemeIds(profileSession.profile?.ownedThemeIds))
+  };
+}
+
+function setThemeShopStatus(message = "", isError = false) {
+  elements.themeShopStatus.textContent = message;
+  elements.themeShopStatus.classList.toggle("is-error", isError);
+}
+
+function renderThemeShop() {
+  const { selectedThemeId, ownedThemeIds } = currentThemeShopState();
+  const coinLabel = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
+  elements.themeShopCoinCount.textContent = profileSession.coinBalance.toLocaleString();
+  elements.themeShopBalance.setAttribute(
+    "aria-label",
+    profileSession.authenticated ? coinLabel : "Sign in to spend coins"
+  );
+
+  for (const theme of THEME_CATALOG) {
+    const owned = ownedThemeIds.has(theme.id);
+    const selected = selectedThemeId === theme.id;
+    const card = elements.themeShopCards.find((item) => item.dataset.themeCard === theme.id);
+    const action = elements.themeShopActions.find((item) => item.dataset.themeAction === theme.id);
+    card?.classList.toggle("is-owned", owned);
+    card?.classList.toggle("is-selected", selected);
+    if (!action) continue;
+    action.textContent = resolveThemeShopAction({ owned, selected });
+    action.disabled = selected
+      || themeShopPendingThemeId !== null
+      || (profileSession.authenticated && !owned && profileSession.coinBalance < theme.priceCoins);
+    action.setAttribute(
+      "aria-label",
+      selected
+        ? `${theme.name} theme selected`
+        : owned
+          ? `Select ${theme.name} theme`
+          : `Buy ${theme.name} theme for ${theme.priceCoins} coins`
+    );
+  }
+}
+
+function invalidateThemeShopMutation() {
+  themeShopMutationId += 1;
+  themeShopPendingThemeId = null;
+  themeShopRequestId += 1;
+}
+
+async function loadThemeShop() {
+  const requestId = themeShopRequestId + 1;
+  themeShopRequestId = requestId;
+  try {
+    const body = await profileClient.getThemes();
+    if (requestId !== themeShopRequestId || themeShopPendingThemeId !== null) return;
+    if (body.profile || body.coinBalance !== undefined) {
+      profileSession = normalizeProfileSession({
+        ...body,
+        authenticated: body.profile !== null,
+        googleClientId: profileSession.googleClientId
+      });
+      renderUtilityRank();
+    }
+    setThemeShopStatus(
+      profileSession.authenticated
+        ? "Select a theme you own, or buy a new one."
+        : "Default and Disco are free. Sign in to buy paid themes."
+    );
+  } catch (error) {
+    if (requestId !== themeShopRequestId) return;
+    setThemeShopStatus(error.message || "Theme Shop is temporarily unavailable.", true);
+  }
+}
+
+async function handleThemeAction(themeId) {
+  const theme = getTheme(themeId);
+  if (!theme || themeShopPendingThemeId !== null || activeTheme === themeId) return;
+  const { ownedThemeIds } = currentThemeShopState();
+  const owned = ownedThemeIds.has(themeId);
+
+  if (!owned && !profileSession.authenticated) {
+    setThemeShopStatus("Sign in with Google to buy paid themes.", true);
+    openProfile("themes");
+    return;
+  }
+  if (!owned && profileSession.coinBalance < theme.priceCoins) {
+    setThemeShopStatus(
+      `You need ${(theme.priceCoins - profileSession.coinBalance).toLocaleString()} more coins to buy ${theme.name}.`,
+      true
+    );
+    return;
+  }
+  if (!profileSession.authenticated) {
+    applyTheme(themeId);
+    if (musicEnabled) void music.startMenu();
+    setThemeShopStatus(`${theme.name} is selected.`);
+    return;
+  }
+
+  const mutationId = themeShopMutationId + 1;
+  themeShopMutationId = mutationId;
+  themeShopRequestId += 1;
+  themeShopPendingThemeId = themeId;
+  setThemeShopStatus(owned ? `Selecting ${theme.name}…` : `Buying ${theme.name}…`);
+  renderThemeShop();
+  try {
+    const body = await profileClient.selectTheme(themeId);
+    if (mutationId !== themeShopMutationId) return;
+    profileSession = normalizeProfileSession({
+      ...body,
+      authenticated: true,
+      googleClientId: profileSession.googleClientId
+    });
+    applyTheme(profileSession.profile?.selectedThemeId ?? themeId);
+    if (musicEnabled) void music.startMenu();
+    renderUtilityRank();
+    setThemeShopStatus(
+      body.theme?.purchased === true
+        ? `${theme.name} is yours and selected.`
+        : `${theme.name} is selected.`
+    );
+  } catch (error) {
+    if (mutationId !== themeShopMutationId) return;
+    setThemeShopStatus(
+      error instanceof ProfileApiError ? error.message : "The theme could not be selected right now.",
+      true
+    );
+  } finally {
+    if (mutationId === themeShopMutationId) {
+      themeShopPendingThemeId = null;
+      renderThemeShop();
+    }
   }
 }
 
@@ -2322,6 +2504,7 @@ async function handlePetAction(petId) {
 
 async function refreshProfileSession() {
   invalidatePetShopMutation();
+  invalidateThemeShopMutation();
   try {
     profileSession = normalizeProfileSession(await profileClient.getSession());
   } catch {
@@ -2775,6 +2958,7 @@ async function saveProfileNickname(event) {
 
 async function logoutProfile() {
   invalidatePetShopMutation();
+  invalidateThemeShopMutation();
   elements.profileLogout.disabled = true;
   elements.profileStatus.classList.remove("is-error");
   elements.profileStatus.textContent = "Logging out…";
@@ -2969,10 +3153,8 @@ elements.settingsToggle.addEventListener("click", openSettings);
 elements.settingsBackButton.addEventListener("click", () => showMenuView(elements.settingsToggle));
 elements.themesToggle.addEventListener("click", openThemes);
 elements.themesBackButton.addEventListener("click", () => showMenuView(elements.themesToggle));
-for (const input of elements.themeInputs) {
-  input.addEventListener("change", () => {
-    if (input.checked) applyTheme(input.value);
-  });
+for (const button of elements.themeShopActions) {
+  button.addEventListener("click", () => void handleThemeAction(button.dataset.themeAction));
 }
 elements.colorBlindToggle.addEventListener("change", () => {
   applyColorBlindMode(elements.colorBlindToggle.checked);

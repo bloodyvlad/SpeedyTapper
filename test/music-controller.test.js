@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createMusicController } from "../src/music-controller.js";
+import { THEME_AUDIO } from "../src/theme-audio.js";
 
 const MENU_BACKGROUND_URL = "./assets/audio/background-daylight-circuit-menu.m4a";
 const RUN_BACKGROUND_URL = "./assets/audio/background-daylight-circuit.m4a";
@@ -181,11 +182,11 @@ async function flushAsyncWork(turns = 12) {
   for (let turn = 0; turn < turns; turn += 1) await Promise.resolve();
 }
 
-test("the music controller uses fixed menu and run variants with no Interactive system", async () => {
+test("the music controller uses theme manifests with no Interactive system", async () => {
   const source = await readFile(new URL("../src/music-controller.js", import.meta.url), "utf8");
 
-  assert.match(source, /background-daylight-circuit\.m4a/);
-  assert.match(source, /background-daylight-circuit-menu\.m4a/);
+  assert.match(source, /themeAudio\.menuUrl/);
+  assert.match(source, /themeAudio\.runUrl/);
   assert.match(source, /latencyHint:\s*"playback"/);
   assert.match(source, /BACKGROUND_GAIN = 0\.42/);
   assert.match(source, /LOOP_DURATION_SECONDS = 12/);
@@ -201,6 +202,7 @@ test("disabled Music performs no context, fetch, decode, or playback work", asyn
   });
 
   music.setEnabled(false);
+  music.setTheme("pixel");
   await music.unlock();
   await music.startMenu();
   await music.startRun();
@@ -210,6 +212,67 @@ test("disabled Music performs no context, fetch, decode, or playback work", asyn
 
   assert.equal(FakeAudioContext.instances.length, 0);
   assert.equal(fetchRecorder.calls.length, 0);
+});
+
+test("changing an enabled theme reuses the unlocked context and replaces only its suite", async () => {
+  resetFakes();
+  const fetchRecorder = createImmediateFetch();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setEnabled(true);
+  await flushAsyncWork();
+  const firstContext = FakeAudioContext.instances[0];
+  assert.equal(await music.startMenu(), true);
+  assert.equal(music.setTheme("light"), "light");
+  await flushAsyncWork();
+
+  assert.equal(firstContext.closeCalls, 0);
+  assert.equal(FakeAudioContext.instances.length, 1);
+  assert.equal(firstContext.resumeCalls, 1, "A theme swap must not require another user activation.");
+  assert.equal(firstContext.bufferSources.at(-1)?.buffer.id, THEME_AUDIO.light.menuUrl);
+  assert.deepEqual(
+    fetchRecorder.calls.slice(-2).map(({ url }) => url).toSorted(),
+    [THEME_AUDIO.light.menuUrl, THEME_AUDIO.light.runUrl].toSorted()
+  );
+  assert.equal(fetchRecorder.calls.some(({ url }) => url === THEME_AUDIO.pixel.menuUrl), false);
+});
+
+test("a superseded deferred music suite cannot decode or replace the newer theme", async () => {
+  resetFakes();
+  const fetchRecorder = createDeferredFetch();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setEnabled(true);
+  assert.equal(fetchRecorder.calls.length, 2);
+  assert.equal(music.setTheme("pixel"), "pixel");
+  assert.equal(fetchRecorder.calls.length, 4);
+  assert.equal(fetchRecorder.calls[0].options.signal.aborted, true);
+  assert.equal(fetchRecorder.calls[1].options.signal.aborted, true);
+
+  fetchRecorder.calls.slice(0, 2).forEach((call, request) => call.resolve({
+    ok: true,
+    async arrayBuffer() {
+      return { request, url: call.url };
+    }
+  }));
+  fetchRecorder.calls.slice(2).forEach((call, offset) => call.resolve({
+    ok: true,
+    async arrayBuffer() {
+      return { request: offset + 2, url: call.url };
+    }
+  }));
+  await flushAsyncWork();
+
+  const context = FakeAudioContext.instances[0];
+  assert.deepEqual(context.decodeCalls.map(({ request }) => request), [2, 3]);
+  assert.equal(await music.startMenu(), true);
+  assert.equal(context.bufferSources.at(-1)?.buffer.id, THEME_AUDIO.pixel.menuUrl);
 });
 
 test("enabling prepares the background silently without resuming playback", async () => {

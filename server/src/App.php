@@ -10,6 +10,7 @@ final class App
         private readonly Config $config,
         private readonly PlayerRepository $players,
         private readonly PetShopService $pets,
+        private readonly ThemeShopService $themes,
         private readonly LeaderboardRepository $leaderboard,
         private readonly RunAttemptService $attempts,
         private readonly AchievementService $achievements,
@@ -112,6 +113,36 @@ final class App
                 'pet' => [
                     'id' => $result['pet']['id'],
                     'visible' => $result['visible'],
+                ],
+                'coinBalance' => $profile['coins'],
+            ]);
+        }
+
+        if ($request->method === 'GET' && $request->path === '/api/themes') {
+            $playerId = $this->session->playerId();
+            $profile = $playerId === null ? null : $this->players->find($playerId);
+            if ($playerId !== null && $profile === null) {
+                $this->session->logout();
+            }
+            JsonResponse::send(200, [
+                'themes' => ThemeCatalog::all(),
+                'profile' => $profile,
+                'coinBalance' => $profile['coins'] ?? 0,
+            ]);
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/themes/select') {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $result = $this->themes->select($profile['id'], $request->json()['themeId'] ?? null);
+            $profile = $this->players->find($profile['id'])
+                ?? throw new ApiException(401, 'Sign in with Google to continue.');
+            JsonResponse::send($result['purchased'] ? 201 : 200, [
+                'profile' => $profile,
+                'theme' => [
+                    'id' => $result['theme']['id'],
+                    'purchased' => $result['purchased'],
+                    'pricePaid' => $result['pricePaid'],
                 ],
                 'coinBalance' => $profile['coins'],
             ]);

@@ -1,4 +1,4 @@
-const BUILD_ID = "20260714-10";
+const BUILD_ID = "20260714-11";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [
@@ -16,6 +16,8 @@ const APP_SHELL = [
   `./src/profile-client.js?v=${BUILD_ID}`,
   `./src/service-worker-registration.js?v=${BUILD_ID}`,
   `./src/sound-controller.js?v=${BUILD_ID}`,
+  `./src/theme-audio.js?v=${BUILD_ID}`,
+  `./src/theme-catalog.js?v=${BUILD_ID}`,
   "./assets/icon.svg",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
@@ -23,6 +25,7 @@ const APP_SHELL = [
   "./assets/disco-concrete.png",
   "./assets/disco-concrete-lights.png",
   "./assets/disco-tile-overlay.png",
+  "./assets/fonts/pixelify-sans-variable.ttf",
   "./assets/pets/misha-climber.png",
   "./assets/pets/misha-sprite.png",
   "./assets/pets/foka-ice-floe.png",

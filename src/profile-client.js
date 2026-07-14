@@ -124,6 +124,17 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       return mutation("/api/pets/selection", "PATCH", { petId, visible });
     },
 
+    getThemes() {
+      return request("/api/themes");
+    },
+
+    selectTheme(themeId) {
+      if (typeof themeId !== "string" || themeId.length === 0) {
+        throw new TypeError("A theme id is required.");
+      }
+      return mutation("/api/themes/select", "POST", { themeId });
+    },
+
     getAchievements() {
       return request("/api/achievements");
     },

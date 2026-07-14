@@ -19,6 +19,7 @@ use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProofValidator;
 use SpeedyTapper\SessionStore;
+use SpeedyTapper\ThemeShopService;
 
 $projectRoot = dirname(__DIR__);
 require $projectRoot . '/server/autoload.php';
@@ -40,10 +41,12 @@ try {
     $leaderboard->ensureSeason();
     $achievements = new AchievementService($database);
     $pets = new PetShopService($database, $achievements);
+    $themes = new ThemeShopService($database);
     $app = new App(
         config: $config,
-        players: new PlayerRepository($database, $pets),
+        players: new PlayerRepository($database, $pets, $themes),
         pets: $pets,
+        themes: $themes,
         leaderboard: $leaderboard,
         attempts: new RunAttemptService($database),
         achievements: $achievements,

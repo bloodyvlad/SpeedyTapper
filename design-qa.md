@@ -224,3 +224,13 @@ final result: local candidate `20260713-16` passed automated and desktop browser
 - Local browser inspection passed at 375×667 and 320×568. The compact utility header and two-line Zen button have no horizontal overflow; the narrow main menu scrolls to Settings and the copyright footer; live Zen displays elapsed time, one lit target, and ∞ lives. Static coverage confirms that the historical ranked Zen top score is omitted from the practice HUD. Browser console inspection returned no warnings or errors.
 - Local evidence: `/tmp/speedytapper-20260714-5-menu-375.png`, `/tmp/speedytapper-20260714-5-zen-375.png`, and `/tmp/speedytapper-20260714-5-menu-320.png`.
 - Physical iPhone Safari and installed-PWA confirmation remains required, along with live authenticated moderation and MariaDB filtering smoke tests, before this candidate is described as production-validated.
+
+## Local Candidate 20260714-11 Theme Shop and Theme Audio QA
+
+- This is local candidate evidence only. It does not establish the active Hostinger deployment, and no deployment was performed.
+- Theme Shop renders Default, Disco, Light/50 coins, and Pixel/100 coins in two columns. Cards keep only names, previews, prices, and Buy/Select/Selected actions; owned prices remain available for greyed presentation.
+- Browser inspection passed the shop at 375×667 and 320×568 with no visible horizontal overflow. Free Default/Disco switching worked, and a signed-out paid action routed to Profile rather than applying the paid theme. The Light preview uses white glyphs on all six target colors.
+- Default retains its existing music and tone suite. Disco, Light, and Pixel ship distinct twelve-second menu/gameplay pairs and sixteen-cue fixed-slot tone banks with lossless rollback masters, post-encode seam checks, recorded hashes, and provenance. Enabled theme changes retain the already-unlocked Web Audio contexts while replacing only selected-theme assets.
+- Pixel self-hosts the unmodified OFL-licensed Pixelify Sans variable font and includes it in the offline app shell. Light uses near-white panels, two thin CSS clouds, white board gaps/borders, and white gameplay glyphs; Pixel uses hard edges, stepped shadows, and an arcade grid.
+- `npm run check` passed with 157 JavaScript tests and 148 PHP assertions; Composer validation/audit, PHP syntax checks, and `git diff --check` also passed.
+- Physical iPhone Safari/PWA validation remains required for paid-theme purchases, font/readability at all views, per-theme audio latency and balance, the Pixel tone-bank timbre, and cache upgrades before this candidate is described as device- or production-validated.

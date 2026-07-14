@@ -29,6 +29,7 @@ Codex tasks share the filesystem but not their transcripts. Assume an unexplaine
 | Task status and backlog | One issue tracker, preferably GitHub Issues once a remote exists |
 | Visual review evidence | `design-qa.md` and referenced screenshots |
 | Audio provenance and masters | `assets/audio/SOURCES.md` and retained source assets |
+| Bundled font provenance and licences | `assets/fonts/SOURCES.md` and retained licence files |
 
 Do not use README files, QA notes, or conversation history as proof of what is deployed. Verify the Hostinger alias and exact Git commit; retain the immutable Vercel deployment as the legacy rollback generation.
 
@@ -53,7 +54,9 @@ Proposed decisions and uncommitted experiments must not appear under README comm
 - `src/main.js`: DOM rendering, input wiring, navigation, persistence, and controller coordination.
 - `src/sound-controller.js`: optional low-latency tap-tone and life-loss lifecycle.
 - `src/music-controller.js`: optional fixed background-music lifecycle; it must remain independent from Sound FX.
+- `src/theme-catalog.js` and `src/theme-audio.js`: stable client theme metadata/actions and immutable selected-suite manifests.
 - `src/profile-client.js`: same-origin Google profile and leaderboard client.
+- `server/src/ThemeCatalog.php` and `ThemeShopService.php`: authoritative theme prices, ownership, selection, and atomic coin spending.
 - `server/src/`: PHP identity, session, validation, and MySQL repository rules.
 - `api/index.php`: PHP HTTP boundary for extensionless `/api/*` routes.
 - `server/migrations/`: reviewed, repeatable MySQL schema migrations.
@@ -75,6 +78,7 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 - Ranked Arcade runs require a Google-authenticated profile with a confirmed nickname and use a server-generated, player- and session-bound, one-time UUID. Only one issued attempt may exist per player. The browser submits a versioned chronological transition proof, including independent decoy opportunities; PHP derives score, ratings, multipliers, dodges, completion, and credited duration. Award one coin per cumulative protocol-verified Arcade minute, carry sub-minute remainder between eligible runs, and never award the same run or cloned event trace twice.
 - Only protocol-verified, coin-eligible runs unlock gameplay achievements. Achievement claims are idempotent ledger credits. Unlock the `buy_pet` achievement inside the successful first-purchase transaction after the debit and ownership insert, never from a browser button click.
 - Pet purchases are negative immutable coin-ledger events and achievement claims are positive events. Moderation recomputes eligible play plus these economy events; if revoked earnings have already been spent, record nonnegative `coin_debt` and apply future credits to that debt before increasing spendable coins.
+- Default (`classic`) and Disco are always-owned themes. Light costs 50 coins and Pixel costs 100 coins. Paid ownership, debit, generation-qualified `theme_purchase` ledger event, and selection commit atomically from the server catalog; never trust a browser price, balance, or ownership claim. A destructive account reward reset removes paid theme ownership/selection and records the removed IDs, while ordinary reconciliation includes theme spending.
 - Google ID tokens are verified server-side. Require an explicitly confirmed public nickname before score submission; never import or publish the Google display name. Store only the internal UUID, public nickname, confirmation flag, and one-way Google-subject digest—never raw Google subjects, tokens, email addresses, or passwords.
 - PHP production data uses Hostinger MariaDB/MySQL. The Vercel Blob board is a separate read-only rollback generation and is not imported into the clean season.
 - Describe accepted new rows as **protocol verified**, never human verified or bot-proof. Final-proof replay blocks aggregate forgery and clock compression but cannot stop a modified client, automation, computer vision, or omitted physical taps. Structurally valid high-risk runs must be withheld for review rather than ranked or credited.
@@ -82,13 +86,13 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 
 ## Audio invariants
 
-- Sound FX and Music default on while remembering independent explicit opt-outs. Sound FX controls only the fixed tap-tone bank and life-loss cue; Music controls only the fixed background loop. A disabled audio category must not create its `AudioContext` or fetch, decode, cache, or play its assets.
+- Sound FX and Music default on while remembering independent explicit opt-outs. Sound FX controls only the selected theme's fixed tap-tone bank and the shared life-loss cue; Music controls only the selected theme's fixed menu/gameplay loop pair. A disabled audio category must not create its `AudioContext` or fetch, decode, cache, or play its assets.
 - Resume audible Web Audio only from a trusted user gesture.
 - Skip cues that are not ready; never play them late.
 - Suspend or close audio safely on backgrounding and opt-out.
 - Avoid `HTMLAudioElement`, user-agent sniffing, uncapped overlapping cues, and abrupt non-zero source stops in reaction-critical audio.
 - Do not reintroduce hum, Interactive Music, adaptive stages, track rotation, pace-dependent music, or pace/reaction pitch changes without a new accepted decision.
-- Keep `assets/audio/tap-tones.wav` and `assets/audio/oops.wav` lossless. Retain the background loop's lossless master or an equivalent recoverable source before replacing or removing any approved audio.
+- Keep every tap-tone bank and `assets/audio/oops.wav` lossless. Retain each background/menu loop's lossless master or an equivalent recoverable source before replacing or removing approved audio. Theme swaps must preserve an already-unlocked context so an awaited purchase does not require a second iPhone user activation; abort and reject stale asset loads.
 - Record original or third-party source and licence details in `assets/audio/SOURCES.md`.
 - Keep optional runtime audio outside the install-time app shell and fetch it without service-worker caching.
 

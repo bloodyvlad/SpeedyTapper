@@ -1,7 +1,4 @@
-const BACKGROUND_MUSIC_URLS = Object.freeze({
-  menu: "./assets/audio/background-daylight-circuit-menu.m4a",
-  run: "./assets/audio/background-daylight-circuit.m4a"
-});
+import { getThemeAudio, normalizeThemeAudioId } from "./theme-audio.js?v=20260714-11";
 
 const BACKGROUND_GAIN = 0.42;
 const LOOP_DURATION_SECONDS = 12;
@@ -25,6 +22,8 @@ export function createMusicController({
   fetchImpl = globalThis.fetch?.bind(globalThis)
 } = {}) {
   let enabled = false;
+  let themeId = "classic";
+  let themeAudio = getThemeAudio(themeId);
   let desiredScene = null;
   let generation = 0;
   let context = null;
@@ -134,7 +133,8 @@ export function createMusicController({
       voice &&
       !voice.cleaned &&
       !voice.closing &&
-      voice.scene === desiredScene
+      voice.scene === desiredScene &&
+      voice.themeId === themeId
     ) {
       return true;
     }
@@ -152,6 +152,7 @@ export function createMusicController({
       cleaned: false,
       closing: false,
       scene: desiredScene,
+      themeId,
       source
     };
     voice = nextVoice;
@@ -210,7 +211,10 @@ export function createMusicController({
     loadAttempted = true;
     loadController = new AbortController();
     const activeController = loadController;
-    const entries = Object.entries(BACKGROUND_MUSIC_URLS);
+    const entries = [
+      ["menu", themeAudio.menuUrl],
+      ["run", themeAudio.runUrl]
+    ];
     const work = Promise.allSettled(
       entries.map(([scene, url]) =>
         fetchAndDecode(
@@ -295,6 +299,17 @@ export function createMusicController({
     }
   }
 
+  function replaceThemeAssets() {
+    loadController?.abort();
+    loadController = null;
+    preparation = null;
+    buffers = { menu: null, run: null };
+    loadAttempted = false;
+    if (context && context.state !== "closed") {
+      prepareAudio(generation, context);
+    }
+  }
+
   function resumeFromGesture() {
     if (!enabled) return Promise.resolve(false);
     const activeContext = ensureContext();
@@ -320,6 +335,20 @@ export function createMusicController({
   }
 
   return {
+    setTheme(value) {
+      const nextThemeId = normalizeThemeAudioId(value);
+      const nextThemeAudio = getThemeAudio(nextThemeId);
+      if (themeId === nextThemeId) return themeId;
+      themeId = nextThemeId;
+      themeAudio = nextThemeAudio;
+      generation += 1;
+      if (enabled) {
+        replaceThemeAssets();
+        ensureContext();
+      }
+      return themeId;
+    },
+
     setVolume(value) {
       volume = clampVolume(value);
       applyVolume();

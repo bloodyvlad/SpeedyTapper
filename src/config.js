@@ -9,7 +9,9 @@ export const COLORS = Object.freeze([
 
 export const THEMES = Object.freeze({
   CLASSIC: "classic",
-  DISCO: "disco"
+  DISCO: "disco",
+  LIGHT: "light",
+  PIXEL: "pixel"
 });
 
 const DISCO_COLOR_VALUES = Object.freeze({
@@ -21,10 +23,34 @@ const DISCO_COLOR_VALUES = Object.freeze({
   violet: "#c3a8ff"
 });
 
+const LIGHT_COLOR_VALUES = Object.freeze({
+  cyan: "#00b8d9",
+  yellow: "#f2bd14",
+  magenta: "#ee3d8f",
+  lime: "#73c43d",
+  orange: "#f47b2a",
+  violet: "#a18ff0"
+});
+
+const PIXEL_COLOR_VALUES = Object.freeze({
+  cyan: "#18d7d0",
+  yellow: "#ffd13d",
+  magenta: "#ff4f9f",
+  lime: "#82dd48",
+  orange: "#ff7c35",
+  violet: "#9875ff"
+});
+
 export const THEME_PALETTES = Object.freeze({
   [THEMES.CLASSIC]: COLORS,
   [THEMES.DISCO]: Object.freeze(
     COLORS.map((color) => Object.freeze({ ...color, value: DISCO_COLOR_VALUES[color.id] }))
+  ),
+  [THEMES.LIGHT]: Object.freeze(
+    COLORS.map((color) => Object.freeze({ ...color, value: LIGHT_COLOR_VALUES[color.id] }))
+  ),
+  [THEMES.PIXEL]: Object.freeze(
+    COLORS.map((color) => Object.freeze({ ...color, value: PIXEL_COLOR_VALUES[color.id] }))
   )
 });
 

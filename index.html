@@ -10,11 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260714-10"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260714-10" />
+    <script src="./src/early-bootstrap.js?v=20260714-11"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260714-11" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-10" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-11" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -327,7 +327,7 @@
                 aria-expanded="false"
               >
                 <span>Themes</span>
-                <span class="settings-toggle__value" id="themes-current">Classic</span>
+                <span class="settings-toggle__value" id="themes-current">Default</span>
               </button>
             </div>
             <button
@@ -430,42 +430,42 @@
         </div>
         <div class="overlay-view" id="themes-view" hidden>
           <button class="secondary-button view-back-button" id="themes-back-button" type="button">← Back</button>
-          <fieldset class="settings-panel themes-panel" id="themes-panel">
-            <legend class="visually-hidden">Themes</legend>
-            <div class="settings-section" role="radiogroup" aria-labelledby="theme-setting-label">
-              <span class="settings-section__label" id="theme-setting-label">Theme</span>
-              <div class="theme-options">
-                <label class="theme-choice">
-                  <input class="theme-choice__input" type="radio" name="theme" value="classic" checked />
-                  <span class="theme-choice__surface">
-                    <span class="theme-preview" data-theme-preview="classic" aria-hidden="true">
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
-                    </span>
-                    <strong>Classic</strong>
-                  </span>
-                </label>
-                <label class="theme-choice">
-                  <input class="theme-choice__input" type="radio" name="theme" value="disco" />
-                  <span class="theme-choice__surface">
-                    <span class="theme-preview" data-theme-preview="disco" aria-hidden="true">
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span>
-                      <span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span>
-                    </span>
-                    <strong>Disco</strong>
-                  </span>
-                </label>
-              </div>
+          <section class="settings-panel themes-panel" id="themes-panel" aria-labelledby="theme-setting-label">
+            <div class="section-heading themes-heading">
+              <h2 id="theme-setting-label">Theme Shop</h2>
+              <span class="coin-balance themes-balance-control" id="themes-balance" role="status" aria-label="0 coins">
+                <svg class="pixel-coin" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg>
+                <strong id="themes-coin-count">0</strong>
+              </span>
             </div>
-          </fieldset>
+            <p class="form-status themes-status" id="themes-status" aria-live="polite"></p>
+            <div class="theme-options">
+              <article class="theme-card" data-theme-card="classic">
+                <span class="theme-preview" data-theme-preview="classic" aria-hidden="true"><span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span></span>
+                <div class="theme-card__copy"><strong>Default</strong></div>
+                <span class="theme-card__price" aria-label="Free">Free</span>
+                <button class="primary-button theme-card__action" type="button" data-theme-action="classic">Selected</button>
+              </article>
+              <article class="theme-card" data-theme-card="disco">
+                <span class="theme-preview" data-theme-preview="disco" aria-hidden="true"><span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span></span>
+                <div class="theme-card__copy"><strong>Disco</strong></div>
+                <span class="theme-card__price" aria-label="Free">Free</span>
+                <button class="primary-button theme-card__action" type="button" data-theme-action="disco">Select</button>
+              </article>
+              <article class="theme-card" data-theme-card="light">
+                <span class="theme-preview" data-theme-preview="light" aria-hidden="true"><span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span></span>
+                <div class="theme-card__copy"><strong>Light</strong></div>
+                <span class="theme-card__price" aria-label="50 coins"><svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg><span>50</span></span>
+                <button class="primary-button theme-card__action" type="button" data-theme-action="light">Buy</button>
+              </article>
+              <article class="theme-card" data-theme-card="pixel">
+                <span class="theme-preview" data-theme-preview="pixel" aria-hidden="true"><span class="theme-preview__tile"><span class="theme-preview__glyph">●</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">▲</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">■</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">◆</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">✚</span></span><span class="theme-preview__tile"><span class="theme-preview__glyph">★</span></span></span>
+                <div class="theme-card__copy"><strong>Pixel</strong></div>
+                <span class="theme-card__price" aria-label="100 coins"><svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg><span>100</span></span>
+                <button class="primary-button theme-card__action" type="button" data-theme-action="pixel">Buy</button>
+              </article>
+            </div>
+          </section>
         </div>
         <div class="overlay-view" id="settings-view" hidden>
           <button class="secondary-button view-back-button" id="settings-back-button" type="button">← Back</button>
@@ -799,7 +799,7 @@
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260714-10"></script>
-    <script type="module" src="./src/main.js?v=20260714-10"></script>
+    <script src="./src/service-worker-registration.js?v=20260714-11"></script>
+    <script type="module" src="./src/main.js?v=20260714-11"></script>
   </body>
 </html>

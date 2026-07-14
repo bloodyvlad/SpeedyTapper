@@ -1,4 +1,5 @@
-const TONE_BANK_URL = "./assets/audio/tap-tones.wav";
+import { getThemeAudio, normalizeThemeAudioId } from "./theme-audio.js?v=20260714-11";
+
 const LIFE_LOSS_URL = "./assets/audio/oops.wav";
 
 const TONE_SLOT_COUNT = 16;
@@ -27,6 +28,8 @@ export function createSoundController({
   fetchImpl = globalThis.fetch?.bind(globalThis)
 } = {}) {
   let enabled = false;
+  let themeId = "classic";
+  let themeAudio = getThemeAudio(themeId);
   let generation = 0;
   let desiredRunning = false;
   let resumeAttemptId = 0;
@@ -158,7 +161,7 @@ export function createSoundController({
           toneBuffer = decodedAudio;
         },
         minimumDuration: REQUIRED_BANK_DURATION_SECONDS,
-        url: TONE_BANK_URL
+        url: themeAudio.toneBankUrl
       });
     }
     if (!lifeLossBuffer) {
@@ -302,6 +305,17 @@ export function createSoundController({
       } catch {
         // Sound FX remain optional when audio output is unavailable.
       }
+    }
+  }
+
+  function replaceThemeAssets() {
+    loadController?.abort();
+    loadController = null;
+    preparation = null;
+    toneBuffer = null;
+    stopAllVoices({ fade: true });
+    if (context && context.state !== "closed") {
+      prepareAudio(generation, context);
     }
   }
 
@@ -451,6 +465,20 @@ export function createSoundController({
   }
 
   return {
+    setTheme(value) {
+      const nextThemeId = normalizeThemeAudioId(value);
+      const nextThemeAudio = getThemeAudio(nextThemeId);
+      if (themeId === nextThemeId) return themeId;
+      themeId = nextThemeId;
+      themeAudio = nextThemeAudio;
+      generation += 1;
+      if (enabled) {
+        replaceThemeAssets();
+        ensureContext();
+      }
+      return themeId;
+    },
+
     setVolume(value) {
       volume = clampVolume(value);
       applyVolume();

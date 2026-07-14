@@ -12,6 +12,8 @@ const [
   petControllerSource,
   musicSource,
   soundSource,
+  themeAudioSource,
+  themeCatalogSource,
   serviceWorkerRegistrationSource,
   workerSource,
   stylesSource,
@@ -23,7 +25,9 @@ const [
   keshaSprite,
   tautaBed,
   tautaSprite,
-  pancakeSprite
+  pancakeSprite,
+  pixelFont,
+  pixelFontLicense
 ] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/early-bootstrap.js", import.meta.url), "utf8"),
@@ -34,6 +38,8 @@ const [
   readFile(new URL("../src/pet-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/theme-audio.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/theme-catalog.js", import.meta.url), "utf8"),
   readFile(new URL("../src/service-worker-registration.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
@@ -45,7 +51,9 @@ const [
   readFile(new URL("../assets/pets/kesha-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/tauta-bed.png", import.meta.url)),
   readFile(new URL("../assets/pets/tauta-sprite.png", import.meta.url)),
-  readFile(new URL("../assets/pets/pancake-sprite.png", import.meta.url))
+  readFile(new URL("../assets/pets/pancake-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/fonts/pixelify-sans-variable.ttf", import.meta.url)),
+  readFile(new URL("../assets/fonts/OFL-PixelifySans.txt", import.meta.url), "utf8")
 ]);
 
 const [audioFiles, sourceFiles] = await Promise.all([
@@ -57,7 +65,7 @@ const htaccessSource = await readFile(new URL("../.htaccess", import.meta.url), 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-10");
+  assert.equal(buildId, "20260714-11");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -76,6 +84,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`profile-client\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`theme-catalog\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(workerSource, new RegExp(`input-timing\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`pet-catalog\\.js\\?v=\\$\\{BUILD_ID\\}`));
@@ -83,11 +92,18 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`theme-audio\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`theme-catalog\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`early-bootstrap\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`service-worker-registration\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-concrete-lights\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
+  assert.match(workerSource, /\.\/assets\/fonts\/pixelify-sans-variable\.ttf/);
+  assert.match(stylesSource, /font-family: "Pixelify Sans"/);
+  assert.match(stylesSource, /assets\/fonts\/pixelify-sans-variable\.ttf/);
+  assert.equal(pixelFont.subarray(0, 4).toString("hex"), "00010000");
+  assert.match(pixelFontLicense, /SIL OPEN FONT LICENSE Version 1\.1/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-climber\.png/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-sprite\.png/);
   for (const path of [
@@ -116,9 +132,19 @@ test("the complete browser module graph uses one release version", () => {
     "background-daylight-circuit.m4a",
     "background-masters",
     "oops.wav",
-    "tap-tones.wav"
+    "tap-tones.wav",
+    "themes"
   ]);
   assert.equal(sourceFiles.includes("music-controller.js"), true);
+  assert.equal(sourceFiles.includes("theme-audio.js"), true);
+  assert.equal(sourceFiles.includes("theme-catalog.js"), true);
+  assert.match(themeAudioSource, /background-daylight-circuit-menu\.m4a/);
+  assert.match(themeAudioSource, /themes\/disco\/menu\.m4a/);
+  assert.match(themeAudioSource, /themes\/light\/menu\.m4a/);
+  assert.match(themeAudioSource, /themes\/pixel\/menu\.m4a/);
+  assert.match(themeCatalogSource, /name: "Default", priceCoins: 0/);
+  assert.match(themeCatalogSource, /name: "Light", priceCoins: 50/);
+  assert.match(themeCatalogSource, /name: "Pixel", priceCoins: 100/);
   assert.doesNotMatch(
     `${indexHtml}\n${mainSource}\n${musicSource}\n${workerSource}`,
     /interactive-music|interactiveMusic/i
@@ -247,7 +273,7 @@ test("Sound FX defaults on, preserves opt-out, and owns tap plus life-loss cues"
   assert.match(soundSource, /latencyHint:\s*"interactive"/);
   assert.match(soundSource, /decodeAudioData\s*\(/);
   assert.match(soundSource, /createBufferSource\s*\(/);
-  assert.match(soundSource, /TONE_BANK_URL = "\.\/assets\/audio\/tap-tones\.wav"/);
+  assert.match(soundSource, /themeAudio\.toneBankUrl/);
   assert.match(soundSource, /LIFE_LOSS_URL = "\.\/assets\/audio\/oops\.wav"/);
   assert.match(soundSource, /\.resume\s*\(/);
   assert.match(soundSource, /\.suspend\s*\(/);
@@ -350,13 +376,21 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0];
   const themesPanel = indexHtml.match(
-    /<fieldset class="settings-panel themes-panel" id="themes-panel">[\s\S]*?<\/fieldset>/
+    /<section class="settings-panel themes-panel" id="themes-panel"[\s\S]*?<\/section>/
   )?.[0];
   assert.ok(settingsPanel, "Settings panel must be present.");
   assert.ok(themesPanel, "Themes panel must be present.");
   assert.doesNotMatch(settingsPanel, /name="theme"|theme-preview/);
-  assert.match(themesPanel, /name="theme" value="classic" checked/);
-  assert.match(themesPanel, /name="theme" value="disco"/);
+  for (const [id, name, price] of [
+    ["classic", "Default", "Free"],
+    ["disco", "Disco", "Free"],
+    ["light", "Light", "50"],
+    ["pixel", "Pixel", "100"]
+  ]) {
+    assert.match(themesPanel, new RegExp(`data-theme-card="${id}"[\\s\\S]*?<strong>${name}<\\/strong>[\\s\\S]*?>${price}<`));
+    assert.match(themesPanel, new RegExp(`data-theme-action="${id}"`));
+  }
+  assert.doesNotMatch(themesPanel, /theme-card__copy[^>]*>[\s\S]*?<small>/);
   assert.match(settingsPanel, /id="color-blind-toggle"[^>]+role="switch" checked/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);
   assert.match(
@@ -403,8 +437,19 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(mainSource, /themesBackButton\.addEventListener\("click"/);
   assert.match(mainSource, /leaderboardBackButton\.addEventListener\("click"/);
   assert.match(mainSource, /leaderboardMenuButton\.addEventListener\("click", showMainMenu\)/);
-  assert.match(themesPanel, /role="radiogroup" aria-labelledby="theme-setting-label"/);
-  assert.match(themesPanel, /id="theme-setting-label">Theme</);
+  assert.match(themesPanel, /id="theme-setting-label">Theme Shop</);
+  assert.match(mainSource, /profileClient\.selectTheme\(themeId\)/);
+  assert.match(mainSource, /resolveThemeShopAction\(\{ owned, selected \}\)/);
+  assert.match(mainSource, /requestId !== themeShopRequestId \|\| themeShopPendingThemeId !== null/);
+  assert.match(mainSource, /themeShopRequestId \+= 1;[\s\S]*themeShopPendingThemeId = themeId/);
+  assert.match(
+    stylesSource,
+    /:root\[data-theme="light"\] \.tile--lit\s*\{[^}]+color:\s*#ffffff;[^}]+text-shadow:/s
+  );
+  assert.match(
+    stylesSource,
+    /\[data-theme-preview="light"\] \.theme-preview__tile\s*\{[^}]+color:\s*#ffffff;/s
+  );
   assert.match(mainSource, /glyph\.textContent = colorBlindMode \? color\.glyph : ""/);
   assert.doesNotMatch(mainSource, /responseRails/);
   assert.doesNotMatch(stylesSource, /\.response-rails|\.response-rail(?:__fill)?/);
@@ -450,8 +495,8 @@ test("Sound FX owns tap and life-loss cues while simple Music stays independent"
   assert.match(settingsPanel, /id="music-toggle"[^>]+role="switch"[^>]+checked/);
   assert.doesNotMatch(`${settingsPanel}\n${mainSource}\n${musicSource}`, /interactive-music|interactiveMusic/i);
   assert.match(mainSource, /speedytapper\.music\.v1/);
-  assert.match(musicSource, /background-daylight-circuit\.m4a/);
-  assert.match(musicSource, /background-daylight-circuit-menu\.m4a/);
+  assert.match(musicSource, /themeAudio\.runUrl/);
+  assert.match(musicSource, /themeAudio\.menuUrl/);
   assert.doesNotMatch(soundSource, /backing|soundtrack|ambient|hum/i);
   assert.match(
     mainSource,
@@ -570,8 +615,11 @@ test("pet habitats follow all non-game views while gameplay stays unobstructed",
 });
 
 test("Pet Shop balance and achievement rewards use explicit coin presentation", () => {
+  const petShopView = indexHtml.match(
+    /id="pet-shop-view"[\s\S]*?<div class="overlay-view" id="themes-view"/
+  )?.[0] ?? "";
   assert.match(indexHtml, /id="pet-shop-balance"[^>]+role="status"[^>]+aria-label="0 coins"[\s\S]*class="pixel-coin"[\s\S]*id="pet-shop-coin-count">0<\/strong>/);
-  assert.equal((indexHtml.match(/class="pixel-coin pixel-coin--price"/g) ?? []).length, 5);
+  assert.equal((petShopView.match(/class="pixel-coin pixel-coin--price"/g) ?? []).length, 5);
   assert.match(mainSource, /petShopCoinCount\.textContent = profileSession\.coinBalance\.toLocaleString\(\)/);
   assert.match(mainSource, /card\?\.classList\.toggle\("is-owned", owned\)/);
   assert.match(stylesSource, /\.pet-card\.is-owned \.pet-card__price\s*\{[^}]+filter:\s*grayscale\(1\)/s);
@@ -638,8 +686,8 @@ test("result leaderboard navigation preserves result context and renders compact
 
 test("the settings shortcut reports independent Sound FX and Music state", () => {
   assert.match(indexHtml, /id="settings-current">FX on · Music on</);
-  assert.match(indexHtml, /id="themes-current">Classic</);
-  assert.match(mainSource, /elements\.themesCurrent\.textContent = themeName/);
+  assert.match(indexHtml, /id="themes-current">Default</);
+  assert.match(mainSource, /elements\.themesCurrent\.textContent = theme\.name/);
   assert.match(mainSource, /elements\.settingsCurrent\.textContent = `FX \$\{soundFxEnabled \? "on" : "off"\} · Music \$\{musicEnabled \? "on" : "off"\}`/);
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Interactive Music|interactiveMusic/i);
   assert.match(indexHtml, /<footer class="copyright-footer">Copyright © 2026 OTC Software<\/footer>/);

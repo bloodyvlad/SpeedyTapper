@@ -18,6 +18,7 @@ use SpeedyTapper\RunProofValidator;
 use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
+use SpeedyTapper\ThemeCatalog;
 use SpeedyTapper\Uuid;
 
 require dirname(__DIR__) . '/server/autoload.php';
@@ -119,6 +120,17 @@ $assert(
 );
 $throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
 $assert(count(AchievementCatalog::all()) === 5, 'The achievement catalog exposes five active goals.');
+$assert(
+    ThemeCatalog::all() === [
+        ['id' => 'classic', 'name' => 'Default', 'priceCoins' => 0],
+        ['id' => 'disco', 'name' => 'Disco', 'priceCoins' => 0],
+        ['id' => 'light', 'name' => 'Light', 'priceCoins' => 50],
+        ['id' => 'pixel', 'name' => 'Pixel', 'priceCoins' => 100],
+    ],
+    'Theme catalog ids, display names, prices, and order are stable.',
+);
+$assert(ThemeCatalog::isFree('classic') && ThemeCatalog::isFree('disco'), 'Default and Disco remain free.');
+$throwsApi(static fn () => ThemeCatalog::require('unknown'), 'Unknown themes are rejected.');
 $throwsApi(
     static fn () => AchievementCatalog::require('complete_zen'),
     'The obsolete timed-Zen achievement cannot be unlocked or claimed.',
@@ -483,6 +495,8 @@ foreach ([
     'completed_runs_leaderboard_entry_unique',
     'player_pets',
     'player_pet_selection',
+    'player_themes',
+    'player_theme_selection',
     'is_visible',
     'player_pet_selection_owned_foreign',
     'legacy_easter_egg',
@@ -490,6 +504,7 @@ foreach ([
     'total_coins_collected',
     'coin_debt',
     'pet_purchase',
+    'theme_purchase',
     'achievement_reward',
     'coin_debt_after',
     'player_roles',
@@ -498,6 +513,8 @@ foreach ([
     'account_reward_resets',
     'admin_reward_reset',
     'delete_reset',
+    'themes_removed',
+    'theme_ids_json',
 ] as $needle) {
     $assert(str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
@@ -514,7 +531,7 @@ $assert(
 );
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(
@@ -624,6 +641,8 @@ $assert(
         && str_contains($moderationService, 'account_reward_resets')
         && str_contains($moderationService, 'economy_generation = :economy_generation')
         && str_contains($moderationService, 'DELETE FROM player_pets')
+        && str_contains($moderationService, 'DELETE FROM player_themes')
+        && str_contains($moderationService, 'DELETE FROM player_theme_selection')
         && str_contains($moderationService, "rejection_code = 'admin-reward-reset'")
         && str_contains($moderationService, 'total_coins_collected = 0')
         && str_contains($moderationService, "'admin_reward_reset'")
@@ -654,6 +673,21 @@ $assert(
         && str_contains($petShopService, 'setVisibility')
         && str_contains($petShopService, 'rollBack'),
     'Buy and Select share one atomic, guarded, retry-safe transaction while visibility is durable.',
+);
+
+$themeShopService = file_get_contents(dirname(__DIR__) . '/server/src/ThemeShopService.php');
+$assert(
+    is_string($themeShopService)
+        && str_contains($themeShopService, 'beginTransaction')
+        && str_contains($themeShopService, 'FOR UPDATE')
+        && str_contains($themeShopService, 'coins >= :minimum_balance')
+        && str_contains($themeShopService, 'INSERT INTO player_themes')
+        && str_contains($themeShopService, 'player_theme_selection')
+        && str_contains($themeShopService, 'theme_purchase')
+        && str_contains($themeShopService, "'theme:' . \$playerId . ':' . \$themeId . ':g' . \$economyGeneration")
+        && !str_contains($themeShopService, 'unlockBuyPetInTransaction')
+        && str_contains($themeShopService, 'rollBack'),
+    'Paid themes use an atomic generation-qualified purchase and selection transaction without pet achievements.',
 );
 $assert(
     preg_match(
@@ -698,7 +732,7 @@ $assert(
 $moderationService = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardModerationService.php');
 $assert(
     is_string($moderationService)
-        && str_contains($moderationService, "event_type IN ('pet_purchase','achievement_reward')")
+        && str_contains($moderationService, "event_type IN ('pet_purchase','theme_purchase','achievement_reward')")
         && str_contains($moderationService, 'CoinEconomy::fromNet')
         && str_contains($moderationService, "=== 'zen' ? 0 : self::DODGE_POINTS")
         && str_contains($moderationService, 'coin_debt_after'),
@@ -714,8 +748,10 @@ $playerRepository = file_get_contents(dirname(__DIR__) . '/server/src/PlayerRepo
 $assert(
     is_string($playerRepository)
         && str_contains($playerRepository, "role.role = 'leaderboard_admin'")
-        && str_contains($playerRepository, "'isAdmin' =>"),
-    'Profile admin capability is derived from the database role and exposed only as a boolean.',
+        && str_contains($playerRepository, "'isAdmin' =>")
+        && str_contains($playerRepository, "'ownedThemeIds' =>")
+        && str_contains($playerRepository, "'selectedThemeId' =>"),
+    'Profile capabilities and server-authoritative theme ownership are exposed without raw identity data.',
 );
 
 $migrationStatements = MigrationRunner::splitStatements(
@@ -727,9 +763,11 @@ $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
 $assert(str_contains($apiBootstrap, 'new RunAttemptService') && str_contains($apiBootstrap, 'new RunProofValidator'), 'The HTTP API wires issued attempts to server proof replay.');
 $assert(
     str_contains($apiBootstrap, 'new PetShopService')
-        && str_contains($apiBootstrap, 'new PlayerRepository($database, $pets)')
-        && str_contains($apiBootstrap, 'pets: $pets'),
-    'The API injects one shared pet service into profile reads and pet mutations.',
+        && str_contains($apiBootstrap, 'new ThemeShopService')
+        && str_contains($apiBootstrap, 'new PlayerRepository($database, $pets, $themes)')
+        && str_contains($apiBootstrap, 'pets: $pets')
+        && str_contains($apiBootstrap, 'themes: $themes'),
+    'The API injects shared pet and theme services into profile reads and shop mutations.',
 );
 
 $configSource = file_get_contents(dirname(__DIR__) . '/server/src/Config.php');

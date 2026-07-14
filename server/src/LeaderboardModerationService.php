@@ -449,6 +449,23 @@ final class LeaderboardModerationService
             $petDelete->execute(['player_id' => $targetPlayerId]);
             $petsRemoved = $petDelete->rowCount();
 
+            $themeStatement = $this->database->prepare(
+                'SELECT theme_id FROM player_themes WHERE player_id = :player_id '
+                . 'ORDER BY acquired_at, theme_id FOR UPDATE'
+            );
+            $themeStatement->execute(['player_id' => $targetPlayerId]);
+            $themeIds = array_values(array_map('strval', $themeStatement->fetchAll(PDO::FETCH_COLUMN)));
+            $themeSelectionDelete = $this->database->prepare(
+                'DELETE FROM player_theme_selection WHERE player_id = :player_id'
+            );
+            $themeSelectionDelete->execute(['player_id' => $targetPlayerId]);
+            $themeSelectionsRemoved = $themeSelectionDelete->rowCount();
+            $themeDelete = $this->database->prepare(
+                'DELETE FROM player_themes WHERE player_id = :player_id'
+            );
+            $themeDelete->execute(['player_id' => $targetPlayerId]);
+            $themesRemoved = $themeDelete->rowCount();
+
             $abandonAttempts = $this->database->prepare(
                 "UPDATE run_attempts SET status = 'abandoned', rejection_code = 'admin-reward-reset', "
                 . 'updated_at = UTC_TIMESTAMP(3) WHERE player_id = :player_id '
@@ -522,15 +539,17 @@ final class LeaderboardModerationService
             ]);
 
             $petIdsJson = json_encode($petIds, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $themeIdsJson = json_encode($themeIds, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
             $insertReset = $this->database->prepare(
                 'INSERT INTO account_reward_resets '
                 . '(reset_id, trigger_entry_id, player_id, actor_player_id, from_generation, '
                 . 'to_generation, coins_removed, debt_cleared, remainder_removed_ms, '
-                . 'total_play_removed_ms, total_collected_removed, pets_removed, pet_ids_json, reason) '
+                . 'total_play_removed_ms, total_collected_removed, pets_removed, pet_ids_json, '
+                . 'themes_removed, theme_ids_json, reason) '
                 . 'VALUES (:reset_id, :trigger_entry_id, :player_id, :actor_player_id, '
                 . ':from_generation, :to_generation, :coins_removed, :debt_cleared, '
                 . ':remainder_removed_ms, :total_play_removed_ms, :total_collected_removed, '
-                . ':pets_removed, :pet_ids_json, :reason)'
+                . ':pets_removed, :pet_ids_json, :themes_removed, :theme_ids_json, :reason)'
             );
             $insertReset->execute([
                 'reset_id' => $resetId,
@@ -546,6 +565,8 @@ final class LeaderboardModerationService
                 'total_collected_removed' => $totalCollectedRemoved,
                 'pets_removed' => $petsRemoved,
                 'pet_ids_json' => $petIdsJson,
+                'themes_removed' => $themesRemoved,
+                'theme_ids_json' => $themeIdsJson,
                 'reason' => $reason,
             ]);
 
@@ -561,6 +582,9 @@ final class LeaderboardModerationService
                 'petsRemoved' => $petsRemoved,
                 'petIds' => $petIds,
                 'selectionsRemoved' => $selectionsRemoved,
+                'themesRemoved' => $themesRemoved,
+                'themeIds' => $themeIds,
+                'themeSelectionsRemoved' => $themeSelectionsRemoved,
                 'attemptsAbandoned' => $attemptsAbandoned,
                 'achievementsPreserved' => true,
                 'linkedRunRevoked' => is_array($run),
@@ -843,6 +867,11 @@ final class LeaderboardModerationService
             $decoded = json_decode($reset['pet_ids_json'], true);
             $petIds = is_array($decoded) ? array_values(array_map('strval', $decoded)) : [];
         }
+        $themeIds = [];
+        if (is_string($reset['theme_ids_json'] ?? null)) {
+            $decoded = json_decode($reset['theme_ids_json'], true);
+            $themeIds = is_array($decoded) ? array_values(array_map('strval', $decoded)) : [];
+        }
         return [
             'rewardResetId' => (string) $reset['reset_id'],
             'entryId' => (string) $reset['trigger_entry_id'],
@@ -856,6 +885,8 @@ final class LeaderboardModerationService
             'totalCollectedRemoved' => (int) $reset['total_collected_removed'],
             'petsRemoved' => (int) $reset['pets_removed'],
             'petIds' => $petIds,
+            'themesRemoved' => (int) ($reset['themes_removed'] ?? 0),
+            'themeIds' => $themeIds,
             'status' => 'deleted',
         ];
     }
@@ -961,7 +992,7 @@ final class LeaderboardModerationService
             . "COALESCE(SUM(CASE WHEN event_type = 'achievement_reward' THEN coin_delta ELSE 0 END), 0) "
             . 'AS achievement_coins FROM coin_ledger '
             . "WHERE player_id = :player_id AND economy_generation = :economy_generation "
-            . "AND event_type IN ('pet_purchase','achievement_reward')"
+            . "AND event_type IN ('pet_purchase','theme_purchase','achievement_reward')"
         );
         $economyStatement->execute([
             'player_id' => $playerId,

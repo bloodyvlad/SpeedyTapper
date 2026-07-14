@@ -24,21 +24,22 @@ function contrastRatio(first, second) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test("Classic and Disco palettes preserve color semantics", () => {
+test("all four palettes preserve color semantics", () => {
   const classic = THEME_PALETTES[THEMES.CLASSIC];
-  const disco = THEME_PALETTES[THEMES.DISCO];
 
   assert.strictEqual(classic, COLORS);
-  assert.equal(disco.length, classic.length);
-  assert.ok(Object.isFrozen(disco));
-
-  for (const [index, discoColor] of disco.entries()) {
-    const classicColor = classic[index];
-    assert.equal(discoColor.id, classicColor.id);
-    assert.equal(discoColor.name, classicColor.name);
-    assert.equal(discoColor.glyph, classicColor.glyph);
-    assert.equal(discoColor.ink, classicColor.ink);
-    assert.notEqual(discoColor.value, classicColor.value);
+  for (const theme of [THEMES.DISCO, THEMES.LIGHT, THEMES.PIXEL]) {
+    const palette = THEME_PALETTES[theme];
+    assert.equal(palette.length, classic.length);
+    assert.ok(Object.isFrozen(palette));
+    for (const [index, themedColor] of palette.entries()) {
+      const classicColor = classic[index];
+      assert.equal(themedColor.id, classicColor.id);
+      assert.equal(themedColor.name, classicColor.name);
+      assert.equal(themedColor.glyph, classicColor.glyph);
+      assert.equal(themedColor.ink, classicColor.ink);
+      assert.notEqual(themedColor.value, classicColor.value);
+    }
   }
 });
 
@@ -53,6 +54,20 @@ test("Disco colors are paler and retain strong glyph contrast", () => {
     assert.ok(
       contrastRatio(discoColor.value, discoColor.ink) >= 4.5,
       `${discoColor.name} must keep readable glyph contrast.`
+    );
+  }
+});
+
+test("Light and Pixel colors remain distinguishable", () => {
+  for (const theme of [THEMES.LIGHT, THEMES.PIXEL]) {
+    const palette = THEME_PALETTES[theme];
+    assert.equal(new Set(palette.map(({ value }) => value)).size, COLORS.length);
+  }
+
+  for (const color of THEME_PALETTES[THEMES.PIXEL]) {
+    assert.ok(
+      contrastRatio(color.value, color.ink) >= 4.5,
+      `Pixel ${color.name} must keep readable glyph contrast.`
     );
   }
 });
