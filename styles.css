@@ -2385,18 +2385,9 @@ h1 {
   gap: 4px;
 }
 
-.achievement-reward-coin {
-  width: 14px;
-  height: 14px;
-  border: 1px solid #fff08a;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 28%, #fff8ad 0 14%, transparent 15%),
-    linear-gradient(145deg, #ffe568, #e89b16);
-  box-shadow:
-    inset -2px -2px 3px rgba(135, 71, 0, 0.34),
-    0 0 7px rgba(255, 202, 45, 0.34);
-  display: inline-block;
+.pixel-coin--achievement {
+  width: 16px;
+  height: 16px;
 }
 
 .achievement-card__action small {

@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-9";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-9";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-10";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-10";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,24 +7,24 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-9";
+} from "./input-timing.js?v=20260714-10";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-9";
-import { createPetController } from "./pet-controller.js?v=20260714-9";
-import { createSoundController } from "./sound-controller.js?v=20260714-9";
-import { createMusicController } from "./music-controller.js?v=20260714-9";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-9";
+} from "./pet-catalog.js?v=20260714-10";
+import { createPetController } from "./pet-controller.js?v=20260714-10";
+import { createSoundController } from "./sound-controller.js?v=20260714-10";
+import { createMusicController } from "./music-controller.js?v=20260714-10";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-10";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-9";
+const APP_BUILD_ID = "20260714-10";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -1160,10 +1160,13 @@ function renderAchievementReward(container, rewardCoins) {
   if (!container) return;
   const value = document.createElement("span");
   value.textContent = `+${rewardCoins}`;
-  const coin = document.createElement("span");
-  coin.className = "achievement-reward-coin";
-  coin.setAttribute("aria-hidden", "true");
-  container.replaceChildren(value, coin);
+  const coin = elements.coinBalance.querySelector(".pixel-coin")?.cloneNode(true);
+  if (coin instanceof SVGElement) {
+    coin.classList.add("pixel-coin--achievement");
+    container.replaceChildren(value, coin);
+    return;
+  }
+  container.replaceChildren(value);
 }
 
 function renderAchievements({ updateStatus = true } = {}) {

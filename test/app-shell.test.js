@@ -57,7 +57,7 @@ const htaccessSource = await readFile(new URL("../.htaccess", import.meta.url), 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-9");
+  assert.equal(buildId, "20260714-10");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -112,8 +112,8 @@ test("the complete browser module graph uses one release version", () => {
   );
   assert.deepEqual(repositoryAudioEntries.toSorted(), [
     "SOURCES.md",
-    "background-daylight-circuit.m4a",
     "background-daylight-circuit-menu.m4a",
+    "background-daylight-circuit.m4a",
     "background-masters",
     "oops.wav",
     "tap-tones.wav"
@@ -578,11 +578,14 @@ test("Pet Shop balance and achievement rewards use explicit coin presentation", 
   assert.match(indexHtml, /class="menu-feature-actions">[\s\S]*id="pet-shop-toggle"[\s\S]*id="themes-toggle"/);
   assert.match(stylesSource, /\.menu-feature-button\s*\{[^}]+width:\s*45%;[^}]+flex:\s*0 0 45%;/s);
   assert.match(stylesSource, /\.settings-toggle\.menu-feature-button\s*\{[^}]+min-height:\s*48px;[^}]+gap:\s*2px;/s);
-  assert.match(indexHtml, /class="achievement-reward-coin"/);
+  assert.equal((indexHtml.match(/class="pixel-coin pixel-coin--achievement"/g) ?? []).length, 5);
   assert.match(mainSource, /function renderAchievementReward\(/);
+  assert.match(mainSource, /coinBalance\.querySelector\("\.pixel-coin"\)\?\.cloneNode\(true\)/);
+  assert.match(mainSource, /coin\.classList\.add\("pixel-coin--achievement"\)/);
   assert.match(mainSource, /value\.textContent = `\+\$\{rewardCoins\}`/);
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /In progress/);
-  assert.match(stylesSource, /\.achievement-reward-coin\s*\{/);
+  assert.match(stylesSource, /\.pixel-coin--achievement\s*\{[^}]+width:\s*16px;[^}]+height:\s*16px;/s);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}\n${stylesSource}`, /achievement-reward-coin/);
 });
 
 test("held and cloned proofs never claim a ranked result in Game Over copy", () => {
@@ -868,7 +871,7 @@ test("five durable ranked achievements expose claimable green checks and claimed
   assert.match(indexHtml, /Collect 5 coins/);
   assert.match(indexHtml, /Score more than 100K/);
   assert.match(indexHtml, /Buy a pet/);
-  assert.match(indexHtml, /<strong><span>\+10<\/span><span class="achievement-reward-coin"/);
+  assert.match(indexHtml, /<strong><span>\+10<\/span><svg class="pixel-coin pixel-coin--achievement"/);
   assert.doesNotMatch(indexHtml, /In progress/);
 
   assert.match(mainSource, /function openAchievements\(\)/);

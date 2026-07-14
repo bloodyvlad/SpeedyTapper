@@ -1,6 +1,6 @@
 # PHP/MySQL backend integration
 
-This document describes the backend target on the PHP branch. It does not describe the current Vercel production deployment until the release is integrated, committed, deployed, and verified.
+This document describes the PHP backend shipped from `main` to the independent Hostinger production site. The retained Vercel generation is a separate legacy rollback and is not evidence of current production state.
 
 ## Runtime and setup
 
@@ -99,7 +99,7 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 
 ### `POST /api/runs`
 
-Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260714-9" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260714-10" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -113,7 +113,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260714-9",
+  "buildId": "20260714-10",
   "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [

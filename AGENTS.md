@@ -22,7 +22,7 @@ Codex tasks share the filesystem but not their transcripts. Assume an unexplaine
 | Concern | Source of truth |
 | --- | --- |
 | Code and release contents | Git commit |
-| PHP production runtime | Hostinger MCP artifact built from the recorded `php-main` commit |
+| PHP production runtime | Hostinger MCP artifact built from the recorded `main` commit |
 | Legacy rollback runtime | Immutable Vercel deployment attached to its commit |
 | Current setup and committed target behavior | `README.md` at the target commit |
 | Durable product and architecture decisions | `docs/DECISIONS.md` |

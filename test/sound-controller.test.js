@@ -227,7 +227,7 @@ test("the controller uses Web Audio tap tones and a life-loss cue without hum or
   assert.match(source, /assets\/audio\/tap-tones\.wav/);
   assert.match(source, /assets\/audio\/oops\.wav/);
   assert.match(source, /TONE_GAIN = 0\.375/);
-  assert.match(source, /LIFE_LOSS_GAIN = 0\.55/);
+  assert.match(source, /LIFE_LOSS_GAIN = TONE_GAIN/);
   assert.doesNotMatch(source, /fluorescent-hum|HTMLMediaElement|new Audio\s*\(/);
   assert.doesNotMatch(source, /navigator\.(?:userAgent|platform)|iPhone|iPad|iPod/i);
 });

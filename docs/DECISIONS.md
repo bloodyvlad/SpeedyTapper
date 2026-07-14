@@ -1,6 +1,6 @@
 # SpeedyTapper decision log
 
-This file records durable product, architecture, privacy, and release decisions. It is not a backlog, task-status document, or release log. Git commits and Vercel deployments determine release state.
+This file records durable product, architecture, privacy, and release decisions. It is not a backlog, task-status document, or release log. Git commits and recorded Hostinger deployments determine current release state; retained Vercel references describe only the legacy rollback generation.
 
 ## How to use this log
 
@@ -709,3 +709,16 @@ Constrain the Pet Shop and Themes controls to a compact 48 px minimum touch heig
 Consequences: Menu and gameplay share one musical identity without embedding predictive tones into the reaction loop. Switching scenes replaces one bounded looping source with another under the existing fade/output graph; both optional runtimes remain outside the install-time app shell and service-worker cache. Disabling Music still creates, fetches, decodes, caches, and plays neither variant, while disabling Sound FX suppresses both tap tones and life-loss feedback. The retained menu master and deterministic generator expand the release artifact only by the runtime AAC. Physical iPhone listening remains required before calling latency, balance, and scene transitions device-validated.
 
 Revisit when: Phase-continuous scene switching becomes important, the menu melody should be sparser, physical-device listening calls for a different embedded-note gain, or a future music system justifies more than two fixed variants.
+
+## D-053 — Consolidate production development on `main`
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: The repository's historical `main` still pointed to the obsolete Vercel generation while current Hostinger production evolved linearly through `php-main` and short-lived integration branches. Cloud tasks therefore defaulted to code dozens of commits behind production, even though every surviving release branch was already an ancestor of the latest deployed commit.
+
+Decision: Make `main` the sole long-lived source and release branch. Fast-forward it to the latest reviewed Hostinger release commit without rewriting history, keep immutable `hostinger-YYYYMMDD-N` tags as deployment anchors, and delete merged remote PHP and integration branches after exact-SHA verification. Future work starts from current `main`, lands through reviewable feature branches, and deploys only an explicitly authorized clean `main` commit through the isolated Hostinger MCP artifact workflow. This supersedes D-020 only where it names `php-main` as the version-history branch.
+
+Consequences: Local and cloud Codex tasks now select current production code by default, while release history remains reachable through `main` and annotated Hostinger tags. Branch deletion does not delete commits or deployments. The legacy Vercel deployment may remain as a separate immutable rollback without controlling branch structure or current product behavior.
+
+Revisit when: A protected release branch, staging environment, signed release workflow, or organization-wide branch rules become useful.
