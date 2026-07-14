@@ -185,7 +185,7 @@ test("the music controller is one fixed original background loop with no Interac
 
   assert.match(source, /background-daylight-circuit\.m4a/);
   assert.match(source, /latencyHint:\s*"playback"/);
-  assert.match(source, /BACKGROUND_GAIN = 0\.28/);
+  assert.match(source, /BACKGROUND_GAIN = 0\.42/);
   assert.match(source, /LOOP_DURATION_SECONDS = 12/);
   assert.doesNotMatch(source, /interactive|pace|stage|rotation|motif|HTMLAudioElement|new Audio\s*\(/i);
 });
@@ -256,8 +256,9 @@ test("a trusted run gesture starts one sample-aligned loop with a gentle fade", 
   assert.deepEqual(context.gainNodes[0].gain.events.slice(-3), [
     { method: "cancelScheduledValues", time: 5 },
     { method: "setValueAtTime", time: 5, value: 0 },
-    { method: "linearRampToValueAtTime", time: 5.12, value: 0.28 }
+    { method: "linearRampToValueAtTime", time: 5.12, value: 1 }
   ]);
+  assert.equal(context.gainNodes[1].gain.value, 0.42);
 });
 
 test("a run that starts before decoding begins the bed once it is ready", async () => {
@@ -303,7 +304,7 @@ test("results fade the gameplay bed and a restart replaces it cleanly", async ()
   assert.deepEqual(first.stopCalls, [5.09]);
   assert.deepEqual(context.gainNodes[0].gain.events.slice(-3), [
     { method: "cancelScheduledValues", time: 5 },
-    { method: "setValueAtTime", time: 5, value: 0.28 },
+    { method: "setValueAtTime", time: 5, value: 1 },
     { method: "linearRampToValueAtTime", time: 5.08, value: 0 }
   ]);
 
@@ -335,4 +336,37 @@ test("opting out closes Music and backgrounding suspends it", async () => {
   const fetchCount = fetchRecorder.calls.length;
   await music.startRun();
   assert.equal(fetchRecorder.calls.length, fetchCount);
+});
+
+test("Music volume scales the louder base mix without creating disabled audio work", async () => {
+  resetFakes();
+  const fetchRecorder = createImmediateFetch();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  assert.equal(music.setVolume(0.5), 0.5);
+  assert.equal(FakeAudioContext.instances.length, 0);
+  assert.equal(fetchRecorder.calls.length, 0);
+
+  music.setEnabled(true);
+  await flushAsyncWork();
+  const context = FakeAudioContext.instances[0];
+  const volumeGain = context.gainNodes[1];
+  assert.equal(volumeGain.gain.value, 0.21);
+
+  await music.startRun();
+  const contextCount = FakeAudioContext.instances.length;
+  const fetchCount = fetchRecorder.calls.length;
+  assert.equal(music.setVolume(0.25), 0.25);
+  assert.deepEqual(volumeGain.gain.events.slice(-3), [
+    { method: "cancelScheduledValues", time: 5 },
+    { method: "setValueAtTime", time: 5, value: 0.21 },
+    { method: "linearRampToValueAtTime", time: 5.025, value: 0.105 }
+  ]);
+  assert.equal(FakeAudioContext.instances.length, contextCount);
+  assert.equal(fetchRecorder.calls.length, fetchCount);
+  assert.equal(music.setVolume(2), 1);
+  assert.equal(music.setVolume(-1), 0);
 });

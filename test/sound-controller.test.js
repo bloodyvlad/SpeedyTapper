@@ -226,6 +226,8 @@ test("the controller uses Web Audio tap tones and a life-loss cue without hum or
   assert.match(source, /latencyHint:\s*["']interactive["']/);
   assert.match(source, /assets\/audio\/tap-tones\.wav/);
   assert.match(source, /assets\/audio\/oops\.wav/);
+  assert.match(source, /TONE_GAIN = 0\.375/);
+  assert.match(source, /LIFE_LOSS_GAIN = 0\.55/);
   assert.doesNotMatch(source, /fluorescent-hum|HTMLMediaElement|new Audio\s*\(/);
   assert.doesNotMatch(source, /navigator\.(?:userAgent|platform)|iPhone|iPad|iPod/i);
 });
@@ -360,6 +362,7 @@ test("correct taps play successive half-second slots and wrap after slot 16", as
       { duration: 0.5, offset: expectedOffset, time: context.currentTime }
     ]);
     assert.equal(source.buffer.id, TONE_BANK_URL);
+    assert.equal(source.connections[0].gain.value, 0.375);
     source.onended();
   }
 });
@@ -406,6 +409,7 @@ test("life loss plays immediately from memory and smoothly retires the prior lif
   assert.equal(sound.lifeLost(), true);
   const first = context.bufferSources[0];
   assert.equal(first.buffer.id, LIFE_LOSS_URL);
+  assert.equal(first.connections[0].gain.value, 0.55);
   assert.deepEqual(first.startCalls, [
     { duration: undefined, offset: 0, time: context.currentTime }
   ]);
@@ -655,6 +659,40 @@ test("disabling a prepared session stops tones, disconnects nodes, and closes it
   assert.ok(lifeSource.disconnectCalls > 0);
   assert.ok(context.gainNodes.some((node) => node.disconnectCalls > 0));
   assert.equal(context.closeCalls, 1);
+});
+
+test("Sound FX volume scales the output route without changing cue mix or doing disabled work", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+
+  assert.equal(sound.setVolume(0.4), 0.4);
+  assert.equal(FakeAudioContext.instances.length, 0);
+  assert.equal(fetchRecorder.calls.length, 0);
+
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  const context = FakeAudioContext.instances[0];
+  const volumeGain = context.gainNodes[1];
+  assert.equal(volumeGain.gain.value, 0.4);
+
+  await sound.unlock();
+  const contextCount = FakeAudioContext.instances.length;
+  const fetchCount = fetchRecorder.calls.length;
+  assert.equal(sound.setVolume(0.25), 0.25);
+  assert.deepEqual(volumeGain.gain.events.slice(-3), [
+    { method: "cancelScheduledValues", time: 4 },
+    { method: "setValueAtTime", time: 4, value: 0.4 },
+    { method: "linearRampToValueAtTime", time: 4.025, value: 0.25 }
+  ]);
+  assert.equal(FakeAudioContext.instances.length, contextCount);
+  assert.equal(fetchRecorder.calls.length, fetchCount);
+
+  assert.equal(sound.playCorrectTap(1), true);
+  assert.equal(context.bufferSources[0].connections[0].gain.value, 0.375);
+  assert.equal(sound.lifeLost(), true);
+  assert.equal(context.bufferSources[1].connections[0].gain.value, 0.55);
+  assert.equal(sound.setVolume(2), 1);
+  assert.equal(sound.setVolume(-1), 0);
 });
 
 test("unsupported, failed, or blocked audio degrades silently", async () => {

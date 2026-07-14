@@ -1,10 +1,17 @@
 const BACKGROUND_MUSIC_URL = "./assets/audio/background-daylight-circuit.m4a";
 
-const BACKGROUND_GAIN = 0.28;
+const BACKGROUND_GAIN = 0.42;
 const LOOP_DURATION_SECONDS = 12;
 const FADE_IN_SECONDS = 0.12;
 const FADE_OUT_SECONDS = 0.08;
+const VOLUME_RAMP_SECONDS = 0.025;
 const STOP_PADDING_SECONDS = 0.01;
+
+function clampVolume(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 1;
+  return Math.max(0, Math.min(1, numericValue));
+}
 
 function ignoreFailure(promise) {
   Promise.resolve(promise).catch(() => {});
@@ -20,6 +27,8 @@ export function createMusicController({
   let context = null;
   let contextStateHandler = null;
   let masterGain = null;
+  let volumeGain = null;
+  let volume = 1;
   let buffer = null;
   let preparation = null;
   let loadController = null;
@@ -69,6 +78,21 @@ export function createMusicController({
     masterGain.gain.value = 0;
   }
 
+  function applyVolume({ immediate = false } = {}) {
+    if (!context || !volumeGain) return;
+    const time = context.currentTime;
+    const target = BACKGROUND_GAIN * volume;
+    const gain = volumeGain.gain;
+    gain.cancelScheduledValues(time);
+    if (immediate || context.state !== "running") {
+      gain.setValueAtTime(target, time);
+      gain.value = target;
+      return;
+    }
+    gain.setValueAtTime(gain.value, time);
+    gain.linearRampToValueAtTime(target, time + VOLUME_RAMP_SECONDS);
+  }
+
   function fadeAndStopVoice() {
     const target = voice;
     if (!target || target.cleaned || target.closing) return;
@@ -81,7 +105,7 @@ export function createMusicController({
 
     const time = context.currentTime;
     masterGain.gain.cancelScheduledValues(time);
-    masterGain.gain.setValueAtTime(BACKGROUND_GAIN, time);
+    masterGain.gain.setValueAtTime(1, time);
     masterGain.gain.linearRampToValueAtTime(0, time + FADE_OUT_SECONDS);
     try {
       target.source.stop(time + FADE_OUT_SECONDS + STOP_PADDING_SECONDS);
@@ -118,7 +142,7 @@ export function createMusicController({
     const time = context.currentTime;
     masterGain.gain.cancelScheduledValues(time);
     masterGain.gain.setValueAtTime(0, time);
-    masterGain.gain.linearRampToValueAtTime(BACKGROUND_GAIN, time + FADE_IN_SECONDS);
+    masterGain.gain.linearRampToValueAtTime(1, time + FADE_IN_SECONDS);
     try {
       source.start(time);
       return true;
@@ -193,7 +217,11 @@ export function createMusicController({
         context = new AudioContextClass({ latencyHint: "playback" });
         masterGain = context.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(context.destination);
+        volumeGain = context.createGain();
+        volumeGain.gain.value = BACKGROUND_GAIN * volume;
+        masterGain.connect(volumeGain);
+        volumeGain.connect(context.destination);
+        applyVolume({ immediate: true });
         const observedContext = context;
         contextStateHandler = () => {
           if (context !== observedContext || observedContext.state === "running") return;
@@ -219,6 +247,8 @@ export function createMusicController({
     stopVoiceImmediately();
     disconnectNode(masterGain);
     masterGain = null;
+    disconnectNode(volumeGain);
+    volumeGain = null;
 
     const closingContext = context;
     if (closingContext && contextStateHandler) {
@@ -260,6 +290,12 @@ export function createMusicController({
   }
 
   return {
+    setVolume(value) {
+      volume = clampVolume(value);
+      applyVolume();
+      return volume;
+    },
+
     setEnabled(value) {
       const nextEnabled = Boolean(value);
       if (enabled === nextEnabled) return;

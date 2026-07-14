@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-7";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-7";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-8";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-8";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,29 +7,31 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-7";
+} from "./input-timing.js?v=20260714-8";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-7";
-import { createPetController } from "./pet-controller.js?v=20260714-7";
-import { createSoundController } from "./sound-controller.js?v=20260714-7";
-import { createMusicController } from "./music-controller.js?v=20260714-7";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-7";
+} from "./pet-catalog.js?v=20260714-8";
+import { createPetController } from "./pet-controller.js?v=20260714-8";
+import { createSoundController } from "./sound-controller.js?v=20260714-8";
+import { createMusicController } from "./music-controller.js?v=20260714-8";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-8";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-7";
+const APP_BUILD_ID = "20260714-8";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
+const SOUND_FX_VOLUME_STORAGE_KEY = "speedytapper.soundFxVolume.v1";
 const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
+const MUSIC_VOLUME_STORAGE_KEY = "speedytapper.musicVolume.v1";
 const SPEED_RATING_ORDER = Object.freeze(["godlike", "perfect", "great", "good"]);
 const SPEED_RATING_LABELS = Object.freeze({
   godlike: "Godlike",
@@ -40,6 +42,7 @@ const SPEED_RATING_LABELS = Object.freeze({
 
 const elements = {
   achievementCards: [...document.querySelectorAll("[data-achievement-id]")],
+  achievementsAlert: document.querySelector("#achievements-alert"),
   achievementsBackButton: document.querySelector("#achievements-back-button"),
   achievementsList: document.querySelector("#achievements-list"),
   achievementsProfileButton: document.querySelector("#achievements-profile-button"),
@@ -130,6 +133,7 @@ const elements = {
   petShopActions: [...document.querySelectorAll("[data-pet-action]")],
   petShopBackButton: document.querySelector("#pet-shop-back-button"),
   petShopBalance: document.querySelector("#pet-shop-balance"),
+  petShopCoinCount: document.querySelector("#pet-shop-coin-count"),
   petShopCards: [...document.querySelectorAll("[data-pet-card]")],
   petShopCurrent: document.querySelector("#pet-shop-current"),
   petShopPreviews: [...document.querySelectorAll("[data-pet-preview]")],
@@ -158,7 +162,11 @@ const elements = {
   settingsToggle: document.querySelector("#settings-toggle"),
   settingsView: document.querySelector("#settings-view"),
   soundFxToggle: document.querySelector("#sound-fx-toggle"),
+  soundFxVolume: document.querySelector("#sound-fx-volume"),
+  soundFxVolumeOutput: document.querySelector("#sound-fx-volume-output"),
   musicToggle: document.querySelector("#music-toggle"),
+  musicVolume: document.querySelector("#music-volume"),
+  musicVolumeOutput: document.querySelector("#music-volume-output"),
   scoreMultiplier: document.querySelector("#score-multiplier"),
   speedRatingOverlay: document.querySelector("#speed-rating-overlay"),
   speedSummaryBar: document.querySelector("#speed-summary-bar"),
@@ -170,6 +178,10 @@ const elements = {
   statusValue: document.querySelector("#status-value"),
   themeInputs: [...document.querySelectorAll('input[name="theme"]')],
   themeColorMeta: document.querySelector('meta[name="theme-color"]'),
+  themesBackButton: document.querySelector("#themes-back-button"),
+  themesCurrent: document.querySelector("#themes-current"),
+  themesToggle: document.querySelector("#themes-toggle"),
+  themesView: document.querySelector("#themes-view"),
   zenButton: document.querySelector("#zen-button")
 };
 
@@ -252,7 +264,9 @@ let speedRatingPlacementRight = false;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = true;
+let soundFxVolume = 1;
 let musicEnabled = true;
+let musicVolume = 1;
 
 const sound = createSoundController();
 const music = createMusicController();
@@ -430,6 +444,13 @@ function writeStoredPreference(key, value) {
   }
 }
 
+function normalizeVolumePercentage(value) {
+  if (value === null || value === undefined || value === "") return 100;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 100;
+  return Math.round(Math.max(0, Math.min(100, numericValue)));
+}
+
 function isTheme(value) {
   return Object.values(THEMES).includes(value);
 }
@@ -442,10 +463,21 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicEnabled ? "on" : "off"}`;
+  const soundFxPercentage = Math.round(soundFxVolume * 100);
+  const musicPercentage = Math.round(musicVolume * 100);
+  elements.themesCurrent.textContent = themeName;
+  elements.settingsCurrent.textContent = `FX ${soundFxEnabled ? "on" : "off"} · Music ${musicEnabled ? "on" : "off"}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
+  elements.soundFxVolume.value = String(soundFxPercentage);
+  elements.soundFxVolume.disabled = !soundFxEnabled;
+  elements.soundFxVolume.setAttribute("aria-valuetext", `${soundFxPercentage}%`);
+  elements.soundFxVolumeOutput.value = `${soundFxPercentage}%`;
   elements.musicToggle.checked = musicEnabled;
+  elements.musicVolume.value = String(musicPercentage);
+  elements.musicVolume.disabled = !musicEnabled;
+  elements.musicVolume.setAttribute("aria-valuetext", `${musicPercentage}%`);
+  elements.musicVolumeOutput.value = `${musicPercentage}%`;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
     input.checked = input.value === activeTheme;
@@ -459,9 +491,17 @@ function initializeDisplaySettings() {
   colorBlindMode = storedColorBlindMode !== "off";
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
   soundFxEnabled = storedSoundFx !== "off";
+  soundFxVolume = normalizeVolumePercentage(
+    readStoredPreference(SOUND_FX_VOLUME_STORAGE_KEY)
+  ) / 100;
+  sound.setVolume(soundFxVolume);
   sound.setEnabled(soundFxEnabled);
   const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
   musicEnabled = storedMusic !== "off";
+  musicVolume = normalizeVolumePercentage(
+    readStoredPreference(MUSIC_VOLUME_STORAGE_KEY)
+  ) / 100;
+  music.setVolume(musicVolume);
   music.setEnabled(musicEnabled);
   renderDisplaySettings();
 }
@@ -488,11 +528,27 @@ function applySoundFx(enabled) {
   writeStoredPreference(SOUND_FX_STORAGE_KEY, soundFxEnabled ? "on" : "off");
 }
 
+function applySoundFxVolume(value) {
+  const percentage = normalizeVolumePercentage(value);
+  soundFxVolume = percentage / 100;
+  sound.setVolume(soundFxVolume);
+  renderDisplaySettings();
+  writeStoredPreference(SOUND_FX_VOLUME_STORAGE_KEY, String(percentage));
+}
+
 function applyMusic(enabled) {
   musicEnabled = Boolean(enabled);
   music.setEnabled(musicEnabled);
   renderDisplaySettings();
   writeStoredPreference(MUSIC_STORAGE_KEY, musicEnabled ? "on" : "off");
+}
+
+function applyMusicVolume(value) {
+  const percentage = normalizeVolumePercentage(value);
+  musicVolume = percentage / 100;
+  music.setVolume(musicVolume);
+  renderDisplaySettings();
+  writeStoredPreference(MUSIC_VOLUME_STORAGE_KEY, String(percentage));
 }
 
 function stopResponseProgress() {
@@ -1045,6 +1101,7 @@ function resetResultUi() {
   elements.resultGoogleSignin.hidden = true;
   renderSpeedSummary(null);
   closePetShop();
+  closeThemes();
   closeSettings();
   closeAchievements();
   closeLeaderboard();
@@ -1131,6 +1188,13 @@ function renderAchievements({ updateStatus = true } = {}) {
   elements.achievementsSummary.textContent = authenticated
     ? `${claimedCount} / ${totalCount} claimed`
     : profileSession.authenticated ? "Loading…" : "Sign in to claim";
+  elements.achievementsAlert.hidden = !authenticated || claimableCount === 0;
+  elements.achievementsToggle.setAttribute(
+    "aria-label",
+    claimableCount > 0
+      ? `Achievements. ${claimableCount} ${claimableCount === 1 ? "reward" : "rewards"} ready to claim.`
+      : "Achievements"
+  );
   elements.achievementsProfileButton.hidden = authenticated;
 
   for (const card of elements.achievementCards) {
@@ -1279,6 +1343,7 @@ function requireLoggedInFeature() {
 
 function openAchievements() {
   if (!requireLoggedInFeature()) return;
+  closeThemes();
   closeSettings();
   closeLeaderboard();
   closeProfile();
@@ -1313,6 +1378,7 @@ function selectLeaderboardMode(mode) {
 
 function showMenuView(focusTarget = null) {
   closePetShop();
+  closeThemes();
   closeSettings();
   closeAchievements();
   closeLeaderboard();
@@ -1332,6 +1398,7 @@ function showMenuView(focusTarget = null) {
 
 function openPetShop() {
   if (!requireLoggedInFeature()) return;
+  closeThemes();
   closeSettings();
   closeAchievements();
   closeLeaderboard();
@@ -1360,8 +1427,33 @@ function closePetShop() {
   elements.petShopToggle.setAttribute("aria-expanded", "false");
 }
 
+function openThemes() {
+  closePetShop();
+  closeSettings();
+  closeAchievements();
+  closeLeaderboard();
+  closeProfile();
+  closeLeaderboardAdmin();
+  setDialogView("themes");
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.themesView.hidden = false;
+  elements.themesToggle.setAttribute("aria-expanded", "true");
+  elements.dialogUtility.hidden = true;
+  elements.dialogTitle.textContent = "Themes";
+  elements.dialogMessage.textContent = "Choose the visual style for menus and gameplay.";
+  elements.dialog.scrollTop = 0;
+  elements.themesBackButton.focus({ preventScroll: true });
+}
+
+function closeThemes() {
+  elements.themesView.hidden = true;
+  elements.themesToggle.setAttribute("aria-expanded", "false");
+}
+
 function openSettings() {
   closePetShop();
+  closeThemes();
   closeAchievements();
   closeLeaderboard();
   closeProfile();
@@ -1372,7 +1464,7 @@ function openSettings() {
   elements.settingsView.hidden = false;
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Settings";
-  elements.dialogMessage.textContent = "Choose how SpeedyTapper looks and sounds.";
+  elements.dialogMessage.textContent = "Choose accessibility and audio preferences.";
   elements.dialog.scrollTop = 0;
   elements.settingsBackButton.focus({ preventScroll: true });
 }
@@ -1383,6 +1475,7 @@ function closeSettings() {
 
 function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   closePetShop();
+  closeThemes();
   closeSettings();
   closeAchievements();
   closeLeaderboard();
@@ -1427,6 +1520,7 @@ function returnFromProfile() {
 
 function openLeaderboard(returnView = "menu") {
   closePetShop();
+  closeThemes();
   closeSettings();
   closeAchievements();
   closeProfile();
@@ -1700,6 +1794,7 @@ async function moderateAdminEntry(action) {
 function openLeaderboardAdmin() {
   if (profileSession.profile?.isAdmin !== true) return;
   closePetShop();
+  closeThemes();
   closeSettings();
   closeAchievements();
   closeLeaderboard();
@@ -1729,6 +1824,7 @@ function showResultView(focusTarget = null) {
   }
 
   closeSettings();
+  closeThemes();
   closePetShop();
   closeAchievements();
   closeLeaderboard();
@@ -2103,13 +2199,16 @@ function renderPetShop() {
   elements.petShopCurrent.textContent = selectedPet
     ? `${selectedPet.name}${petVisible ? "" : " · hidden"}`
     : "No pet";
-  elements.petShopBalance.textContent = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
+  const coinLabel = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
+  elements.petShopCoinCount.textContent = profileSession.coinBalance.toLocaleString();
+  elements.petShopBalance.setAttribute("aria-label", coinLabel);
 
   for (const pet of PET_CATALOG) {
     const owned = ownedPetIds.has(pet.id);
     const selected = selectedPetId === pet.id;
     const card = elements.petShopCards.find((item) => item.dataset.petCard === pet.id);
     const action = elements.petShopActions.find((item) => item.dataset.petAction === pet.id);
+    card?.classList.toggle("is-owned", owned);
     card?.classList.toggle("is-selected", selected);
     card?.classList.toggle("is-hidden-pet", selected && !petVisible);
     if (!action) continue;
@@ -2863,6 +2962,8 @@ for (const card of elements.achievementCards) {
 }
 elements.settingsToggle.addEventListener("click", openSettings);
 elements.settingsBackButton.addEventListener("click", () => showMenuView(elements.settingsToggle));
+elements.themesToggle.addEventListener("click", openThemes);
+elements.themesBackButton.addEventListener("click", () => showMenuView(elements.themesToggle));
 for (const input of elements.themeInputs) {
   input.addEventListener("change", () => {
     if (input.checked) applyTheme(input.value);
@@ -2875,9 +2976,15 @@ elements.soundFxToggle.addEventListener("change", () => {
   applySoundFx(elements.soundFxToggle.checked);
   if (elements.soundFxToggle.checked) void sound.unlock();
 });
+elements.soundFxVolume.addEventListener("input", () => {
+  applySoundFxVolume(elements.soundFxVolume.value);
+});
 elements.musicToggle.addEventListener("change", () => {
   applyMusic(elements.musicToggle.checked);
   if (elements.musicToggle.checked) void music.unlock();
+});
+elements.musicVolume.addEventListener("input", () => {
+  applyMusicVolume(elements.musicVolume.value);
 });
 elements.leaderboardToggle.addEventListener("click", () => {
   if (dialogView === "result" && pendingResult) {

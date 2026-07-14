@@ -679,3 +679,18 @@ Keep the plain Disco concrete as the material for gameplay tiles, the streak met
 Consequences: The preferred tap timbre changes without touching reaction-critical scheduling. The background stays roughly nine decibels behind a tap voice at the current gains, while its below-80-Hz energy is about one tenth rather than more than nine tenths of total spectral energy. The longer, slower loop should feel calmer. Reflections add Disco atmosphere around the game without becoming false target cues or adding runtime blur cost. Automated level, seam, and CSS-scope checks do not establish subjective balance, iPhone-speaker quality, or small-screen visual contrast; physical Safari and installed-PWA review remain required before production validation.
 
 Revisit when: Physical-device listening calls for a different tempo, harmony, gain, percussion density, or loop length, or when a future separately designed background system justifies more variation.
+
+## D-051 — Rebalance runtime audio and separate Themes from Settings
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Phone listening made the fixed background difficult to hear while the immediate Power Grid tones were comparatively prominent. Players also need independent level control without re-encoding approved masters. The growing main menu benefits from clearer separation between visual customization, accessibility/audio settings, progression, and mode identity.
+
+Decision: Keep every approved audio file byte-for-byte and rebalance only the Web Audio graph. Raise the Daylight Circuit base gain from `0.28` to `0.42`, lower only the tap-tone base gain from `0.50` to `0.375`, and retain the life-loss cue at `0.55`. Add persistent 0–100% Music and Sound FX sliders that scale separate output gain nodes after existing fades, gates, and cue-level balancing. A stored 100% means the new accepted base mix. Updating a slider must not create a context, fetch, decode, or start playback while its category is disabled; the corresponding on/off switch retains the strict disabled/no-work and trusted-gesture rules.
+
+Move the Classic/Disco selector from Settings into a dedicated **Themes** view. Put **Pet Shop** and **Themes** side by side at 45% width, enlarge the Arcade and Zen names, give Arcade a red glow and Zen a calm light-green glow, and lower Zen's **No coins awarded** note beneath the name. Reuse the utility-header pixel coin for the Pet Shop balance and all prices, and visually mute a price after its pet is owned. Overlay a glowing `*` on the Achievements control only when the authenticated achievement payload contains an unclaimed reward.
+
+Consequences: The approved source and runtime audio assets, hashes, loop seam, and provenance remain unchanged. Players can correct phone-speaker or headphone balance per device without confusing a volume preference with an opt-out. Two additional local-storage values are introduced, defaulting to 100%, and slider changes use short ramps to avoid discontinuities. The Settings view is focused on accessibility and audio, while Themes becomes a first-class customization destination. Automated controller and static UI tests do not establish subjective volume, small-screen comfort, or installed-PWA behavior; physical iPhone Safari and installed-PWA review remain required before this candidate is called device-validated.
+
+Revisit when: Physical-device listening calls for different base gains or logarithmic slider mapping, more themes require browsing or ownership state, the menu gains more first-class destinations, or accessibility testing prefers a non-symbol achievement badge.

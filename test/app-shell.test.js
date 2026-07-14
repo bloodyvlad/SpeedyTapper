@@ -57,7 +57,7 @@ const htaccessSource = await readFile(new URL("../.htaccess", import.meta.url), 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-7");
+  assert.equal(buildId, "20260714-8");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -107,7 +107,10 @@ test("the complete browser module graph uses one release version", () => {
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
   assert.match(htaccessSource, /AddType audio\/mp4 \.m4a/);
-  assert.deepEqual(audioFiles.toSorted(), [
+  const repositoryAudioEntries = audioFiles.filter(
+    (name) => !name.startsWith(".") && name !== "music-previews"
+  );
+  assert.deepEqual(repositoryAudioEntries.toSorted(), [
     "SOURCES.md",
     "background-daylight-circuit.m4a",
     "background-masters",
@@ -132,7 +135,7 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
   assert.match(indexHtml, /id="game-pet-scene"[\s\S]*data-habitat="false"[\s\S]*hidden/);
   assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="menu-pet-scene"[\s\S]*id="dialog-title"/);
   assert.match(indexHtml, /id="streak-meter"[\s\S]*id="game-pet-scene"[\s\S]*streak-meter__track/);
-  assert.match(indexHtml, /id="pet-shop-toggle"[\s\S]*id="settings-toggle"/);
+  assert.match(indexHtml, /id="pet-shop-toggle"[\s\S]*id="themes-toggle"[\s\S]*id="settings-toggle"/);
 
   for (const [id, name, price] of [
     ["foka", "Foka", 10],
@@ -186,7 +189,8 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
 
 test("Arcade is the player-facing name for the compatible normal mode", () => {
   assert.match(indexHtml, /id="mode-name">Arcade</);
-  assert.match(indexHtml, /id="normal-button"[^>]*>\s*<span>Arcade<\/span>/);
+  assert.match(indexHtml, /class="[^"]*mode-button--arcade[^"]*" id="normal-button"[^>]*>\s*<span>Arcade<\/span>/);
+  assert.match(indexHtml, /class="[^"]*mode-button--zen[^"]*"[\s\S]*?<span>Zen<\/span>[\s\S]*?<small>No coins awarded<\/small>/);
   assert.match(indexHtml, /data-profile-mode="normal"[^>]*>Arcade</);
   assert.match(indexHtml, /data-leaderboard-mode="normal"[^>]*>Arcade</);
   assert.match(indexHtml, /id="result-restart-button"[\s\S]*aria-label="Restart Arcade mode"/);
@@ -194,6 +198,10 @@ test("Arcade is the player-facing name for the compatible normal mode", () => {
   assert.match(mainSource, /The best score for Arcade mode is/);
   assert.match(configSource, /NORMAL: "normal"/);
   assert.doesNotMatch(configSource, /NORMAL: "arcade"/);
+  assert.match(stylesSource, /\.mode-button > span\s*\{[^}]+font-size:\s*1\.2rem/s);
+  assert.match(stylesSource, /\.primary-button\.mode-button--arcade\s*\{[^}]+rgba\(255,\s*49,\s*88,\s*0\.44\)/s);
+  assert.match(stylesSource, /\.secondary-button\.mode-button--zen\s*\{[^}]+rgba\(91,\s*236,\s*161,\s*0\.27\)/s);
+  assert.match(stylesSource, /\.mode-button small\s*\{[^}]+margin-top:\s*5px/s);
 });
 
 test("Sound FX defaults on, preserves opt-out, and owns tap plus life-loss cues", () => {
@@ -210,11 +218,18 @@ test("Sound FX defaults on, preserves opt-out, and owns tap plus life-loss cues"
   assert.match(soundSetting, /Tap tones and life-loss cue/);
   assert.match(soundToggle, /role="switch"/);
   assert.match(soundToggle, /\bchecked\b/);
-  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
+  assert.match(indexHtml, /id="settings-current">FX on · Music on</);
   assert.match(mainSource, /speedytapper\.soundFx\.v1/);
   assert.match(mainSource, /let soundFxEnabled = true;/);
   assert.match(mainSource, /soundFxEnabled = storedSoundFx !== "off";/);
   assert.match(mainSource, /soundFxToggle/);
+  assert.match(indexHtml, /id="sound-fx-volume"[^>]+type="range"[^>]+value="100"/);
+  assert.match(indexHtml, /id="sound-fx-volume-output"[^>]*>100%<\/output>/);
+  assert.match(mainSource, /speedytapper\.soundFxVolume\.v1/);
+  assert.match(mainSource, /sound\.setVolume\(soundFxVolume\)/);
+  assert.match(mainSource, /soundFxVolume\.addEventListener\("input"/);
+  assert.match(mainSource, /elements\.soundFxVolume\.disabled = !soundFxEnabled/);
+  assert.match(mainSource, /elements\.soundFxVolume\.setAttribute\("aria-valuetext", `\$\{soundFxPercentage\}%`\)/);
   assert.match(mainSource, /sound\.setEnabled\(soundFxEnabled\)/);
   assert.match(
     mainSource,
@@ -267,6 +282,13 @@ test("Music defaults on, stays independent, and plays only around active runs", 
   assert.match(mainSource, /const MUSIC_STORAGE_KEY = "speedytapper\.music\.v1"/);
   assert.match(mainSource, /let musicEnabled = true;/);
   assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
+  assert.match(indexHtml, /id="music-volume"[^>]+type="range"[^>]+value="100"/);
+  assert.match(indexHtml, /id="music-volume-output"[^>]*>100%<\/output>/);
+  assert.match(mainSource, /speedytapper\.musicVolume\.v1/);
+  assert.match(mainSource, /music\.setVolume\(musicVolume\)/);
+  assert.match(mainSource, /musicVolume\.addEventListener\("input"/);
+  assert.match(mainSource, /elements\.musicVolume\.disabled = !musicEnabled/);
+  assert.match(mainSource, /elements\.musicVolume\.setAttribute\("aria-valuetext", `\$\{musicPercentage\}%`\)/);
   assert.match(mainSource, /music\.setEnabled\(musicEnabled\)/);
   assert.match(
     mainSource,
@@ -312,7 +334,9 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /id="result-save-panel"/);
   assert.match(indexHtml, /id="speed-summary-bar"/);
   assert.match(indexHtml, /data-speed-segment="godlike"/);
-  assert.doesNotMatch(indexHtml, /id="themes-toggle"|id="themes-panel"/);
+  assert.match(indexHtml, /id="themes-toggle"[^>]+aria-controls="themes-view"[^>]+aria-expanded="false"/s);
+  assert.match(indexHtml, /id="themes-view" hidden/);
+  assert.match(indexHtml, /id="themes-back-button"[^>]*>← Back</);
   assert.match(indexHtml, /id="settings-toggle"[^>]+aria-controls="settings-view"/s);
   assert.match(indexHtml, /id="settings-view" hidden/);
   assert.match(indexHtml, /id="settings-back-button"[^>]*>← Back</);
@@ -323,9 +347,14 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   const settingsPanel = indexHtml.match(
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0];
+  const themesPanel = indexHtml.match(
+    /<fieldset class="settings-panel themes-panel" id="themes-panel">[\s\S]*?<\/fieldset>/
+  )?.[0];
   assert.ok(settingsPanel, "Settings panel must be present.");
-  assert.match(settingsPanel, /name="theme" value="classic" checked/);
-  assert.match(settingsPanel, /name="theme" value="disco"/);
+  assert.ok(themesPanel, "Themes panel must be present.");
+  assert.doesNotMatch(settingsPanel, /name="theme"|theme-preview/);
+  assert.match(themesPanel, /name="theme" value="classic" checked/);
+  assert.match(themesPanel, /name="theme" value="disco"/);
   assert.match(settingsPanel, /id="color-blind-toggle"[^>]+role="switch" checked/);
   assert.match(indexHtml, /id="leaderboard-toggle"/);
   assert.match(
@@ -369,10 +398,11 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(mainSource, /function startGame\(mode\)[\s\S]*setOverlayVisible\(false\)/);
   assert.match(mainSource, /function finishGame\(snapshot, currentSession\)[\s\S]*setOverlayVisible\(true\)/);
   assert.match(mainSource, /settingsBackButton\.addEventListener\("click"/);
+  assert.match(mainSource, /themesBackButton\.addEventListener\("click"/);
   assert.match(mainSource, /leaderboardBackButton\.addEventListener\("click"/);
   assert.match(mainSource, /leaderboardMenuButton\.addEventListener\("click", showMainMenu\)/);
-  assert.match(settingsPanel, /role="radiogroup" aria-labelledby="theme-setting-label"/);
-  assert.match(settingsPanel, /id="theme-setting-label">Theme</);
+  assert.match(themesPanel, /role="radiogroup" aria-labelledby="theme-setting-label"/);
+  assert.match(themesPanel, /id="theme-setting-label">Theme</);
   assert.match(mainSource, /glyph\.textContent = colorBlindMode \? color\.glyph : ""/);
   assert.doesNotMatch(mainSource, /responseRails/);
   assert.doesNotMatch(stylesSource, /\.response-rails|\.response-rail(?:__fill)?/);
@@ -537,7 +567,13 @@ test("pet habitats follow all non-game views while gameplay stays unobstructed",
 });
 
 test("Pet Shop balance and achievement rewards use explicit coin presentation", () => {
-  assert.match(indexHtml, /<span>Your balance:<\/span>[\s\S]*id="pet-shop-balance">0 coins<\/strong>/);
+  assert.match(indexHtml, /id="pet-shop-balance"[^>]+role="status"[^>]+aria-label="0 coins"[\s\S]*class="pixel-coin"[\s\S]*id="pet-shop-coin-count">0<\/strong>/);
+  assert.equal((indexHtml.match(/class="pixel-coin pixel-coin--price"/g) ?? []).length, 5);
+  assert.match(mainSource, /petShopCoinCount\.textContent = profileSession\.coinBalance\.toLocaleString\(\)/);
+  assert.match(mainSource, /card\?\.classList\.toggle\("is-owned", owned\)/);
+  assert.match(stylesSource, /\.pet-card\.is-owned \.pet-card__price\s*\{[^}]+filter:\s*grayscale\(1\)/s);
+  assert.match(indexHtml, /class="menu-feature-actions">[\s\S]*id="pet-shop-toggle"[\s\S]*id="themes-toggle"/);
+  assert.match(stylesSource, /\.menu-feature-button\s*\{[^}]+width:\s*45%;[^}]+flex:\s*0 0 45%;/s);
   assert.match(indexHtml, /class="achievement-reward-coin"/);
   assert.match(mainSource, /function renderAchievementReward\(/);
   assert.match(mainSource, /value\.textContent = `\+\$\{rewardCoins\}`/);
@@ -594,8 +630,10 @@ test("result leaderboard navigation preserves result context and renders compact
 });
 
 test("the settings shortcut reports independent Sound FX and Music state", () => {
-  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
-  assert.match(mainSource, /elements\.settingsCurrent\.textContent = `\$\{themeName\} · FX \$\{soundFxEnabled \? "on" : "off"\} · Music \$\{musicEnabled \? "on" : "off"\}`/);
+  assert.match(indexHtml, /id="settings-current">FX on · Music on</);
+  assert.match(indexHtml, /id="themes-current">Classic</);
+  assert.match(mainSource, /elements\.themesCurrent\.textContent = themeName/);
+  assert.match(mainSource, /elements\.settingsCurrent\.textContent = `FX \$\{soundFxEnabled \? "on" : "off"\} · Music \$\{musicEnabled \? "on" : "off"\}`/);
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Interactive Music|interactiveMusic/i);
   assert.match(indexHtml, /<footer class="copyright-footer">Copyright © 2026 OTC Software<\/footer>/);
   assert.match(stylesSource, /\.copyright-footer/);
@@ -818,6 +856,7 @@ test("five durable ranked achievements expose claimable green checks and claimed
   assert.match(indexHtml, /id="achievements-view" hidden/);
   assert.match(indexHtml, /id="achievements-back-button"[^>]*>← Back</);
   assert.match(indexHtml, /id="achievements-progress">0 of 5 claimed</);
+  assert.match(indexHtml, /id="achievements-alert"[^>]+aria-hidden="true" hidden>\*<\/span>/);
   assert.equal((indexHtml.match(/achievement-card--locked/g) ?? []).length, 5);
   assert.doesNotMatch(indexHtml, /Complete Zen mode|complete_zen|three-minute Zen/);
   assert.match(indexHtml, /Complete Arcade mode/);
@@ -837,6 +876,7 @@ test("five durable ranked achievements expose claimable green checks and claimed
   );
   assert.match(mainSource, /card\.classList\.add\(`achievement-card--\$\{state\}`\)/);
   assert.match(mainSource, /card\.disabled = state !== "claimable" \|\| achievementClaimId !== null/);
+  assert.match(mainSource, /achievementsAlert\.hidden = !authenticated \|\| claimableCount === 0/);
   assert.match(mainSource, /coinBalance:\s*body\.coinBalance/);
   assert.match(mainSource, /body\.duplicate === true/);
   assert.doesNotMatch(mainSource, /localStorage[^\n]*achievement/i);
@@ -849,6 +889,7 @@ test("five durable ranked achievements expose claimable green checks and claimed
   );
   assert.match(stylesSource, /\.achievement-card--claimed\s*\{[^}]+opacity:\s*0\.76/s);
   assert.match(stylesSource, /\.achievement-card:focus-visible\s*\{[^}]+outline:\s*3px solid white/s);
+  assert.match(stylesSource, /\.achievements-alert\s*\{[^}]+position:\s*absolute;[^}]+color:\s*#ffd84d/s);
 });
 
 test("Classic and Disco gameplay tiles keep distinct material treatments", () => {

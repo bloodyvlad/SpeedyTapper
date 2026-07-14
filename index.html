@@ -10,11 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260714-7"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260714-7" />
+    <script src="./src/early-bootstrap.js?v=20260714-8"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260714-8" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-7" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-8" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -282,7 +282,7 @@
             <fieldset class="mode-group">
               <legend>Game mode</legend>
               <div class="mode-actions">
-                <button class="primary-button mode-button" id="normal-button" type="button">
+                <button class="primary-button mode-button mode-button--arcade" id="normal-button" type="button">
                   <span>Arcade</span>
                 </button>
                 <button
@@ -306,17 +306,30 @@
             >
               <span>Achievements</span>
               <span class="settings-toggle__value" id="achievements-summary">0 / 5 claimed</span>
+              <span class="achievements-alert" id="achievements-alert" aria-hidden="true" hidden>*</span>
             </button>
-            <button
-              class="secondary-button settings-toggle is-auth-gated"
-              id="pet-shop-toggle"
-              type="button"
-              aria-controls="pet-shop-view"
-              aria-disabled="true"
-            >
-              <span>Pet Shop</span>
-              <span class="settings-toggle__value" id="pet-shop-current">No pet</span>
-            </button>
+            <div class="menu-feature-actions">
+              <button
+                class="secondary-button settings-toggle menu-feature-button is-auth-gated"
+                id="pet-shop-toggle"
+                type="button"
+                aria-controls="pet-shop-view"
+                aria-disabled="true"
+              >
+                <span>Pet Shop</span>
+                <span class="settings-toggle__value" id="pet-shop-current">No pet</span>
+              </button>
+              <button
+                class="secondary-button settings-toggle menu-feature-button"
+                id="themes-toggle"
+                type="button"
+                aria-controls="themes-view"
+                aria-expanded="false"
+              >
+                <span>Themes</span>
+                <span class="settings-toggle__value" id="themes-current">Classic</span>
+              </button>
+            </div>
             <button
               class="secondary-button settings-toggle"
               id="settings-toggle"
@@ -324,7 +337,7 @@
               aria-controls="settings-view"
             >
               <span>Settings</span>
-              <span class="settings-toggle__value" id="settings-current">Classic · FX on · Music on</span>
+              <span class="settings-toggle__value" id="settings-current">FX on · Music on</span>
             </button>
           </div>
           <button class="install-button" id="install-button" type="button" hidden>Install app</button>
@@ -335,9 +348,14 @@
           <section class="pet-shop-panel" aria-labelledby="pet-shop-heading">
             <div class="section-heading pet-shop-heading">
               <h2 id="pet-shop-heading">Pet Shop</h2>
-              <span class="pet-shop-balance-wrap">
-                <span>Your balance:</span>
-                <strong class="pet-shop-balance" id="pet-shop-balance">0 coins</strong>
+              <span class="coin-balance pet-shop-balance-control" id="pet-shop-balance" role="status" aria-label="0 coins">
+                <svg class="pixel-coin" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
+                  <path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path>
+                  <path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path>
+                  <path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path>
+                  <path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path>
+                </svg>
+                <strong id="pet-shop-coin-count">0</strong>
               </span>
             </div>
             <p class="form-status pet-shop-status" id="pet-shop-status" aria-live="polite"></p>
@@ -349,7 +367,10 @@
                   </span>
                 </button>
                 <div class="pet-card__copy"><strong>Foka</strong><small>Baby seal</small></div>
-                <span class="pet-card__price" aria-label="10 coins"><span aria-hidden="true">●</span> 10</span>
+                <span class="pet-card__price" aria-label="10 coins">
+                  <svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg>
+                  <span>10</span>
+                </span>
                 <button class="primary-button pet-card__action" type="button" data-pet-action="foka">Buy</button>
               </article>
               <article class="pet-card" data-pet-card="kesha">
@@ -359,7 +380,10 @@
                   </span>
                 </button>
                 <div class="pet-card__copy"><strong>Kesha</strong><small>Green-yellow parrot</small></div>
-                <span class="pet-card__price" aria-label="20 coins"><span aria-hidden="true">●</span> 20</span>
+                <span class="pet-card__price" aria-label="20 coins">
+                  <svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg>
+                  <span>20</span>
+                </span>
                 <button class="primary-button pet-card__action" type="button" data-pet-action="kesha">Buy</button>
               </article>
               <article class="pet-card" data-pet-card="tauta">
@@ -369,7 +393,10 @@
                   </span>
                 </button>
                 <div class="pet-card__copy"><strong>Tauta</strong><small>Border collie</small></div>
-                <span class="pet-card__price" aria-label="50 coins"><span aria-hidden="true">●</span> 50</span>
+                <span class="pet-card__price" aria-label="50 coins">
+                  <svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg>
+                  <span>50</span>
+                </span>
                 <button class="primary-button pet-card__action" type="button" data-pet-action="tauta">Buy</button>
               </article>
               <article class="pet-card" data-pet-card="misha">
@@ -379,7 +406,10 @@
                   </span>
                 </button>
                 <div class="pet-card__copy"><strong>Misha</strong><small>Grey cat</small></div>
-                <span class="pet-card__price" aria-label="100 coins"><span aria-hidden="true">●</span> 100</span>
+                <span class="pet-card__price" aria-label="100 coins">
+                  <svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg>
+                  <span>100</span>
+                </span>
                 <button class="primary-button pet-card__action" type="button" data-pet-action="misha">Buy</button>
               </article>
               <article class="pet-card" data-pet-card="pancake">
@@ -389,16 +419,19 @@
                   </span>
                 </button>
                 <div class="pet-card__copy"><strong>Pancake</strong><small>Dancing meme</small></div>
-                <span class="pet-card__price" aria-label="500 coins"><span aria-hidden="true">●</span> 500</span>
+                <span class="pet-card__price" aria-label="500 coins">
+                  <svg class="pixel-coin pixel-coin--price" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path><path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path><path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path><path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path></svg>
+                  <span>500</span>
+                </span>
                 <button class="primary-button pet-card__action" type="button" data-pet-action="pancake">Buy</button>
               </article>
             </div>
           </section>
         </div>
-        <div class="overlay-view" id="settings-view" hidden>
-          <button class="secondary-button view-back-button" id="settings-back-button" type="button">← Back</button>
-          <fieldset class="settings-panel" id="settings-panel">
-            <legend class="visually-hidden">Settings</legend>
+        <div class="overlay-view" id="themes-view" hidden>
+          <button class="secondary-button view-back-button" id="themes-back-button" type="button">← Back</button>
+          <fieldset class="settings-panel themes-panel" id="themes-panel">
+            <legend class="visually-hidden">Themes</legend>
             <div class="settings-section" role="radiogroup" aria-labelledby="theme-setting-label">
               <span class="settings-section__label" id="theme-setting-label">Theme</span>
               <div class="theme-options">
@@ -432,6 +465,12 @@
                 </label>
               </div>
             </div>
+          </fieldset>
+        </div>
+        <div class="overlay-view" id="settings-view" hidden>
+          <button class="secondary-button view-back-button" id="settings-back-button" type="button">← Back</button>
+          <fieldset class="settings-panel" id="settings-panel">
+            <legend class="visually-hidden">Settings</legend>
             <div class="settings-switches">
               <label class="setting-row" for="color-blind-toggle">
                 <span class="setting-row__copy">
@@ -440,23 +479,37 @@
                 </span>
                 <input class="setting-toggle" id="color-blind-toggle" type="checkbox" role="switch" checked />
               </label>
-              <label class="setting-row" for="sound-fx-toggle">
-                <span class="setting-row__copy">
-                  <strong class="setting-row__title">
-                    <span>Sound FX</span>
-                    <span class="setting-badge">Beta</span>
-                  </strong>
-                  <small>Tap tones and life-loss cue</small>
-                </span>
-                <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" checked />
-              </label>
-              <label class="setting-row" for="music-toggle">
-                <span class="setting-row__copy">
-                  <strong>Music</strong>
-                  <small>Soft background groove</small>
-                </span>
-                <input class="setting-toggle" id="music-toggle" type="checkbox" role="switch" checked />
-              </label>
+              <div class="audio-setting">
+                <label class="setting-row" for="sound-fx-toggle">
+                  <span class="setting-row__copy">
+                    <strong class="setting-row__title">
+                      <span>Sound FX</span>
+                      <span class="setting-badge">Beta</span>
+                    </strong>
+                    <small>Tap tones and life-loss cue</small>
+                  </span>
+                  <input class="setting-toggle" id="sound-fx-toggle" type="checkbox" role="switch" checked />
+                </label>
+                <label class="volume-setting" for="sound-fx-volume">
+                  <span>Sound FX volume</span>
+                  <input class="volume-slider" id="sound-fx-volume" type="range" min="0" max="100" step="1" value="100" />
+                  <output id="sound-fx-volume-output" for="sound-fx-volume">100%</output>
+                </label>
+              </div>
+              <div class="audio-setting">
+                <label class="setting-row" for="music-toggle">
+                  <span class="setting-row__copy">
+                    <strong>Music</strong>
+                    <small>Soft background groove</small>
+                  </span>
+                  <input class="setting-toggle" id="music-toggle" type="checkbox" role="switch" checked />
+                </label>
+                <label class="volume-setting" for="music-volume">
+                  <span>Music volume</span>
+                  <input class="volume-slider" id="music-volume" type="range" min="0" max="100" step="1" value="100" />
+                  <output id="music-volume-output" for="music-volume">100%</output>
+                </label>
+              </div>
             </div>
           </fieldset>
         </div>
@@ -746,7 +799,7 @@
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260714-7"></script>
-    <script type="module" src="./src/main.js?v=20260714-7"></script>
+    <script src="./src/service-worker-registration.js?v=20260714-8"></script>
+    <script type="module" src="./src/main.js?v=20260714-8"></script>
   </body>
 </html>

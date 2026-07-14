@@ -4,12 +4,19 @@ const LIFE_LOSS_URL = "./assets/audio/oops.wav";
 const TONE_SLOT_COUNT = 16;
 const TONE_SLOT_SECONDS = 0.5;
 const REQUIRED_BANK_DURATION_SECONDS = TONE_SLOT_COUNT * TONE_SLOT_SECONDS;
-const TONE_GAIN = 0.5;
+const TONE_GAIN = 0.375;
 const LIFE_LOSS_GAIN = 0.55;
 const MAX_TONE_VOICES = 2;
 const VOICE_RELEASE_SECONDS = 0.012;
 const VOICE_STOP_PADDING_SECONDS = 0.002;
 const MASTER_ATTACK_TIME_CONSTANT = 0.012;
+const VOLUME_RAMP_SECONDS = 0.025;
+
+function clampVolume(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 1;
+  return Math.max(0, Math.min(1, numericValue));
+}
 
 function ignoreFailure(promise) {
   Promise.resolve(promise).catch(() => {});
@@ -28,6 +35,8 @@ export function createSoundController({
   let pendingSuspendContext = null;
   let pendingSuspendWork = null;
   let masterGain = null;
+  let volumeGain = null;
+  let volume = 1;
   let masterGateOpen = false;
   let toneBuffer = null;
   let lifeLossBuffer = null;
@@ -211,6 +220,20 @@ export function createSoundController({
     gain.value = 0;
   }
 
+  function applyVolume({ immediate = false } = {}) {
+    if (!context || !volumeGain) return;
+    const time = context.currentTime;
+    const gain = volumeGain.gain;
+    gain.cancelScheduledValues(time);
+    if (immediate || context.state !== "running") {
+      gain.setValueAtTime(volume, time);
+      gain.value = volume;
+      return;
+    }
+    gain.setValueAtTime(gain.value, time);
+    gain.linearRampToValueAtTime(volume, time + VOLUME_RAMP_SECONDS);
+  }
+
   function ensureContext() {
     if (!enabled || typeof AudioContextClass !== "function" || typeof fetchImpl !== "function") {
       return null;
@@ -221,8 +244,12 @@ export function createSoundController({
         context = new AudioContextClass({ latencyHint: "interactive" });
         masterGain = context.createGain();
         masterGain.gain.value = 0;
+        volumeGain = context.createGain();
+        volumeGain.gain.value = volume;
         masterGateOpen = false;
-        masterGain.connect(context.destination);
+        masterGain.connect(volumeGain);
+        volumeGain.connect(context.destination);
+        applyVolume({ immediate: true });
 
         const observedContext = context;
         contextStateHandler = () => {
@@ -255,6 +282,8 @@ export function createSoundController({
 
     disconnectNode(masterGain);
     masterGain = null;
+    disconnectNode(volumeGain);
+    volumeGain = null;
     masterGateOpen = false;
 
     const closingContext = context;
@@ -422,6 +451,12 @@ export function createSoundController({
   }
 
   return {
+    setVolume(value) {
+      volume = clampVolume(value);
+      applyVolume();
+      return volume;
+    },
+
     setEnabled(value) {
       const nextEnabled = Boolean(value);
       if (enabled === nextEnabled) return;
