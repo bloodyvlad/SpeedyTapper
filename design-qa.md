@@ -182,3 +182,13 @@ final result: local candidate `20260713-16` passed automated and desktop browser
 - `npm run check` passed on the unified `20260714-1` graph with 151 JavaScript tests and 116 PHP assertions. Fresh MariaDB 11.4 checks also passed for migrations `001`–`009`, idempotent reruns, native-prepared atomic purchase/unlock, duplicate-safe achievement claims, legacy wallet preservation, and moderation debt reconciliation. A clean-commit check and Hostinger smoke test are still required.
 - Local browser smoke passed for the main menu, all six signed-out achievement cards, all five Pet Shop cards, compact 320×568 horizontal fit, Arcade start, timed life loss, Game Over, and navigation. The static development server intentionally had no profile API; authenticated Google and purchase UI remain production-smoke items.
 - Physical iPhone Safari/PWA touch, audio balance, Google sign-in, pet layout, and upgrade-cache validation remain required before this release is described as device-validated.
+
+## Local Candidate 20260714-2 Pet Position QA
+
+- This is local candidate evidence only. It does not establish the active Hostinger deployment, and no deployment was performed.
+- Pet Shop sprites are raised 8 px inside their existing clipped preview buttons; menu sprites are raised 4 px. Both selectors are context-specific, so `.pet-scene--game` keeps its approved placement.
+- Direction is measured from the visible pet sprite rather than viewport or board bands. Centered taps keep front, left/right angles through 30 degrees keep the half-turn frame after animation completes, and wider angles select the full turn. Pancake remains binary left/right.
+- Local browser inspection passed at the 2022 iPhone SE CSS viewport of 375×667 and the compact 320×568 regression viewport. Foka remained on its ice floe, Kesha on the perch, Tauta inside the bed, Misha against the climber, and Pancake above the glow line without card overlap or horizontal overflow.
+- `npm run check` passed on the unified `20260714-2` graph with 151 JavaScript tests and 116 PHP assertions; `git diff --check` also passed.
+- Local evidence: `/tmp/speedytapper-20260714-2-shop-375x667.png`, `/tmp/speedytapper-20260714-2-shop-320x568.png`, and `/tmp/speedytapper-20260714-2-shop-misha-320x568.png`.
+- Physical iPhone Safari and installed-PWA confirmation remains required, especially for the menu baseline and real touch-angle feel.

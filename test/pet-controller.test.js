@@ -5,6 +5,7 @@ import {
   createPetController,
   LEGACY_MISHA_NICKNAME,
   normalizeLegacyMishaNickname,
+  PET_HALF_TURN_MAX_DEGREES,
   PET_IDLE_DELAY_MS,
   PET_TRANSITION_DURATION_MS,
   resolveEquippedPetId,
@@ -25,8 +26,17 @@ function classListStub() {
   };
 }
 
-function elementStub() {
-  return { hidden: true, dataset: {}, classList: classListStub() };
+function elementStub(rect = { left: 0, top: 0, width: 64, height: 64 }) {
+  const sprite = { getBoundingClientRect: () => ({ ...rect }) };
+  return {
+    hidden: true,
+    dataset: {},
+    classList: classListStub(),
+    getBoundingClientRect: () => ({ ...rect }),
+    querySelector(selector) {
+      return selector === ".pet-sprite" ? sprite : null;
+    }
+  };
 }
 
 function persistedSession(petId, ownedPetIds = [petId]) {
@@ -88,8 +98,8 @@ function schedulerStub() {
 }
 
 function controllerFixture() {
-  const menuScene = elementStub();
-  const gameplayScene = elementStub();
+  const menuScene = elementStub({ left: 288, top: 64, width: 64, height: 64 });
+  const gameplayScene = elementStub({ left: 100, top: 260, width: 64, height: 64 });
   const dialog = elementStub();
   const gameArea = elementStub();
   const streakMeter = elementStub();
@@ -121,15 +131,40 @@ test("persisted selection is authoritative while old servers retain the Misha fa
 });
 
 test("pet taps resolve full and half-facing positions", () => {
-  const rect = { left: 100, width: 200 };
-  assert.equal(resolvePetFacing(120, rect), "left");
-  assert.equal(resolvePetFacing(160, rect), "half-left");
-  assert.equal(resolvePetFacing(200, rect), "front");
-  assert.equal(resolvePetFacing(240, rect), "half-right");
-  assert.equal(resolvePetFacing(290, rect), "right");
-  assert.equal(resolvePetFacing(Number.NaN, rect, "half-left"), "half-left");
-  assert.equal(resolvePancakeFacing(199, rect), "left");
-  assert.equal(resolvePancakeFacing(200, rect), "right");
+  const rect = { left: 288, top: 80, width: 64, height: 64 };
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const verticalDistance = 100;
+  const halfTurnDelta = Math.tan(PET_HALF_TURN_MAX_DEGREES * Math.PI / 180)
+    * verticalDistance;
+
+  assert.equal(
+    resolvePetFacing(centerX - halfTurnDelta, centerY + verticalDistance, rect),
+    "half-left",
+    "The exact 30-degree left boundary remains a half turn."
+  );
+  assert.equal(
+    resolvePetFacing(centerX - halfTurnDelta - 0.1, centerY + verticalDistance, rect),
+    "left"
+  );
+  assert.equal(resolvePetFacing(centerX + 1, centerY + 80, rect), "front");
+  assert.equal(
+    resolvePetFacing(centerX + halfTurnDelta, centerY + verticalDistance, rect),
+    "half-right",
+    "The exact 30-degree right boundary remains a half turn."
+  );
+  assert.equal(
+    resolvePetFacing(centerX + halfTurnDelta + 0.1, centerY + verticalDistance, rect),
+    "right"
+  );
+  assert.equal(
+    resolvePetFacing(300, 210, rect),
+    "half-left",
+    "A tap near an upper-right iPhone SE menu pet is relative to the pet, not the viewport."
+  );
+  assert.equal(resolvePetFacing(Number.NaN, 120, rect, "half-left"), "half-left");
+  assert.equal(resolvePancakeFacing(centerX - 1, rect), "left");
+  assert.equal(resolvePancakeFacing(centerX, rect), "right");
 });
 
 test("pets settle at five seconds, use the intermediate pose, and wake toward taps", () => {
@@ -147,18 +182,19 @@ test("pets settle at five seconds, use the intermediate pose, and wake toward ta
   scheduler.advance(PET_TRANSITION_DURATION_MS);
   assert.equal(menuScene.dataset.pose, "sleeping");
 
-  assert.equal(controller.handleNonGameTap(65, { left: 0, width: 300 }), "left");
+  assert.equal(controller.handleNonGameTap(220, 96), "left");
   assert.equal(menuScene.dataset.pose, "waking");
   assert.equal(menuScene.dataset.facing, "left");
   scheduler.advance(PET_TRANSITION_DURATION_MS);
   assert.equal(menuScene.dataset.pose, "awake");
+  assert.equal(menuScene.dataset.facing, "left", "The selected pose persists after the turn animation.");
 });
 
 test("cancelled idle work cannot override a newer pet tap", () => {
   const { controller, menuScene, scheduler } = controllerFixture();
   controller.setProfileSession(persistedSession("tauta"));
   const staleTimer = scheduler.pending()[0].id;
-  controller.handleNonGameTap(260, { left: 0, width: 300 });
+  controller.handleNonGameTap(400, 96);
   scheduler.forceRun(staleTimer);
   assert.equal(menuScene.dataset.pose, "turning");
   assert.equal(menuScene.dataset.facing, "right");
@@ -179,7 +215,7 @@ test("the home prop stays on the main menu while the equipped pet follows other 
   assert.equal(gameplayScene.dataset.habitat, "false");
   assert.equal(gameArea.classList.contains("game--with-pet"), true);
   assert.equal(streakMeter.classList.contains("streak-meter--with-pet"), true);
-  assert.equal(controller.handleGameplayTap(80), "half-left");
+  assert.equal(controller.handleGameplayTap(112, 360), "half-left");
 
   controller.setProfileSession({ authenticated: true, profile: { ownedPetIds: [], equippedPetId: null } });
   assert.equal(menuScene.hidden, true);
@@ -193,14 +229,14 @@ test("Pancake uses only horizontal left-right direction and rests down after ina
   assert.equal(menuScene.dataset.facing, "right");
   assert.equal(menuScene.dataset.habitat, "true");
 
-  assert.equal(controller.handleNonGameTap(20, { left: 0, width: 300 }), "left");
+  assert.equal(controller.handleNonGameTap(20, 96), "left");
   assert.equal(menuScene.dataset.pose, "dancing");
   scheduler.advance(PET_IDLE_DELAY_MS);
   assert.equal(menuScene.dataset.pose, "stopped");
 
   controller.setGameplayVisible(true);
   assert.equal(gameplayScene.dataset.pose, "dancing");
-  assert.equal(controller.handleGameplayTap(219), "right");
+  assert.equal(controller.handleGameplayTap(219, 292), "right");
   scheduler.advance(PET_IDLE_DELAY_MS);
   assert.equal(gameplayScene.dataset.pose, "stopped");
   controller.setGameplayVisible(false);

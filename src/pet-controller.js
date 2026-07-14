@@ -1,9 +1,13 @@
-import { getPet, isPetId } from "./pet-catalog.js?v=20260714-1";
+import { getPet, isPetId } from "./pet-catalog.js?v=20260714-2";
 
 export const LEGACY_MISHA_NICKNAME = "misha_boy";
 export const PET_IDLE_DELAY_MS = 5_000;
 export const PET_TURN_DURATION_MS = 300;
 export const PET_TRANSITION_DURATION_MS = 450;
+export const PET_HALF_TURN_MAX_DEGREES = 30;
+
+const PET_FRONT_DEAD_ZONE_PX = 2;
+const PET_ANGLE_EPSILON_DEGREES = 1e-9;
 
 const PET_FACINGS = new Set(["front", "half-left", "left", "half-right", "right"]);
 
@@ -36,20 +40,37 @@ export function resolveEquippedPetId(session) {
 
 export function resolvePetFacing(
   pointerX,
+  pointerY,
   rect,
   fallback = "front"
 ) {
   const current = normalizedFacing(fallback);
-  if (!Number.isFinite(pointerX) || !rect) return current;
+  if (!Number.isFinite(pointerX) || !Number.isFinite(pointerY) || !rect) return current;
   const left = Number(rect.left);
+  const top = Number(rect.top);
   const width = Number(rect.width);
-  if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0) return current;
-  const ratio = (pointerX - left) / width;
-  if (ratio < 0.25) return "left";
-  if (ratio < 0.45) return "half-left";
-  if (ratio <= 0.55) return "front";
-  if (ratio < 0.75) return "half-right";
-  return "right";
+  const height = Number(rect.height);
+  if (
+    !Number.isFinite(left)
+    || !Number.isFinite(top)
+    || !Number.isFinite(width)
+    || !Number.isFinite(height)
+    || width <= 0
+    || height <= 0
+  ) return current;
+
+  const deltaX = pointerX - (left + width / 2);
+  if (Math.abs(deltaX) <= PET_FRONT_DEAD_ZONE_PX) return "front";
+
+  const deltaY = pointerY - (top + height / 2);
+  const angleDegrees = Math.atan2(
+    Math.abs(deltaX),
+    Math.max(Math.abs(deltaY), 1)
+  ) * 180 / Math.PI;
+  const side = deltaX < 0 ? "left" : "right";
+  return angleDegrees <= PET_HALF_TURN_MAX_DEGREES + PET_ANGLE_EPSILON_DEGREES
+    ? `half-${side}`
+    : side;
 }
 
 export function resolvePancakeFacing(pointerX, rect, fallback = "right") {
@@ -59,6 +80,18 @@ export function resolvePancakeFacing(pointerX, rect, fallback = "right") {
   const width = Number(rect.width);
   if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0) return current;
   return pointerX < left + width / 2 ? "left" : "right";
+}
+
+function getPetSpriteRect(scene) {
+  const sprite = typeof scene?.querySelector === "function"
+    ? scene.querySelector(".pet-sprite")
+    : null;
+  if (typeof sprite?.getBoundingClientRect === "function") {
+    return sprite.getBoundingClientRect();
+  }
+  return typeof scene?.getBoundingClientRect === "function"
+    ? scene.getBoundingClientRect()
+    : null;
 }
 
 export function createPetController({
@@ -219,20 +252,22 @@ export function createPetController({
       render();
     },
 
-    handleNonGameTap(pointerX, viewportRect) {
+    handleNonGameTap(pointerX, pointerY) {
       if (petId === null || gameplayVisible) return facing;
+      const petRect = getPetSpriteRect(menuScene);
       const nextFacing = isPancake()
-        ? resolvePancakeFacing(pointerX, viewportRect, facing)
-        : resolvePetFacing(pointerX, viewportRect, facing);
+        ? resolvePancakeFacing(pointerX, petRect, facing)
+        : resolvePetFacing(pointerX, pointerY, petRect, facing);
       animateToward(nextFacing);
       return nextFacing;
     },
 
-    handleGameplayTap(pointerX) {
+    handleGameplayTap(pointerX, pointerY) {
       if (petId === null || !gameplayVisible) return facing;
+      const petRect = getPetSpriteRect(gameplayScene);
       const nextFacing = isPancake()
-        ? resolvePancakeFacing(pointerX, board.getBoundingClientRect(), facing)
-        : resolvePetFacing(pointerX, board.getBoundingClientRect(), facing);
+        ? resolvePancakeFacing(pointerX, petRect, facing)
+        : resolvePetFacing(pointerX, pointerY, petRect, facing);
       animateToward(nextFacing);
       if (!isPancake()) cancelIdleTimer();
       return nextFacing;

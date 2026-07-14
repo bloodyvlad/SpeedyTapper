@@ -194,6 +194,10 @@ button {
   height: 144px;
 }
 
+.pet-scene--menu > .pet-sprite {
+  top: -4px;
+}
+
 .pet-sprite {
   position: absolute;
   z-index: 2;
@@ -1919,6 +1923,10 @@ h1 {
 
 .pet-preview-scene {
   display: block;
+}
+
+.pet-preview-scene > .pet-sprite {
+  top: -8px;
 }
 
 .pet-preview-scene > .pet-habitat {

@@ -53,7 +53,7 @@ const [
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-1");
+  assert.equal(buildId, "20260714-2");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -136,8 +136,10 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
     /body\.pet\?\.purchased === true[\s\S]*achievementsPayload = null;[\s\S]*loadAchievements\(\{ showLoading: false \}\)/,
     "A committed first purchase refreshes the achievement state."
   );
-  assert.match(mainSource, /pets\.handleGameplayTap\(event\.clientX\)/);
-  assert.match(mainSource, /pets\.handleNonGameTap\(event\.clientX/);
+  assert.match(mainSource, /pets\.handleGameplayTap\(event\.clientX, event\.clientY\)/);
+  assert.match(mainSource, /pets\.handleNonGameTap\(event\.clientX, event\.clientY\)/);
+  assert.match(stylesSource, /\.pet-scene--menu > \.pet-sprite \{[\s\S]*?top: -4px;/);
+  assert.match(stylesSource, /\.pet-preview-scene > \.pet-sprite \{[\s\S]*?top: -8px;/);
   assert.match(petControllerSource, /LEGACY_MISHA_NICKNAME = "misha_boy"/);
   assert.match(petControllerSource, /PET_IDLE_DELAY_MS = 5_000/);
   assert.match(petControllerSource, /resolvePancakeFacing/);

@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-2";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-2";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,26 +8,26 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-1";
+} from "./input-timing.js?v=20260714-2";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260714-1";
+} from "./music-controller.js?v=20260714-2";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG
-} from "./pet-catalog.js?v=20260714-1";
-import { createPetController } from "./pet-controller.js?v=20260714-1";
-import { createSoundController } from "./sound-controller.js?v=20260714-1";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-1";
+} from "./pet-catalog.js?v=20260714-2";
+import { createPetController } from "./pet-controller.js?v=20260714-2";
+import { createSoundController } from "./sound-controller.js?v=20260714-2";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-2";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
-const APP_BUILD_ID = "20260714-1";
+const APP_BUILD_ID = "20260714-2";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
@@ -877,7 +877,7 @@ function handleTileTap(event) {
   }
   const result = engine.tap(cellIndex, inputAt, handledAt);
   if (result.type === "ignored") return;
-  pets.handleGameplayTap(event.clientX);
+  pets.handleGameplayTap(event.clientX, event.clientY);
 
   const pendingZenTarget =
     engine.mode === GAME_MODES.ZEN &&
@@ -2570,11 +2570,7 @@ for (const tab of elements.profileModeTabs) {
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 document.addEventListener("pointerdown", (event) => {
   if (musicEnabled) void music.unlock();
-  const viewport = window.visualViewport;
-  pets.handleNonGameTap(event.clientX, {
-    left: viewport?.offsetLeft ?? 0,
-    width: viewport?.width ?? document.documentElement.clientWidth
-  });
+  pets.handleNonGameTap(event.clientX, event.clientY);
 }, { capture: true });
 window.addEventListener("pagehide", () => {
   stopRunForPageExit();

@@ -1,5 +1,5 @@
 (() => {
-  const buildId = "20260714-1";
+  const buildId = "20260714-2";
   window.speedyTapperWorkerReady = Promise.resolve(false);
   if (!("serviceWorker" in navigator)) return;
 

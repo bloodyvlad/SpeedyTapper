@@ -539,3 +539,16 @@ Decision: Retain immutable play-credit events and add negative `pet_purchase` pl
 Consequences: Reversible score moderation no longer grants free pets, erases legitimate rewards, or leaves already-spent revoked coins as unearned purchasing power. Purchases remain serialized on the player row. The currency still has no real-money or redeemable value, and production migrations must preserve existing legitimate balances while introducing the exact ledger model.
 
 Revisit when: Refunds, gifts, chargebacks, real-money purchases, cross-profile transfers, or an external accounting system are introduced.
+
+## D-041 — Align non-game pets and turn them relative to their own position
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Physical iPhone SE playtesting found the shop animals visually too low against their beds and surfaces, with a smaller version of the same issue in the menu. The existing direction resolver also divided the whole viewport or board into horizontal bands. Because the menu pet is anchored near the right edge, a tap beside that pet selected a full-right pose and made its half-left/right poses effectively unreachable near the animal.
+
+Decision: Raise only Pet Shop sprites by 8 px and menu sprites by 4 px; keep the approved gameplay sprite placement unchanged. Resolve the four directional animals from the actual visible 64 px pet-sprite center using both pointer coordinates. A tap horizontally centered within 2 px keeps the front pose. Otherwise, an angular displacement up to and including 30 degrees from the vertical axis selects the corresponding persistent half-left or half-right pose; a wider displacement through 90 degrees selects the full left or right pose. Keep Pancake's authored binary left/right behavior.
+
+Consequences: Non-game pets sit higher without changing habitat assets, card dimensions, board clearance, or gameplay scoring. Direction now follows the pet instead of the screen layout, so the same nearby tap behaves consistently across compact phones, menus, and gameplay. Automated geometry and responsive browser checks do not replace a physical iPhone Safari/PWA confirmation of the corrected composition.
+
+Revisit when: A habitat needs a pet-specific baseline, taps above the pet should use different poses, more direction frames are authored, or device testing favors a larger front dead zone or a threshold other than 30 degrees.
