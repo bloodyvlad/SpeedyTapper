@@ -9,12 +9,6 @@ import {
   wasCoveredByDeadlineResolution
 } from "./input-timing.js?v=20260714-5";
 import {
-  createMusicController,
-  MUSIC_STAGES,
-  resolveInteractiveMusicSection,
-  resolveMusicStage
-} from "./music-controller.js?v=20260714-5";
-import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
@@ -34,8 +28,6 @@ const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
-const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
-const INTERACTIVE_MUSIC_STORAGE_KEY = "speedytapper.interactiveMusic.v1";
 const SPEED_RATING_ORDER = Object.freeze(["godlike", "perfect", "great", "good"]);
 const SPEED_RATING_LABELS = Object.freeze({
   godlike: "Godlike",
@@ -71,12 +63,12 @@ const elements = {
   dialogTitle: document.querySelector("#dialog-title"),
   feedback: document.querySelector("#feedback"),
   gameArea: document.querySelector(".game"),
+  gameEndRunButton: document.querySelector("#game-end-run-button"),
   gameMenuButton: document.querySelector("#game-menu-button"),
   gameRestartButton: document.querySelector("#game-restart-button"),
   gameUtility: document.querySelector("#game-utility"),
   highScore: document.querySelector("#high-score"),
   installButton: document.querySelector("#install-button"),
-  interactiveMusicToggle: document.querySelector("#interactive-music-toggle"),
   leaderboardAdminActionStatus: document.querySelector("#leaderboard-admin-action-status"),
   leaderboardAdminBackButton: document.querySelector("#leaderboard-admin-back-button"),
   leaderboardAdminDeleteReset: document.querySelector("#leaderboard-admin-delete-reset"),
@@ -109,13 +101,11 @@ const elements = {
   leaderboardTabs: [...document.querySelectorAll("[data-leaderboard-mode]")],
   leaderboardToggle: document.querySelector("#leaderboard-toggle"),
   leaderboardView: document.querySelector("#leaderboard-view"),
-  mainMenuButton: document.querySelector("#main-menu-button"),
   mainMenuContent: document.querySelector("#main-menu-content"),
   gamePetScene: document.querySelector("#game-pet-scene"),
   menuPetScene: document.querySelector("#menu-pet-scene"),
   modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
-  musicToggle: document.querySelector("#music-toggle"),
   normalButton: document.querySelector("#normal-button"),
   overlay: document.querySelector("#overlay"),
   points: document.querySelector("#points"),
@@ -154,6 +144,8 @@ const elements = {
   resultDurationValue: document.querySelector("#result-duration-value"),
   resultFastestValue: document.querySelector("#result-fastest-value"),
   resultGoogleSignin: document.querySelector("#result-google-signin"),
+  resultMenuButton: document.querySelector("#result-menu-button"),
+  resultNavigation: document.querySelector("#result-navigation"),
   resultSavePanel: document.querySelector("#result-save-panel"),
   resultSaveStatus: document.querySelector("#result-save-status"),
   resultScoreValue: document.querySelector("#result-score-value"),
@@ -257,21 +249,12 @@ let speedRatingPlacementRight = false;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = true;
-let musicEnabled = true;
-let interactiveMusicEnabled = true;
 
 const sound = createSoundController();
 const presentationScheduler = Object.freeze({
   requestFrame: (callback) => window.requestAnimationFrame(callback),
   cancelFrame: (frameId) => window.cancelAnimationFrame(frameId)
 });
-const music = createMusicController({
-  fetchImpl: async (...args) => {
-    await globalThis.speedyTapperWorkerReady;
-    return globalThis.fetch(...args);
-  }
-});
-
 function now() {
   return performance.now();
 }
@@ -303,6 +286,7 @@ function setOverlayVisible(visible) {
 function setDialogView(view) {
   dialogView = view;
   pets.setMenuView(view);
+  elements.resultNavigation.hidden = view !== "result";
   if (view !== "menu") elements.authGateInfo.hidden = true;
 }
 
@@ -453,12 +437,9 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  const musicStatus = musicEnabled ? "on" : "off";
-  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicStatus}`;
+  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
-  elements.musicToggle.checked = musicEnabled;
-  elements.interactiveMusicToggle.checked = interactiveMusicEnabled;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
     input.checked = input.value === activeTheme;
@@ -473,13 +454,6 @@ function initializeDisplaySettings() {
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
   soundFxEnabled = storedSoundFx !== "off";
   sound.setEnabled(soundFxEnabled);
-  const storedInteractiveMusic = readStoredPreference(INTERACTIVE_MUSIC_STORAGE_KEY);
-  interactiveMusicEnabled = storedInteractiveMusic !== "off";
-  music.setInteractive(interactiveMusicEnabled);
-  const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
-  musicEnabled = storedMusic !== "off";
-  music.setEnabled(musicEnabled);
-  music.setStage(MUSIC_STAGES.MENU);
   renderDisplaySettings();
 }
 
@@ -503,37 +477,6 @@ function applySoundFx(enabled) {
   sound.setEnabled(soundFxEnabled);
   renderDisplaySettings();
   writeStoredPreference(SOUND_FX_STORAGE_KEY, soundFxEnabled ? "on" : "off");
-}
-
-function applyMusic(enabled) {
-  musicEnabled = Boolean(enabled);
-  music.setEnabled(musicEnabled);
-  music.setStage(MUSIC_STAGES.MENU);
-  renderDisplaySettings();
-  writeStoredPreference(MUSIC_STORAGE_KEY, musicEnabled ? "on" : "off");
-}
-
-function applyInteractiveMusic(enabled) {
-  interactiveMusicEnabled = Boolean(enabled);
-  music.setInteractive(interactiveMusicEnabled);
-  music.setStage(MUSIC_STAGES.MENU);
-  renderDisplaySettings();
-  writeStoredPreference(
-    INTERACTIVE_MUSIC_STORAGE_KEY,
-    interactiveMusicEnabled ? "on" : "off"
-  );
-}
-
-function musicStageFor(snapshot) {
-  return resolveMusicStage(snapshot);
-}
-
-function updateMusicForSnapshot(snapshot) {
-  if (interactiveMusicEnabled) {
-    music.setInteractiveSection(resolveInteractiveMusicSection(snapshot));
-    return;
-  }
-  music.setStage(musicStageFor(snapshot));
 }
 
 function stopResponseProgress() {
@@ -594,7 +537,6 @@ function clearTimers() {
   activeRoundVisibleAt = null;
   activeRoundId = null;
   roundPresentationExpired = false;
-  sound.tileOff();
   hideSpeedRating();
 }
 
@@ -613,6 +555,7 @@ function setRunStartControlsDisabled(disabled) {
   elements.zenButton.disabled = disabled;
   elements.resultRestartButton.disabled = disabled;
   elements.gameRestartButton.disabled = disabled;
+  elements.gameEndRunButton.disabled = disabled;
 }
 
 function abandonCurrentRun() {
@@ -627,9 +570,6 @@ function abandonCurrentRun() {
 async function startGame(mode) {
   clearTimers();
   void sound.startRun();
-  music.setStage(MUSIC_STAGES.MENU);
-  music.startRun();
-  void music.unlock();
   if (mode === GAME_MODES.NORMAL) void refreshTopScore(mode);
   abandonCurrentRun();
   const startRequestId = runStartRequestId + 1;
@@ -659,19 +599,23 @@ async function startGame(mode) {
   engine.reset();
   resetResultUi();
   elements.gameUtility.hidden = false;
+  const isZen = mode === GAME_MODES.ZEN;
+  elements.gameRestartButton.hidden = isZen;
+  elements.gameMenuButton.hidden = isZen;
+  elements.gameEndRunButton.hidden = !isZen;
+  elements.gameEndRunButton.disabled = isZen;
   setOverlayVisible(false);
   elements.dialogTitle.textContent = "Ready to react?";
   runStartFrame = window.requestAnimationFrame((visibleAt) => {
     runStartFrame = null;
     if (currentSession !== sessionId || document.hidden) return;
     const initialSnapshot = engine.start(visibleAt, mode);
-    updateMusicForSnapshot(initialSnapshot);
+    if (mode === GAME_MODES.ZEN) elements.gameEndRunButton.disabled = false;
     render();
 
     clockTimer = window.setInterval(() => {
       const snapshot = engine.getSnapshot(now());
       renderHud(snapshot);
-      updateMusicForSnapshot(snapshot);
     }, 100);
 
     scheduleRound(currentSession);
@@ -799,8 +743,6 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
       activeRoundId = roundId;
       activeRoundVisibleAt = visibleAt;
       roundPresentationExpired = false;
-      updateMusicForSnapshot(result.snapshot);
-      sound.tileOn();
       if (engine.mode !== GAME_MODES.ZEN) {
         const deadlineAt = reactionDeadline(
           visibleAt,
@@ -829,7 +771,6 @@ function scheduleDeadline(currentSession, roundId, deadlineAt) {
       return;
     }
     roundPresentationExpired = true;
-    sound.tileOff();
     stopResponseProgress();
     render();
 
@@ -901,7 +842,6 @@ function handleTileTap(event) {
     return;
   }
 
-  sound.tileOff();
   window.clearTimeout(spawnTimer);
   spawnTimer = null;
   window.clearTimeout(deadlineTimer);
@@ -921,8 +861,7 @@ function handleTileTap(event) {
   stopResponseProgress();
 
   if (result.type === "hit") {
-    updateMusicForSnapshot(result.snapshot);
-    music.playCorrectTap(result.snapshot.hits);
+    sound.playCorrectTap(result.snapshot.hits);
     showSpeedRating(result.speedRating);
     const dodgeCopy = result.dodgesAwarded > 0
       ? ` · ${result.dodgesAwarded} ${result.dodgesAwarded === 1 ? "dodge" : "dodges"}`
@@ -944,7 +883,6 @@ function handleTileTap(event) {
 
 function handleMiss(result, currentSession, scheduleNextTarget = true) {
   if (result.lifeLost) cancelDecoyCadence();
-  if (result.lifeLost) sound.lifeLost();
   const reasonLabel = {
     empty: "Empty square",
     late: "Too slow",
@@ -964,42 +902,14 @@ function handleMiss(result, currentSession, scheduleNextTarget = true) {
   }
 }
 
-function finishGame(snapshot, currentSession) {
-  if (
-    currentSession !== sessionId ||
-    completedSessionId === currentSession ||
-    !engine.isRunComplete()
-  ) {
-    return;
-  }
-  completedSessionId = currentSession;
-  clearTimers();
-  music.advanceTrack(MUSIC_STAGES.MENU);
-  elements.dialogTitle.textContent = "Game Over";
-  elements.resultStats.hidden = false;
-  elements.resultDurationLabel.textContent = "Survived";
-  elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
-  elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
-  elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
-  elements.resultDodgesValue.textContent = snapshot.dodges.toLocaleString();
-  elements.resultScoreValue.textContent = snapshot.points.toLocaleString();
-  renderSpeedSummary(snapshot.speedRatings);
-  elements.resultRestartButton.setAttribute(
-    "aria-label",
-    "Restart Arcade mode"
-  );
-  setDialogView("result");
-  pendingResult = {
-    runId: currentRunId,
+function createPendingResult(snapshot, { localPractice = false } = {}) {
+  const result = {
+    runId: localPractice ? null : currentRunId,
+    localPractice,
     verificationAvailable:
+      !localPractice &&
       currentRunTicket?.runId === currentRunId &&
       currentRunTicket?.ruleset === "reaction-proof-v2",
-    proof: {
-      proofVersion: currentRunTicket?.proofVersion ?? 1,
-      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v2",
-      buildId: currentRunTicket?.buildId ?? APP_BUILD_ID,
-      events: engine.getRunProofEvents()
-    },
     mode: snapshot.mode,
     score: snapshot.points,
     hits: snapshot.hits,
@@ -1029,24 +939,76 @@ function finishGame(snapshot, currentSession) {
     maxMultiplier: snapshot.maximumMultiplierUsed,
     submitted: false
   };
+
+  if (!localPractice) {
+    result.proof = {
+      proofVersion: currentRunTicket?.proofVersion ?? 1,
+      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v2",
+      buildId: currentRunTicket?.buildId ?? APP_BUILD_ID,
+      events: engine.getRunProofEvents()
+    };
+  }
+
+  return result;
+}
+
+function presentCompletedRun(snapshot, currentSession, { localPractice = false } = {}) {
+  if (
+    currentSession !== sessionId ||
+    completedSessionId === currentSession ||
+    !engine.isRunComplete()
+  ) {
+    return;
+  }
+  completedSessionId = currentSession;
+  clearTimers();
+  const isZenResult = localPractice && snapshot.mode === GAME_MODES.ZEN;
+  elements.dialogTitle.textContent = isZenResult ? "Results" : "Game Over";
+  elements.resultStats.hidden = false;
+  elements.resultDurationLabel.textContent = isZenResult ? "Played" : "Survived";
+  elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
+  elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
+  elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
+  elements.resultDodgesValue.textContent = snapshot.dodges.toLocaleString();
+  elements.resultScoreValue.textContent = snapshot.points.toLocaleString();
+  renderSpeedSummary(snapshot.speedRatings);
+  elements.resultRestartButton.setAttribute(
+    "aria-label",
+    `Restart ${isZenResult ? "Zen" : "Arcade"} mode`
+  );
+  pendingResult = createPendingResult(snapshot, { localPractice: isZenResult });
+  setDialogView("result");
   selectLeaderboardMode(snapshot.mode);
   renderResultMessage(pendingResult);
-  void refreshTopScore(snapshot.mode);
+  if (!isZenResult) void refreshTopScore(snapshot.mode);
   closeLeaderboard();
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = false;
   elements.dialogUtility.hidden = false;
   renderResultSaveState();
-  void submitPendingResult();
+  if (!isZenResult) void submitPendingResult();
   completionTimer = window.setTimeout(() => {
     if (currentSession === sessionId && engine.isRunComplete()) {
       elements.gameUtility.hidden = true;
       setOverlayVisible(true);
       elements.dialog.scrollTop = 0;
       elements.resultRestartButton.focus({ preventScroll: true });
-      if (!profileSession.authenticated) void renderGoogleButtons();
+      if (!isZenResult && !profileSession.authenticated) void renderGoogleButtons();
     }
-  }, 400);
+  }, isZenResult ? 0 : 400);
+}
+
+function finishGame(snapshot, currentSession) {
+  if (snapshot.mode !== GAME_MODES.NORMAL) return;
+  presentCompletedRun(snapshot, currentSession);
+}
+
+function endZenRun() {
+  const currentSession = sessionId;
+  const result = engine.endZenRun(now());
+  if (result.type !== "zen-ended") return;
+  elements.gameEndRunButton.disabled = true;
+  presentCompletedRun(result.snapshot, currentSession, { localPractice: true });
 }
 
 function resetResultUi() {
@@ -1058,6 +1020,7 @@ function resetResultUi() {
   elements.resultStats.hidden = true;
   elements.mainMenuContent.hidden = false;
   elements.dialogUtility.hidden = false;
+  elements.resultSavePanel.hidden = false;
   elements.resultSaveStatus.textContent = "";
   elements.resultScoreValue.textContent = "0";
   elements.resultGoogleSignin.hidden = true;
@@ -1072,6 +1035,10 @@ function resetResultUi() {
 
 function renderResultMessage(result) {
   if (!result) return;
+  if (result.localPractice) {
+    elements.dialogMessage.innerHTML = `You ended your Zen run with <strong>${result.hits}</strong> correct taps. Zen results are not saved and do not award coins.`;
+    return;
+  }
   const topScore = topScores[result.mode];
   const bestScore = topScore === null
     ? "<strong>unavailable right now</strong>"
@@ -1084,8 +1051,6 @@ function showMainMenu() {
   setRunStartControlsDisabled(false);
   abandonCurrentRun();
   clearTimers();
-  music.setStage(MUSIC_STAGES.MENU);
-  void music.unlock();
   sessionId += 1;
   engine.reset();
   currentRunId = null;
@@ -1367,7 +1332,6 @@ function openPetShop() {
       : "Sign in from Profile before buying pets."
   );
   renderPetShop();
-  void music.unlock();
   elements.petShopBackButton.focus({ preventScroll: true });
 }
 
@@ -1390,7 +1354,6 @@ function openSettings() {
   elements.dialogTitle.textContent = "Settings";
   elements.dialogMessage.textContent = "Choose how SpeedyTapper looks and sounds.";
   elements.dialog.scrollTop = 0;
-  void music.unlock();
   elements.settingsBackButton.focus({ preventScroll: true });
 }
 
@@ -1458,7 +1421,6 @@ function openLeaderboard(returnView = "menu") {
   elements.dialogTitle.textContent = "Leaderboard";
   elements.dialogMessage.textContent = "Compare Arcade results and the historical Zen board.";
   elements.dialog.scrollTop = 0;
-  void music.unlock();
   elements.leaderboardBackButton.focus({ preventScroll: true });
 }
 
@@ -1757,10 +1719,10 @@ function showResultView(focusTarget = null) {
   elements.resultContent.hidden = false;
   elements.dialogUtility.hidden = false;
   elements.authGateInfo.hidden = true;
-  elements.dialogTitle.textContent = "Game Over";
+  elements.dialogTitle.textContent = pendingResult.localPractice ? "Results" : "Game Over";
   renderResultMessage(pendingResult);
   renderResultSaveState();
-  if (!profileSession.authenticated) void renderGoogleButtons();
+  if (!pendingResult.localPractice && !profileSession.authenticated) void renderGoogleButtons();
   elements.dialog.scrollTop = leaderboardReturnScrollTop;
   focusTarget?.focus({ preventScroll: true });
 }
@@ -2331,6 +2293,13 @@ function setResultSaveStatus(message, isError = false) {
 
 function renderResultSaveState() {
   if (!pendingResult) return;
+  if (pendingResult.localPractice) {
+    elements.resultSavePanel.hidden = true;
+    elements.resultGoogleSignin.hidden = true;
+    setResultSaveStatus("");
+    return;
+  }
+  elements.resultSavePanel.hidden = false;
   if (pendingResult.submitting) {
     elements.resultGoogleSignin.hidden = true;
     setResultSaveStatus("Saving this result to the leaderboard…");
@@ -2397,6 +2366,8 @@ function renderResultSaveState() {
 async function submitPendingResult() {
   if (
     !pendingResult ||
+    pendingResult.localPractice ||
+    pendingResult.mode !== GAME_MODES.NORMAL ||
     pendingResult.submitted ||
     pendingResult.submitting ||
     !pendingResult.verificationAvailable ||
@@ -2816,7 +2787,6 @@ function stopRunForPageExit() {
     return;
   }
   clearTimers();
-  music.setStage(MUSIC_STAGES.MENU);
   sessionId += 1;
   resetResultUi();
   elements.dialogTitle.textContent = "Run paused";
@@ -2828,7 +2798,6 @@ function pauseForVisibilityChange() {
   if (!document.hidden) return;
   stopRunForPageExit();
   sound.suspend();
-  music.suspend();
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -2849,8 +2818,9 @@ elements.normalButton.addEventListener("click", () => startGame(GAME_MODES.NORMA
 elements.zenButton.addEventListener("click", () => startGame(GAME_MODES.ZEN));
 elements.gameRestartButton.addEventListener("click", restartCurrentMode);
 elements.gameMenuButton.addEventListener("click", showMainMenu);
+elements.gameEndRunButton.addEventListener("click", endZenRun);
 elements.resultRestartButton.addEventListener("click", restartCurrentMode);
-elements.mainMenuButton.addEventListener("click", showMainMenu);
+elements.resultMenuButton.addEventListener("click", showMainMenu);
 elements.coinBalance.addEventListener("click", () => {
   if (!requireLoggedInFeature()) return;
   openPetShop();
@@ -2883,14 +2853,6 @@ elements.colorBlindToggle.addEventListener("change", () => {
 elements.soundFxToggle.addEventListener("change", () => {
   applySoundFx(elements.soundFxToggle.checked);
   if (elements.soundFxToggle.checked) void sound.unlock();
-});
-elements.musicToggle.addEventListener("change", () => {
-  applyMusic(elements.musicToggle.checked);
-  if (elements.musicToggle.checked) void music.unlock();
-});
-elements.interactiveMusicToggle.addEventListener("change", () => {
-  applyInteractiveMusic(elements.interactiveMusicToggle.checked);
-  if (musicEnabled) void music.unlock();
 });
 elements.leaderboardToggle.addEventListener("click", () => {
   if (dialogView === "result" && pendingResult) {
@@ -2933,13 +2895,12 @@ for (const tab of elements.profileModeTabs) {
 }
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 document.addEventListener("pointerdown", (event) => {
-  if (musicEnabled) void music.unlock();
+  if (soundFxEnabled) void sound.unlock();
   pets.handleNonGameTap(event.clientX, event.clientY);
 }, { capture: true });
 window.addEventListener("pagehide", () => {
   stopRunForPageExit();
   sound.suspend();
-  music.suspend();
 });
 
 initializeDisplaySettings();

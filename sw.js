@@ -1,17 +1,6 @@
 const BUILD_ID = "20260714-5";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
-const MUSIC_ASSET_PATHS = new Set([
-  "/assets/audio/neon-circuit-refined.m4a",
-  "/assets/audio/deep-current.m4a",
-  "/assets/audio/power-grid.m4a",
-  "/assets/audio/interactive-neon-circuit-refined.m4a",
-  "/assets/audio/interactive-deep-current.m4a",
-  "/assets/audio/interactive-power-grid.m4a",
-  "/assets/audio/interactive-notes-uniform-neon-circuit-refined.wav",
-  "/assets/audio/interactive-notes-uniform-deep-current.wav",
-  "/assets/audio/interactive-notes-uniform-power-grid.wav"
-]);
 const APP_SHELL = [
   "./index.html",
   `./styles.css?v=${BUILD_ID}`,
@@ -22,7 +11,6 @@ const APP_SHELL = [
   `./src/input-timing.js?v=${BUILD_ID}`,
   `./src/pet-catalog.js?v=${BUILD_ID}`,
   `./src/pet-controller.js?v=${BUILD_ID}`,
-  `./src/music-controller.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
   `./src/profile-client.js?v=${BUILD_ID}`,
   `./src/service-worker-registration.js?v=${BUILD_ID}`,
@@ -84,25 +72,11 @@ async function networkFirst(request) {
   }
 }
 
-async function cacheFirst(request) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
-  if (cached) return cached;
-
-  const response = await fetch(request, { cache: "no-store" });
-  if (response.ok) await cache.put(request, response.clone());
-  return response;
-}
-
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin || requestUrl.pathname.startsWith("/api/")) return;
-  if (MUSIC_ASSET_PATHS.has(requestUrl.pathname)) {
-    event.respondWith(cacheFirst(event.request));
-    return;
-  }
   if (requestUrl.pathname.startsWith("/assets/audio/")) {
     event.respondWith(fetch(event.request, { cache: "no-store" }));
     return;
