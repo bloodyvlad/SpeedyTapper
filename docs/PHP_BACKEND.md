@@ -6,7 +6,7 @@ This document describes the PHP backend shipped from `main` to the independent H
 
 - PHP 8.2 or newer with PDO MySQL, JSON, mbstring, OpenSSL, and Intl.
 - MySQL 8 or a current MariaDB release with window-function support.
-- Composer dependencies installed with `composer install --no-dev --optimize-autoloader`.
+- Composer dependencies installed with `composer install --no-dev --optimize-autoloader`. The committed Google cleanup hook retains only the `Oauth2` service wrapper and removes unrelated generated Google API clients from the release artifact.
 - Apache `mod_rewrite` enabled so the repository `.htaccess` can route extensionless `/api/*` requests to `api/index.php`.
 
 For production, `~/.config/speedytapper/config.php` under the private hosting-account home remains the preferred location. `SPEEDYTAPPER_CONFIG_PATH` can point to another private path, and individual environment variables with the same names take precedence. The MCP-only deployment cannot write outside the target document root, so its curated artifact may instead contain the ignored `server/config.local.php`. That exception is acceptable only when the root `.htaccess` is present, direct requests to case variants of `/server/config.local.php` are verified as 403/404 with no body leakage, the archive is built from an exact commit in temporary staging, and the secret-bearing file is never committed or copied into a general source archive.

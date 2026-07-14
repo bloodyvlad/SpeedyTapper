@@ -18,6 +18,14 @@
       "SpeedyTapper\\": "server/src/"
     }
   },
+  "scripts": {
+    "pre-autoload-dump": "Google\\Task\\Composer::cleanup"
+  },
+  "extra": {
+    "google/apiclient-services": [
+      "Oauth2"
+    ]
+  },
   "config": {
     "allow-plugins": false,
     "optimize-autoloader": true,
