@@ -66,7 +66,7 @@ test("verified run submissions contain proof rather than authoritative score agg
     mode: "normal",
     proofVersion: 1,
     ruleset: "reaction-proof-v2",
-    buildId: "20260714-3",
+    buildId: "20260714-4",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -90,11 +90,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("zen", "20260714-3");
+  await client.startRun("zen", "20260714-4");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260714-3" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260714-4" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
@@ -173,6 +173,104 @@ test("achievement claims require a stable achievement ID", () => {
   const client = createProfileClient({ fetchImpl: async () => response({}) });
   assert.throws(() => client.claimAchievement(""), /achievement ID/i);
   assert.throws(() => client.claimAchievement(null), /achievement ID/i);
+});
+
+test("leaderboard administration reads paginated results and exact review details", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return response({ entries: [] });
+    }
+  });
+  const entryId = "d4e98497-9212-475e-8664-283171ce3910";
+
+  await client.getAdminLeaderboard({
+    view: "scan",
+    mode: "zen",
+    status: "review",
+    offset: 100,
+    limit: 50
+  });
+  await client.getAdminLeaderboardEntry(entryId);
+
+  assert.equal(
+    calls[0][0],
+    "/api/admin/leaderboard?view=scan&mode=zen&status=review&offset=100&limit=50"
+  );
+  assert.equal(calls[1][0], `/api/admin/leaderboard/entries/${entryId}`);
+  assert.throws(() => client.getAdminLeaderboardEntry(""), /entry id/i);
+});
+
+test("leaderboard moderation is CSRF protected and destructive reset confirms the target player", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return args[0] === "/api/session"
+        ? response({ csrfToken: "csrf-token-with-more-than-thirty-two-characters" })
+        : response({ applied: true });
+    }
+  });
+  const entryId = "d4e98497-9212-475e-8664-283171ce3910";
+  const playerId = "6e74ce9b-fef2-4ca2-812f-4de31c971234";
+
+  await client.quarantineLeaderboardEntry(entryId, {
+    reason: "Impossible reaction distribution",
+    expectedStatus: "review",
+    confirm: true
+  });
+  await client.deleteLeaderboardEntryAndReset(entryId, {
+    reason: "Confirmed manipulated run proof",
+    expectedStatus: "quarantined",
+    confirm: true,
+    confirmPlayerId: playerId
+  });
+
+  assert.equal(calls[0][0], "/api/session");
+  assert.equal(calls[1][0], `/api/admin/leaderboard/entries/${entryId}/quarantine`);
+  assert.equal(calls[1][1].method, "POST");
+  assert.deepEqual(JSON.parse(calls[1][1].body), {
+    reason: "Impossible reaction distribution",
+    expectedStatus: "review",
+    confirm: true
+  });
+  assert.equal(calls[2][0], `/api/admin/leaderboard/entries/${entryId}/delete-reset`);
+  assert.deepEqual(JSON.parse(calls[2][1].body), {
+    reason: "Confirmed manipulated run proof",
+    expectedStatus: "quarantined",
+    confirm: true,
+    confirmPlayerId: playerId
+  });
+  assert.equal(
+    calls[2][1].headers["X-SpeedyTapper-CSRF"],
+    "csrf-token-with-more-than-thirty-two-characters"
+  );
+
+  assert.throws(
+    () => client.quarantineLeaderboardEntry(entryId, {
+      reason: "short",
+      expectedStatus: "review",
+      confirm: true
+    }),
+    /reason/i
+  );
+  assert.throws(
+    () => client.deleteLeaderboardEntryAndReset(entryId, {
+      reason: "Confirmed manipulated run proof",
+      expectedStatus: "quarantined",
+      confirm: true
+    }),
+    /target player/i
+  );
+  assert.throws(
+    () => client.quarantineLeaderboardEntry(entryId, {
+      reason: "Impossible reaction distribution",
+      expectedStatus: "review",
+      confirm: false
+    }),
+    /explicitly confirmed/i
+  );
 });
 
 test("API failures retain server error codes for login and ranking UX", async () => {

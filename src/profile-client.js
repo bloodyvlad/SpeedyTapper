@@ -32,6 +32,27 @@ function jsonRequest(method, body, csrfToken) {
   };
 }
 
+function adminMutationBody({ reason, expectedStatus, confirm, confirmPlayerId } = {}, requirePlayerId = false) {
+  if (typeof reason !== "string" || reason.trim().length < 8) {
+    throw new TypeError("A moderation reason of at least 8 characters is required.");
+  }
+  if (typeof expectedStatus !== "string" || expectedStatus.length === 0) {
+    throw new TypeError("The expected leaderboard status is required.");
+  }
+  if (confirm !== true) {
+    throw new TypeError("The moderation action must be explicitly confirmed.");
+  }
+  if (requirePlayerId && (typeof confirmPlayerId !== "string" || confirmPlayerId.length === 0)) {
+    throw new TypeError("The target player confirmation is required.");
+  }
+  return {
+    reason: reason.trim(),
+    expectedStatus,
+    confirm: true,
+    ...(requirePlayerId ? { confirmPlayerId } : {})
+  };
+}
+
 export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
   if (typeof fetchImpl !== "function") {
     throw new TypeError("A fetch implementation is required.");
@@ -116,6 +137,46 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
 
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
+    },
+
+    getAdminLeaderboard({ view = "all", mode = "all", status = "all", offset = 0, limit = 100 } = {}) {
+      const query = new URLSearchParams({
+        view,
+        mode,
+        status,
+        offset: String(offset),
+        limit: String(limit)
+      });
+      return request(`/api/admin/leaderboard?${query}`);
+    },
+
+    getAdminLeaderboardEntry(entryId) {
+      if (typeof entryId !== "string" || entryId.length === 0) {
+        throw new TypeError("A leaderboard entry id is required.");
+      }
+      return request(`/api/admin/leaderboard/entries/${encodeURIComponent(entryId)}`);
+    },
+
+    quarantineLeaderboardEntry(entryId, options = {}) {
+      if (typeof entryId !== "string" || entryId.length === 0) {
+        throw new TypeError("A leaderboard entry id is required.");
+      }
+      return mutation(
+        `/api/admin/leaderboard/entries/${encodeURIComponent(entryId)}/quarantine`,
+        "POST",
+        adminMutationBody(options)
+      );
+    },
+
+    deleteLeaderboardEntryAndReset(entryId, options = {}) {
+      if (typeof entryId !== "string" || entryId.length === 0) {
+        throw new TypeError("A leaderboard entry id is required.");
+      }
+      return mutation(
+        `/api/admin/leaderboard/entries/${encodeURIComponent(entryId)}/delete-reset`,
+        "POST",
+        adminMutationBody(options, true)
+      );
     },
 
     startRun(mode, buildId) {

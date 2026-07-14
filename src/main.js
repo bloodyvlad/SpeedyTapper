@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-3";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-3";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-4";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-4";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,27 +8,30 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-3";
+} from "./input-timing.js?v=20260714-4";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260714-3";
+} from "./music-controller.js?v=20260714-4";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-3";
-import { createPetController } from "./pet-controller.js?v=20260714-3";
-import { createSoundController } from "./sound-controller.js?v=20260714-3";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-3";
+} from "./pet-catalog.js?v=20260714-4";
+import { createPetController } from "./pet-controller.js?v=20260714-4";
+import { createSoundController } from "./sound-controller.js?v=20260714-4";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-4";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
-const APP_BUILD_ID = "20260714-3";
+const LOGIN_BENEFITS_COPY =
+  "Login with your Google account to earn coins, access achievements and Pet Shop.";
+const APP_BUILD_ID = "20260714-4";
+const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
@@ -53,6 +56,8 @@ const elements = {
   achievementsToggle: document.querySelector("#achievements-toggle"),
   achievementsView: document.querySelector("#achievements-view"),
   app: document.querySelector("#app"),
+  authGateInfo: document.querySelector("#auth-gate-info"),
+  authGateProfileButton: document.querySelector("#auth-gate-profile-button"),
   board: document.querySelector("#board"),
   colorBlindToggle: document.querySelector("#color-blind-toggle"),
   coinBalance: document.querySelector("#coin-balance"),
@@ -73,6 +78,28 @@ const elements = {
   highScore: document.querySelector("#high-score"),
   installButton: document.querySelector("#install-button"),
   interactiveMusicToggle: document.querySelector("#interactive-music-toggle"),
+  leaderboardAdminActionStatus: document.querySelector("#leaderboard-admin-action-status"),
+  leaderboardAdminBackButton: document.querySelector("#leaderboard-admin-back-button"),
+  leaderboardAdminDeleteReset: document.querySelector("#leaderboard-admin-delete-reset"),
+  leaderboardAdminDetails: document.querySelector("#leaderboard-admin-details"),
+  leaderboardAdminFilters: document.querySelector("#leaderboard-admin-filters"),
+  leaderboardAdminForm: document.querySelector("#leaderboard-admin-form"),
+  leaderboardAdminList: document.querySelector("#leaderboard-admin-list"),
+  leaderboardAdminLoadMore: document.querySelector("#leaderboard-admin-load-more"),
+  leaderboardAdminMenuButton: document.querySelector("#leaderboard-admin-menu-button"),
+  leaderboardAdminMode: document.querySelector("#leaderboard-admin-mode"),
+  leaderboardAdminQuarantine: document.querySelector("#leaderboard-admin-quarantine"),
+  leaderboardAdminReason: document.querySelector("#leaderboard-admin-reason"),
+  leaderboardAdminRefresh: document.querySelector("#leaderboard-admin-refresh"),
+  leaderboardAdminResetCheckbox: document.querySelector("#leaderboard-admin-reset-checkbox"),
+  leaderboardAdminResetConfirm: document.querySelector("#leaderboard-admin-reset-confirm"),
+  leaderboardAdminReview: document.querySelector("#leaderboard-admin-review"),
+  leaderboardAdminReviewBack: document.querySelector("#leaderboard-admin-review-back"),
+  leaderboardAdminSourceTabs: [...document.querySelectorAll("[data-admin-view]")],
+  leaderboardAdminStatus: document.querySelector("#leaderboard-admin-status"),
+  leaderboardAdminStatusFilter: document.querySelector("#leaderboard-admin-status-filter"),
+  leaderboardAdminToggle: document.querySelector("#leaderboard-admin-toggle"),
+  leaderboardAdminView: document.querySelector("#leaderboard-admin-view"),
   leaderboardRank: document.querySelector("#leaderboard-rank"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardBackButton: document.querySelector("#leaderboard-back-button"),
@@ -212,6 +239,14 @@ const petPreviewTimers = new Map();
 let achievementsRequestId = 0;
 let achievementsPayload = null;
 let achievementClaimId = null;
+let adminRequestId = 0;
+let adminSource = "all";
+let adminOffset = 0;
+let adminHasMore = false;
+let adminEntries = [];
+let adminSelectedEntryId = null;
+let adminSelectedDetail = null;
+let adminMutationPending = false;
 let profileSession = Object.freeze({
   authenticated: false,
   googleClientId: null,
@@ -272,6 +307,7 @@ function setOverlayVisible(visible) {
 function setDialogView(view) {
   dialogView = view;
   pets.setMenuView(view);
+  if (view !== "menu") elements.authGateInfo.hidden = true;
 }
 
 function formatDuration(milliseconds, showTenths = false) {
@@ -1082,6 +1118,7 @@ function resetResultUi() {
   closeAchievements();
   closeLeaderboard();
   closeProfile();
+  closeLeaderboardAdmin();
 }
 
 function renderResultMessage(result) {
@@ -1133,6 +1170,16 @@ function setAchievementsStatus(message, isError = false) {
   elements.achievementsStatus.classList.toggle("is-error", isError);
 }
 
+function renderAchievementReward(container, rewardCoins) {
+  if (!container) return;
+  const value = document.createElement("span");
+  value.textContent = `+${rewardCoins}`;
+  const coin = document.createElement("span");
+  coin.className = "achievement-reward-coin";
+  coin.setAttribute("aria-hidden", "true");
+  container.replaceChildren(value, coin);
+}
+
 function renderAchievements({ updateStatus = true } = {}) {
   const items = Array.isArray(achievementsPayload?.achievements)
     ? achievementsPayload.achievements
@@ -1170,15 +1217,20 @@ function renderAchievements({ updateStatus = true } = {}) {
     const isClaiming = achievementClaimId === card.dataset.achievementId;
     const actionLabel = isClaiming
       ? "Claiming…"
-      : state === "claimable" ? "Claim coins" : state === "claimed" ? "Claimed" : authenticated ? "In progress" : "Sign in";
+      : state === "claimable" ? "Claim reward" : state === "claimed" ? "Claimed" : authenticated ? "Locked" : "Sign in";
 
     if (achievement && copy) {
       copy.querySelector("strong").textContent = achievement.title;
       copy.querySelector("small").textContent = achievement.description;
     }
     if (action) {
-      action.querySelector("strong").textContent = `+${rewardCoins} ${rewardCoins === 1 ? "coin" : "coins"}`;
-      action.querySelector("small").textContent = actionLabel;
+      renderAchievementReward(action.querySelector("strong"), rewardCoins);
+      const actionStatus = action.querySelector("small");
+      if (actionStatus) {
+        const visibleLabel = state === "locked" && authenticated ? "" : actionLabel;
+        actionStatus.textContent = visibleLabel;
+        actionStatus.hidden = visibleLabel === "";
+      }
     }
     card.classList.remove(
       "achievement-card--locked",
@@ -1284,11 +1336,25 @@ async function claimAchievement(achievementId) {
   }
 }
 
+function showLoginBenefits() {
+  elements.authGateInfo.hidden = false;
+  elements.authGateProfileButton.focus({ preventScroll: true });
+  elements.authGateInfo.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function requireLoggedInFeature() {
+  if (profileSession.authenticated) return true;
+  showLoginBenefits();
+  return false;
+}
+
 function openAchievements() {
+  if (!requireLoggedInFeature()) return;
   closeSettings();
   closeLeaderboard();
   closeProfile();
-  dialogView = "achievements";
+  closeLeaderboardAdmin();
+  setDialogView("achievements");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.achievementsView.hidden = false;
@@ -1322,11 +1388,13 @@ function showMenuView(focusTarget = null) {
   closeAchievements();
   closeLeaderboard();
   closeProfile();
+  closeLeaderboardAdmin();
   setDialogView("menu");
   leaderboardReturnView = "menu";
   elements.resultContent.hidden = true;
   elements.mainMenuContent.hidden = false;
   elements.dialogUtility.hidden = false;
+  elements.authGateInfo.hidden = true;
   elements.dialogTitle.textContent = "Ready to react?";
   elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
   elements.dialog.scrollTop = 0;
@@ -1334,10 +1402,12 @@ function showMenuView(focusTarget = null) {
 }
 
 function openPetShop() {
+  if (!requireLoggedInFeature()) return;
   closeSettings();
   closeAchievements();
   closeLeaderboard();
   closeProfile();
+  closeLeaderboardAdmin();
   setDialogView("pet-shop");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
@@ -1367,6 +1437,7 @@ function openSettings() {
   closeAchievements();
   closeLeaderboard();
   closeProfile();
+  closeLeaderboardAdmin();
   setDialogView("settings");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
@@ -1388,12 +1459,14 @@ function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   closeSettings();
   closeAchievements();
   closeLeaderboard();
+  closeLeaderboardAdmin();
   profileReturnView = returnView;
   setDialogView("profile");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = true;
   elements.profileView.hidden = false;
   elements.dialogUtility.hidden = true;
+  elements.authGateInfo.hidden = true;
   elements.dialogTitle.textContent = "Profile";
   elements.dialogMessage.textContent = profileSession.authenticated
     ? "Manage your public nickname and review your best leaderboard position."
@@ -1430,6 +1503,7 @@ function openLeaderboard(returnView = "menu") {
   closeSettings();
   closeAchievements();
   closeProfile();
+  closeLeaderboardAdmin();
   leaderboardReturnView = returnView;
   leaderboardReturnScrollTop = elements.dialog.scrollTop;
   setDialogView("leaderboard");
@@ -1449,6 +1523,279 @@ function closeLeaderboard() {
   elements.leaderboardView.hidden = true;
 }
 
+function setAdminStatus(message, isError = false) {
+  elements.leaderboardAdminStatus.textContent = message;
+  elements.leaderboardAdminStatus.classList.toggle("is-error", isError);
+}
+
+function setAdminActionStatus(message, isError = false) {
+  elements.leaderboardAdminActionStatus.textContent = message;
+  elements.leaderboardAdminActionStatus.classList.toggle("is-error", isError);
+}
+
+function closeLeaderboardAdmin() {
+  adminRequestId += 1;
+  adminMutationPending = false;
+  elements.leaderboardAdminView.hidden = true;
+  elements.leaderboardAdminReview.hidden = true;
+}
+
+function selectAdminSource(view) {
+  adminSource = view === "scan" ? "scan" : "all";
+  for (const tab of elements.leaderboardAdminSourceTabs) {
+    const selected = tab.dataset.adminView === adminSource;
+    tab.classList.toggle("is-active", selected);
+    tab.setAttribute("aria-pressed", String(selected));
+  }
+}
+
+function adminEntryStatus(entry) {
+  return entry?.verification_status ?? entry?.verificationStatus ?? entry?.verification ?? "unknown";
+}
+
+function adminEntryScore(entry) {
+  return Number.isInteger(entry?.score) ? entry.score : Number.parseInt(entry?.score, 10) || 0;
+}
+
+function adminEntryPlayerId(entry) {
+  return entry?.playerId ?? entry?.player_id ?? null;
+}
+
+function renderAdminEntries() {
+  elements.leaderboardAdminList.replaceChildren();
+  if (adminEntries.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "leaderboard-empty";
+    empty.textContent = adminSource === "scan" ? "The scan did not flag any results." : "No results match these filters.";
+    elements.leaderboardAdminList.append(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const entry of adminEntries) {
+    const row = document.createElement("li");
+    row.className = "admin-result-row";
+    const copy = document.createElement("div");
+    copy.className = "admin-result-row__copy";
+    const title = document.createElement("strong");
+    title.textContent = `${entry.nickname ?? entry.name ?? "Player"} · ${adminEntryScore(entry).toLocaleString()}`;
+    const meta = document.createElement("span");
+    const mode = entry.mode === GAME_MODES.ZEN ? "Zen" : "Arcade";
+    const flags = Array.isArray(entry.flags) ? entry.flags.length : 0;
+    meta.textContent = `${mode} · ${adminEntryStatus(entry)}${flags > 0 ? ` · ${flags} ${flags === 1 ? "flag" : "flags"}` : ""}`;
+    const identifier = document.createElement("small");
+    identifier.textContent = entry.id ?? "Unknown result ID";
+    copy.append(title, meta, identifier);
+    const review = document.createElement("button");
+    review.className = "secondary-button admin-review-button";
+    review.type = "button";
+    review.textContent = "Review";
+    review.setAttribute("aria-label", `Review ${entry.nickname ?? "player"} result ${entry.id ?? ""}`);
+    review.addEventListener("click", () => void openAdminEntry(entry.id));
+    row.append(copy, review);
+    fragment.append(row);
+  }
+  elements.leaderboardAdminList.append(fragment);
+}
+
+async function loadAdminLeaderboard({ append = false } = {}) {
+  if (profileSession.profile?.isAdmin !== true) return;
+  const requestId = adminRequestId + 1;
+  adminRequestId = requestId;
+  const offset = append ? adminOffset : 0;
+  if (!append) {
+    adminEntries = [];
+    adminOffset = 0;
+    renderAdminEntries();
+  }
+  elements.leaderboardAdminLoadMore.disabled = true;
+  setAdminStatus(append ? "Loading more results…" : "Loading results…");
+  try {
+    const body = await profileClient.getAdminLeaderboard({
+      view: adminSource,
+      mode: elements.leaderboardAdminMode.value,
+      status: elements.leaderboardAdminStatusFilter.value,
+      offset,
+      limit: ADMIN_PAGE_SIZE
+    });
+    if (requestId !== adminRequestId) return;
+    const received = Array.isArray(body.entries) ? body.entries : [];
+    adminEntries = append ? [...adminEntries, ...received] : received;
+    adminOffset = offset + received.length;
+    adminHasMore = body.hasMore === true;
+    renderAdminEntries();
+    elements.leaderboardAdminLoadMore.hidden = !adminHasMore;
+    const summary = adminSource === "scan"
+      ? `${Number.isInteger(body.scanned) ? body.scanned : received.length} scanned · ${Number.isInteger(body.flagged) ? body.flagged : received.length} flagged.`
+      : `${adminEntries.length.toLocaleString()} ${adminEntries.length === 1 ? "result" : "results"} loaded${adminHasMore ? "." : " · End of leaderboard."}`;
+    setAdminStatus(summary);
+  } catch (error) {
+    if (requestId !== adminRequestId) return;
+    setAdminStatus(error.message, true);
+  } finally {
+    if (requestId === adminRequestId) elements.leaderboardAdminLoadMore.disabled = false;
+  }
+}
+
+function adminDetailValue(labelText, valueText) {
+  const row = document.createElement("div");
+  row.className = "admin-detail-row";
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  const value = document.createElement("strong");
+  value.textContent = valueText;
+  row.append(label, value);
+  return row;
+}
+
+function renderAdminDetail(detail) {
+  const entry = detail?.entry ?? detail?.result?.entry ?? null;
+  elements.leaderboardAdminDetails.replaceChildren();
+  if (!entry) {
+    elements.leaderboardAdminDetails.textContent = "Result details are unavailable.";
+    return;
+  }
+  const flags = Array.isArray(detail.auditFlags) ? detail.auditFlags : [];
+  elements.leaderboardAdminDetails.append(
+    adminDetailValue("Player", entry.nickname ?? "Player"),
+    adminDetailValue("Score", adminEntryScore(entry).toLocaleString()),
+    adminDetailValue("Mode", entry.mode === GAME_MODES.ZEN ? "Zen" : "Arcade"),
+    adminDetailValue("Status", adminEntryStatus(entry)),
+    adminDetailValue("Result ID", entry.id ?? adminSelectedEntryId ?? "—")
+  );
+  const flagList = document.createElement("ul");
+  flagList.className = "admin-flag-list";
+  if (flags.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No heuristic scan flags. Human review is still required.";
+    flagList.append(item);
+  } else {
+    for (const flag of flags) {
+      const item = document.createElement("li");
+      item.dataset.severity = flag.severity ?? "info";
+      item.textContent = `${flag.severity ?? "info"}: ${flag.detail ?? flag.code ?? "Review flag"}`;
+      flagList.append(item);
+    }
+  }
+  elements.leaderboardAdminDetails.append(flagList);
+
+  const status = adminEntryStatus(entry);
+  elements.leaderboardAdminQuarantine.hidden = status === "quarantined" || status === "deleted";
+  elements.leaderboardAdminDeleteReset.hidden = status !== "quarantined";
+  elements.leaderboardAdminResetConfirm.hidden = true;
+  elements.leaderboardAdminResetCheckbox.checked = false;
+}
+
+async function openAdminEntry(entryId) {
+  if (typeof entryId !== "string" || profileSession.profile?.isAdmin !== true) return;
+  const requestId = adminRequestId + 1;
+  adminRequestId = requestId;
+  adminSelectedEntryId = entryId;
+  adminSelectedDetail = null;
+  elements.leaderboardAdminFilters.hidden = true;
+  elements.leaderboardAdminList.hidden = true;
+  elements.leaderboardAdminLoadMore.hidden = true;
+  elements.leaderboardAdminReview.hidden = false;
+  elements.leaderboardAdminForm.hidden = true;
+  setAdminActionStatus("Loading review details…");
+  try {
+    const body = await profileClient.getAdminLeaderboardEntry(entryId);
+    if (requestId !== adminRequestId) return;
+    adminSelectedDetail = body.result ?? body;
+    renderAdminDetail(adminSelectedDetail);
+    elements.leaderboardAdminForm.hidden = false;
+    setAdminActionStatus("");
+  } catch (error) {
+    if (requestId !== adminRequestId) return;
+    setAdminActionStatus(error.message, true);
+  }
+  elements.leaderboardAdminReviewBack.focus({ preventScroll: true });
+}
+
+function closeAdminReview() {
+  adminRequestId += 1;
+  adminSelectedEntryId = null;
+  adminSelectedDetail = null;
+  elements.leaderboardAdminReview.hidden = true;
+  elements.leaderboardAdminFilters.hidden = false;
+  elements.leaderboardAdminList.hidden = false;
+  elements.leaderboardAdminLoadMore.hidden = !adminHasMore;
+  setAdminActionStatus("");
+  elements.leaderboardAdminStatus.focus?.({ preventScroll: true });
+}
+
+async function moderateAdminEntry(action) {
+  if (adminMutationPending || adminSelectedEntryId === null || adminSelectedDetail === null) return;
+  const reason = elements.leaderboardAdminReason.value.trim();
+  if (reason.length < 8) {
+    setAdminActionStatus("Enter a moderation reason of at least 8 characters.", true);
+    elements.leaderboardAdminReason.focus({ preventScroll: true });
+    return;
+  }
+  const entry = adminSelectedDetail.entry ?? adminSelectedDetail.result?.entry;
+  const expectedStatus = adminEntryStatus(entry);
+  if (action === "delete-reset" && !elements.leaderboardAdminResetCheckbox.checked) {
+    elements.leaderboardAdminResetConfirm.hidden = false;
+    setAdminActionStatus("Confirm that this action removes the account’s pets and current coins.", true);
+    elements.leaderboardAdminResetCheckbox.focus({ preventScroll: true });
+    return;
+  }
+
+  adminMutationPending = true;
+  elements.leaderboardAdminQuarantine.disabled = true;
+  elements.leaderboardAdminDeleteReset.disabled = true;
+  setAdminActionStatus(action === "quarantine" ? "Quarantining result…" : "Deleting result and resetting rewards…");
+  try {
+    const body = action === "quarantine"
+      ? await profileClient.quarantineLeaderboardEntry(adminSelectedEntryId, { reason, expectedStatus, confirm: true })
+      : await profileClient.deleteLeaderboardEntryAndReset(adminSelectedEntryId, {
+          reason,
+          expectedStatus,
+          confirm: true,
+          confirmPlayerId: adminEntryPlayerId(entry)
+        });
+    const result = body.result ?? body;
+    const petsRemoved = result.petsRemoved ?? result.removedPetCount ?? result.removedPets?.length ?? 0;
+    const coinsRemoved = result.coinsRemoved ?? result.walletReset?.coinsRemoved ?? 0;
+    setAdminActionStatus(action === "quarantine"
+      ? "Result quarantined. Review it again before permanent reward reset."
+      : `Cheat result deleted. ${petsRemoved} ${petsRemoved === 1 ? "pet" : "pets"} removed and ${coinsRemoved} ${coinsRemoved === 1 ? "coin" : "coins"} forfeited.`);
+    await loadAdminLeaderboard();
+    await openAdminEntry(adminSelectedEntryId);
+  } catch (error) {
+    setAdminActionStatus(error.message, true);
+  } finally {
+    adminMutationPending = false;
+    elements.leaderboardAdminQuarantine.disabled = false;
+    elements.leaderboardAdminDeleteReset.disabled = false;
+  }
+}
+
+function openLeaderboardAdmin() {
+  if (profileSession.profile?.isAdmin !== true) return;
+  closePetShop();
+  closeSettings();
+  closeAchievements();
+  closeLeaderboard();
+  closeProfile();
+  closeLeaderboardAdmin();
+  setDialogView("leaderboard-admin");
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.leaderboardAdminView.hidden = false;
+  elements.leaderboardAdminReview.hidden = true;
+  elements.leaderboardAdminFilters.hidden = false;
+  elements.leaderboardAdminList.hidden = false;
+  elements.dialogUtility.hidden = true;
+  elements.authGateInfo.hidden = true;
+  elements.dialogTitle.textContent = "Leaderboard Admin";
+  elements.dialogMessage.textContent = "Review scan evidence before taking an audited moderation action.";
+  elements.dialog.scrollTop = 0;
+  selectAdminSource(adminSource);
+  void loadAdminLeaderboard();
+  elements.leaderboardAdminBackButton.focus({ preventScroll: true });
+}
+
 function showResultView(focusTarget = null) {
   if (!pendingResult) {
     showMenuView(elements.leaderboardToggle);
@@ -1460,10 +1807,12 @@ function showResultView(focusTarget = null) {
   closeAchievements();
   closeLeaderboard();
   closeProfile();
+  closeLeaderboardAdmin();
   setDialogView("result");
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = false;
   elements.dialogUtility.hidden = false;
+  elements.authGateInfo.hidden = true;
   elements.dialogTitle.textContent =
     pendingResult.mode === GAME_MODES.ZEN ? "Three minutes complete" : "Game Over";
   renderResultMessage(pendingResult);
@@ -1525,9 +1874,14 @@ function renderLeaderboard(
     const avatarPetId = isPetId(entry.petId) ? entry.petId : null;
     avatar.dataset.pet = avatarPetId ?? "none";
     if (avatarPetId !== null) {
+      avatar.dataset.habitat = "true";
+      const habitatBack = document.createElement("span");
+      habitatBack.className = "pet-habitat pet-habitat--back";
       const sprite = document.createElement("span");
       sprite.className = "pet-sprite";
-      avatar.append(sprite);
+      const habitatFront = document.createElement("span");
+      habitatFront.className = "pet-habitat pet-habitat--front";
+      avatar.append(habitatBack, sprite, habitatFront);
     }
 
     const player = document.createElement("div");
@@ -1687,7 +2041,7 @@ function normalizeRank(value) {
 
 function normalizeProfile(value) {
   if (!value || typeof value !== "object") return null;
-  const normalized = { ...value };
+  const normalized = { ...value, isAdmin: value.isAdmin === true };
   const hasOwnedPetIds = Object.hasOwn(value, "ownedPetIds");
   const hasSelectedPetId = Object.hasOwn(value, "selectedPetId");
   const hasPetVisible = Object.hasOwn(value, "petVisible");
@@ -1773,10 +2127,14 @@ function renderUtilityRank() {
   elements.leaderboardRank.textContent = rank === null ? "" : `#${rank.toLocaleString()}`;
   const coinLabel = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
   elements.coinCount.textContent = coinLabel;
-  elements.coinBalance.setAttribute(
-    "aria-label",
-    coinLabel
-  );
+  for (const control of [elements.coinBalance, elements.achievementsToggle, elements.petShopToggle]) {
+    control.classList.toggle("is-auth-gated", !profileSession.authenticated);
+    control.setAttribute("aria-disabled", String(!profileSession.authenticated));
+  }
+  elements.coinBalance.setAttribute("aria-label", profileSession.authenticated
+    ? coinLabel
+    : "Coins unavailable while signed out");
+  if (profileSession.authenticated) elements.authGateInfo.hidden = true;
   elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
   pets.setProfileSession(profileSession);
   renderPetShop();
@@ -2073,13 +2431,15 @@ function renderResultSaveState() {
     setResultSaveStatus(
       hasConfirmedProfile()
         ? "Local practice result only. Ranked run verification was unavailable when this game started."
-        : "Local practice result only. Sign in and choose a nickname before starting to earn rank and coins."
+        : profileSession.authenticated
+          ? "Local practice result only. Choose a public nickname before starting to earn rank and coins."
+          : LOGIN_BENEFITS_COPY
     );
     return;
   }
   if (!profileSession.authenticated) {
     elements.resultGoogleSignin.hidden = false;
-    setResultSaveStatus("Sign in with Google to save this result and your leaderboard history.");
+    setResultSaveStatus(LOGIN_BENEFITS_COPY);
     return;
   }
   if (!hasConfirmedProfile()) {
@@ -2339,6 +2699,7 @@ function renderProfile() {
   pets.setProfileSession(profileSession);
   elements.profileSignedIn.hidden = !profileSession.authenticated;
   elements.profileSignedOut.hidden = profileSession.authenticated;
+  elements.leaderboardAdminToggle.hidden = profileSession.profile?.isAdmin !== true;
   if (!profileSession.authenticated) {
     elements.profileAuthStatus.textContent = profileSession.googleClientId
       ? ""
@@ -2549,6 +2910,11 @@ elements.gameRestartButton.addEventListener("click", restartCurrentMode);
 elements.gameMenuButton.addEventListener("click", showMainMenu);
 elements.resultRestartButton.addEventListener("click", restartCurrentMode);
 elements.mainMenuButton.addEventListener("click", showMainMenu);
+elements.coinBalance.addEventListener("click", () => {
+  if (!requireLoggedInFeature()) return;
+  openPetShop();
+});
+elements.authGateProfileButton.addEventListener("click", () => openProfile());
 elements.petShopToggle.addEventListener("click", openPetShop);
 elements.petShopBackButton.addEventListener("click", () => showMenuView(elements.petShopToggle));
 for (const button of elements.petShopPreviews) {
@@ -2602,6 +2968,22 @@ elements.profileBackButton.addEventListener("click", returnFromProfile);
 elements.profileMenuButton.addEventListener("click", showMainMenu);
 elements.profileForm.addEventListener("submit", saveProfileNickname);
 elements.profileLogout.addEventListener("click", logoutProfile);
+elements.leaderboardAdminToggle.addEventListener("click", openLeaderboardAdmin);
+elements.leaderboardAdminBackButton.addEventListener("click", () => openProfile("menu"));
+elements.leaderboardAdminMenuButton.addEventListener("click", showMainMenu);
+elements.leaderboardAdminReviewBack.addEventListener("click", closeAdminReview);
+elements.leaderboardAdminRefresh.addEventListener("click", () => void loadAdminLeaderboard());
+elements.leaderboardAdminLoadMore.addEventListener("click", () => void loadAdminLeaderboard({ append: true }));
+elements.leaderboardAdminMode.addEventListener("change", () => void loadAdminLeaderboard());
+elements.leaderboardAdminStatusFilter.addEventListener("change", () => void loadAdminLeaderboard());
+elements.leaderboardAdminQuarantine.addEventListener("click", () => void moderateAdminEntry("quarantine"));
+elements.leaderboardAdminDeleteReset.addEventListener("click", () => void moderateAdminEntry("delete-reset"));
+for (const tab of elements.leaderboardAdminSourceTabs) {
+  tab.addEventListener("click", () => {
+    selectAdminSource(tab.dataset.adminView);
+    void loadAdminLeaderboard();
+  });
+}
 for (const tab of elements.profileModeTabs) {
   tab.addEventListener("click", () => {
     selectProfileMode(tab.dataset.profileMode);

@@ -53,7 +53,7 @@ const [
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-3");
+  assert.equal(buildId, "20260714-4");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -147,7 +147,7 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
   assert.match(stylesSource, /\.pet-preview-scene\[data-pet="foka"\][\s\S]*?top: -13px;/);
   assert.match(stylesSource, /\[data-pet="misha"\] > \.pet-sprite \{[\s\S]*?z-index: 4;/);
   assert.match(stylesSource, /\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?box-shadow: 10px 0 #140905;/);
-  assert.match(stylesSource, /\.leaderboard-entry__avatar\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?top: 12px;[\s\S]*?box-shadow: 5px 0 #140905;/);
+  assert.match(stylesSource, /\.leaderboard-entry__avatar\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?top: 14px;[\s\S]*?box-shadow: 6px 0 #140905;/);
   assert.match(stylesSource, /pancake-dance 1440ms/);
   assert.match(stylesSource, /pancake-line-glow 1440ms/);
   assert.match(petControllerSource, /LEGACY_MISHA_NICKNAME = "misha_boy"/);
@@ -284,7 +284,8 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
     "The leaderboard shortcut must sit in the utility header above the menu controls."
   );
   assert.match(indexHtml, /id="leaderboard-rank" hidden/);
-  assert.match(indexHtml, /id="coin-balance"[^>]+aria-label="0 coins"/);
+  assert.match(indexHtml, /id="coin-balance"[^>]+aria-label="Coins unavailable while signed out"/s);
+  assert.match(indexHtml, /id="coin-balance"[^>]+aria-disabled="true"/s);
   assert.match(indexHtml, /id="coin-count">0 coins<\/strong>/);
   assert.ok(
     indexHtml.indexOf('id="coin-balance"') < indexHtml.indexOf('id="leaderboard-toggle"'),
@@ -475,6 +476,56 @@ test("Google-only profiles replace local names and submit completed runs automat
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /type="email"|type="password"|TikTok|Instagram|Facebook/i);
 });
 
+test("signed-out economy features explain login benefits and administration stays server-authorized", () => {
+  const benefitsCopy = "Login with your Google account to earn coins, access achievements and Pet Shop.";
+  assert.ok(
+    (indexHtml.match(new RegExp(benefitsCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length >= 2,
+    "Login benefits must be explained both inline and on the signed-out Profile screen."
+  );
+  assert.match(indexHtml, /id="auth-gate-info"[^>]+hidden/);
+  assert.match(indexHtml, /id="auth-gate-profile-button"/);
+  assert.match(indexHtml, /class="[^"]*is-auth-gated[^"]*"[^>]+id="achievements-toggle"[^>]+aria-disabled="true"/s);
+  assert.match(indexHtml, /class="[^"]*is-auth-gated[^"]*"[^>]+id="pet-shop-toggle"[^>]+aria-disabled="true"/s);
+  assert.match(mainSource, /function requireLoggedInFeature\(\)[\s\S]*profileSession\.authenticated[\s\S]*showLoginBenefits\(\)/);
+  assert.match(mainSource, /function openAchievements\(\)\s*\{\s*if \(!requireLoggedInFeature\(\)\) return;/);
+  assert.match(mainSource, /function openPetShop\(\)\s*\{\s*if \(!requireLoggedInFeature\(\)\) return;/);
+  assert.match(mainSource, /coinBalance\.addEventListener\("click",[\s\S]*requireLoggedInFeature\(\)/);
+  assert.match(mainSource, /setResultSaveStatus\(LOGIN_BENEFITS_COPY\)/);
+  assert.match(stylesSource, /\.is-auth-gated/);
+
+  assert.match(indexHtml, /id="leaderboard-admin-toggle"[^>]+hidden/s);
+  assert.match(indexHtml, /id="leaderboard-admin-view" hidden/);
+  assert.match(indexHtml, /data-admin-view="all"/);
+  assert.match(indexHtml, /data-admin-view="scan"/);
+  assert.match(indexHtml, /id="leaderboard-admin-delete-reset"[^>]*>Delete result &amp; reset rewards</);
+  assert.match(indexHtml, /removes every pet and all current coins from that account/);
+  assert.match(mainSource, /isAdmin: value\.isAdmin === true/);
+  assert.match(mainSource, /leaderboardAdminToggle\.hidden = profileSession\.profile\?\.isAdmin !== true/);
+  assert.match(mainSource, /profileClient\.getAdminLeaderboard\(/);
+  assert.match(mainSource, /profileClient\.getAdminLeaderboardEntry\(/);
+  assert.match(mainSource, /profileClient\.quarantineLeaderboardEntry\(/);
+  assert.match(mainSource, /profileClient\.deleteLeaderboardEntryAndReset\([\s\S]*confirmPlayerId: adminEntryPlayerId\(entry\)/);
+  assert.match(mainSource, /profileSession\.profile\?\.isAdmin !== true/);
+  assert.match(stylesSource, /\.leaderboard-admin-panel/);
+});
+
+test("pet habitats follow all non-game views while gameplay stays unobstructed", () => {
+  assert.match(petControllerSource, /syncScene\(menuScene, showMenu, showMenu\)/);
+  assert.match(petControllerSource, /syncScene\(gameplayScene, showGameplay, false\)/);
+  assert.match(mainSource, /avatar\.dataset\.habitat = "true"/);
+  assert.match(mainSource, /avatar\.append\(habitatBack, sprite, habitatFront\)/);
+  assert.match(stylesSource, /\.leaderboard-entry__avatar > \.pet-habitat/);
+});
+
+test("Pet Shop balance and achievement rewards use explicit coin presentation", () => {
+  assert.match(indexHtml, /<span>Your balance:<\/span>[\s\S]*id="pet-shop-balance">0 coins<\/strong>/);
+  assert.match(indexHtml, /class="achievement-reward-coin"/);
+  assert.match(mainSource, /function renderAchievementReward\(/);
+  assert.match(mainSource, /value\.textContent = `\+\$\{rewardCoins\}`/);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /In progress/);
+  assert.match(stylesSource, /\.achievement-reward-coin\s*\{/);
+});
+
 test("held and cloned proofs never claim a ranked result in Game Over copy", () => {
   assert.match(mainSource, /verificationStatus === "review"[\s\S]*has not been ranked and no coins were awarded/);
   assert.match(mainSource, /verificationStatus === "quarantined"[\s\S]*not ranked and no coins were awarded/);
@@ -519,7 +570,7 @@ test("result leaderboard navigation preserves result context and renders compact
   assert.match(stylesSource, /\.leaderboard-gap/);
   assert.match(
     stylesSource,
-    /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*28px\s+36px\s+minmax\(0,\s*1fr\)\s+auto/s
+    /\.leaderboard-entry\s*\{[^}]+grid-template-columns:\s*28px\s+44px\s+minmax\(0,\s*1fr\)\s+auto/s
   );
 });
 
@@ -702,7 +753,8 @@ test("six durable achievements expose claimable green checks and claimed grey st
   assert.match(indexHtml, /Collect 5 coins/);
   assert.match(indexHtml, /Score more than 100K/);
   assert.match(indexHtml, /Buy a pet/);
-  assert.match(indexHtml, /\+10 coins/);
+  assert.match(indexHtml, /<strong><span>\+10<\/span><span class="achievement-reward-coin"/);
+  assert.doesNotMatch(indexHtml, /In progress/);
 
   assert.match(mainSource, /function openAchievements\(\)/);
   assert.match(mainSource, /profileClient\.getAchievements\(\)/);

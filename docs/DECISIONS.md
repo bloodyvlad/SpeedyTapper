@@ -580,3 +580,18 @@ Require quarantine before delete-and-reset. In one player-first transaction, log
 Consequences: The administrator can inspect scan evidence without treating flags as automatic guilt, and destructive actions remain exact, two-stage, attributable, and auditable. Removed pets can be purchased again, while rewards from earlier generations cannot reappear through reconciliation or late achievement synchronization. A long-lived authenticated session must complete Google sign-in again before destructive moderation. The browser still cannot prove that a ranked player is human, so moderation remains a reviewed operational judgment rather than an automatic anti-cheat verdict.
 
 Revisit when: Multiple administrator roles need approval workflows, account-wide result quarantine is desired, moderation appeals require restoration across economy generations, real-money value is introduced, or a stronger attestation/checkpoint protocol replaces operator review.
+
+## D-044 — Gate progression behind identity and retain pet habitats outside gameplay
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Anonymous practice must remain instantly playable, but showing an active wallet, shop, or achievements to a signed-out player suggests that local runs earn durable progression. Pet bedding also supplies visual identity on result and utility screens, while the same furniture adds clutter beside the reaction-critical board. Achievement cards repeated **In progress** even though their locked state was already visually clear.
+
+Decision: Keep Arcade and Zen available without authentication, but award no anonymous coins, scores, pets, or achievements. Present the coin control, Pet Shop, and Achievements as visually gated with `aria-disabled` semantics while leaving their explanatory action available; activating any of them shows the same Google-login benefits message and a route to Profile. Repeat that message after a signed-out completed run and on the signed-out Profile view. Do not create an anonymous wallet or local progression record.
+
+Show the selected pet together with its bedding, climber, perch, floe, or glow surface on every non-game screen, including public leaderboard portraits. During gameplay show only the pet and omit the habitat. Label the Pet Shop amount with **Your balance:**. Remove **In progress** from locked achievement cards and render each reward as `+N` beside the shared gold coin mark.
+
+Consequences: Practice stays frictionless while durable economy surfaces make their authentication boundary explicit. The controls are not natively disabled because a native disabled control cannot explain why it is unavailable; the server remains the authority and rejects anonymous progression requests regardless of browser markup. Pet identity is consistent across menus without placing extra furniture near high-speed input. Signed-out completion copy may repeat until login, but it does not infer, store, or track an anonymous player profile.
+
+Revisit when: Guest accounts gain server-side migration into Google profiles, anonymous progress becomes a deliberate product feature, gameplay furniture is proven non-distracting on physical devices, or achievement states need richer progress measurements.

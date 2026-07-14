@@ -211,14 +211,14 @@ test("cancelled idle work cannot override a newer pet tap", () => {
   assert.equal(menuScene.dataset.facing, "right");
 });
 
-test("the home prop stays on the main menu while the equipped pet follows other screens and gameplay", () => {
+test("the habitat follows every non-game screen and stays out of gameplay", () => {
   const { controller, dialog, gameArea, gameplayScene, menuScene, streakMeter } = controllerFixture();
   controller.setProfileSession(persistedSession("foka"));
   assert.equal(menuScene.dataset.habitat, "true");
   assert.equal(dialog.classList.contains("dialog--with-pet"), true);
 
   controller.setMenuView("profile");
-  assert.equal(menuScene.dataset.habitat, "false");
+  assert.equal(menuScene.dataset.habitat, "true");
   assert.equal(menuScene.hidden, false);
   controller.setGameplayVisible(true);
   assert.equal(menuScene.hidden, true);
@@ -247,6 +247,7 @@ test("Pancake uses only horizontal left-right direction and rests down after ina
 
   controller.setGameplayVisible(true);
   assert.equal(gameplayScene.dataset.pose, "dancing");
+  assert.equal(gameplayScene.dataset.habitat, "false");
   assert.equal(controller.handleGameplayTap(219, 292), "right");
   scheduler.advance(PET_IDLE_DELAY_MS);
   assert.equal(gameplayScene.dataset.pose, "stopped");

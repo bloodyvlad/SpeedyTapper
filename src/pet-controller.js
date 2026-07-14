@@ -1,4 +1,4 @@
-import { getPet, isPetId } from "./pet-catalog.js?v=20260714-3";
+import { getPet, isPetId } from "./pet-catalog.js?v=20260714-4";
 
 export const LEGACY_MISHA_NICKNAME = "misha_boy";
 export const PET_IDLE_DELAY_MS = 5_000;
@@ -152,8 +152,8 @@ export function createPetController({
   function render() {
     const showMenu = petId !== null && !gameplayVisible;
     const showGameplay = petId !== null && gameplayVisible;
-    syncScene(menuScene, showMenu, showMenu && (menuView === "menu" || isPancake()));
-    syncScene(gameplayScene, showGameplay, showGameplay && isPancake());
+    syncScene(menuScene, showMenu, showMenu);
+    syncScene(gameplayScene, showGameplay, false);
     dialog.classList.toggle("dialog--with-pet", showMenu);
     gameArea.classList.toggle("game--with-pet", showGameplay);
     streakMeter.classList.toggle("streak-meter--with-pet", showGameplay);

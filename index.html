@@ -10,11 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260714-3"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260714-3" />
+    <script src="./src/early-bootstrap.js?v=20260714-4"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260714-4" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-4" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -128,7 +128,14 @@
             <span class="brand-logo__pulse" aria-hidden="true"></span>
           </div>
           <nav class="dialog-utility__actions" aria-label="Player shortcuts">
-            <div class="coin-balance" id="coin-balance" role="status" aria-label="0 coins" title="Coins">
+            <button
+              class="coin-balance is-auth-gated"
+              id="coin-balance"
+              type="button"
+              aria-label="Coins unavailable while signed out"
+              aria-disabled="true"
+              title="Coins"
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <ellipse cx="12" cy="6" rx="6.5" ry="2.5"></ellipse>
                 <path d="M5.5 6v3c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V6"></path>
@@ -137,7 +144,7 @@
                 <path d="M5.5 15v3c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-3"></path>
               </svg>
               <strong id="coin-count">0 coins</strong>
-            </div>
+            </button>
             <button
               class="leaderboard-shortcut"
               id="leaderboard-toggle"
@@ -187,6 +194,10 @@
         <p class="dialog__lead" id="dialog-message">
           Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.
         </p>
+        <section class="auth-gate-info" id="auth-gate-info" role="status" aria-live="polite" hidden>
+          <p>Login with your Google account to earn coins, access achievements and Pet Shop.</p>
+          <button class="secondary-button" id="auth-gate-profile-button" type="button">Open Profile</button>
+        </section>
         <div class="result-content" id="result-content" hidden>
           <div class="result-score" aria-label="Final score">
             <span>Score</span>
@@ -248,19 +259,21 @@
             </fieldset>
             <div class="menu-spacer" aria-hidden="true"></div>
             <button
-              class="secondary-button settings-toggle achievements-toggle"
+              class="secondary-button settings-toggle achievements-toggle is-auth-gated"
               id="achievements-toggle"
               type="button"
               aria-controls="achievements-view"
+              aria-disabled="true"
             >
               <span>Achievements</span>
               <span class="settings-toggle__value" id="achievements-summary">0 / 6 claimed</span>
             </button>
             <button
-              class="secondary-button settings-toggle"
+              class="secondary-button settings-toggle is-auth-gated"
               id="pet-shop-toggle"
               type="button"
               aria-controls="pet-shop-view"
+              aria-disabled="true"
             >
               <span>Pet Shop</span>
               <span class="settings-toggle__value" id="pet-shop-current">No pet</span>
@@ -283,7 +296,10 @@
           <section class="pet-shop-panel" aria-labelledby="pet-shop-heading">
             <div class="section-heading pet-shop-heading">
               <h2 id="pet-shop-heading">Pet Shop</h2>
-              <span class="pet-shop-balance" id="pet-shop-balance">0 coins</span>
+              <span class="pet-shop-balance-wrap">
+                <span>Your balance:</span>
+                <strong class="pet-shop-balance" id="pet-shop-balance">0 coins</strong>
+              </span>
             </div>
             <p class="form-status pet-shop-status" id="pet-shop-status" aria-live="polite"></p>
             <div class="pet-shop-list" id="pet-shop-list">
@@ -432,8 +448,8 @@
                   <small>Finish a full three-minute Zen run.</small>
                 </span>
                 <span class="achievement-card__action">
-                  <strong>+1 coin</strong>
-                  <small>In progress</small>
+                  <strong><span>+1</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
+                  <small hidden></small>
                 </span>
               </button>
               <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="complete_arcade" disabled>
@@ -445,8 +461,8 @@
                   <small>Play until all three Arcade lives are gone.</small>
                 </span>
                 <span class="achievement-card__action">
-                  <strong>+1 coin</strong>
-                  <small>In progress</small>
+                  <strong><span>+1</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
+                  <small hidden></small>
                 </span>
               </button>
               <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="godlike_speed" disabled>
@@ -458,8 +474,8 @@
                   <small>Make a correct tap in under 250 ms.</small>
                 </span>
                 <span class="achievement-card__action">
-                  <strong>+1 coin</strong>
-                  <small>In progress</small>
+                  <strong><span>+1</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
+                  <small hidden></small>
                 </span>
               </button>
               <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="collect_5_coins" disabled>
@@ -471,8 +487,8 @@
                   <small>Collect five coins in total.</small>
                 </span>
                 <span class="achievement-card__action">
-                  <strong>+5 coins</strong>
-                  <small>In progress</small>
+                  <strong><span>+5</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
+                  <small hidden></small>
                 </span>
               </button>
               <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="score_over_100k" disabled>
@@ -484,8 +500,8 @@
                   <small>Score over 100,000 points in one run.</small>
                 </span>
                 <span class="achievement-card__action">
-                  <strong>+5 coins</strong>
-                  <small>In progress</small>
+                  <strong><span>+5</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
+                  <small hidden></small>
                 </span>
               </button>
               <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="buy_a_pet" disabled>
@@ -497,8 +513,8 @@
                   <small>Purchase any pet from the shop.</small>
                 </span>
                 <span class="achievement-card__action">
-                  <strong>+10 coins</strong>
-                  <small>In progress</small>
+                  <strong><span>+10</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
+                  <small hidden></small>
                 </span>
               </button>
             </div>
@@ -540,6 +556,7 @@
             <div class="profile-signed-out" id="profile-signed-out">
               <h2>Player profile</h2>
               <p>Sign in with Google to save every result and keep your leaderboard history across devices.</p>
+              <p class="profile-login-benefits">Login with your Google account to earn coins, access achievements and Pet Shop.</p>
               <div class="google-signin" id="profile-google-signin"></div>
               <p class="form-status" id="profile-auth-status" aria-live="polite"></p>
             </div>
@@ -567,6 +584,15 @@
               <div class="profile-rank-card" id="profile-rank-card"></div>
               <ol class="leaderboard-list profile-neighbors" id="profile-neighbors"></ol>
               <p class="form-status" id="profile-status" aria-live="polite"></p>
+              <button
+                class="secondary-button leaderboard-admin-toggle"
+                id="leaderboard-admin-toggle"
+                type="button"
+                aria-controls="leaderboard-admin-view"
+                hidden
+              >
+                Leaderboard Admin
+              </button>
               <button class="secondary-button profile-logout" id="profile-logout" type="button">Log out</button>
             </div>
           </section>
@@ -612,11 +638,99 @@
             <p class="leaderboard-note">New results are protocol-verified. Legacy results remain labelled until moderation.</p>
           </section>
         </div>
+        <div class="overlay-view" id="leaderboard-admin-view" hidden>
+          <nav class="leaderboard-utility" aria-label="Leaderboard administration navigation">
+            <button
+              class="game-utility__button"
+              id="leaderboard-admin-back-button"
+              type="button"
+              aria-label="Return to Profile"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M19 12H5"></path>
+                <path d="m12 19-7-7 7-7"></path>
+              </svg>
+            </button>
+            <button
+              class="game-utility__button"
+              id="leaderboard-admin-menu-button"
+              type="button"
+              aria-label="Return to main menu"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 6h16"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 18h16"></path>
+              </svg>
+            </button>
+          </nav>
+          <section class="leaderboard-admin-panel" aria-labelledby="leaderboard-admin-heading">
+            <div class="section-heading">
+              <h2 id="leaderboard-admin-heading">Leaderboard Admin</h2>
+              <span>Audited actions</span>
+            </div>
+            <div class="leaderboard-tabs admin-source-tabs" role="group" aria-label="Administration result source">
+              <button class="leaderboard-tab is-active" type="button" data-admin-view="all" aria-pressed="true">All results</button>
+              <button class="leaderboard-tab" type="button" data-admin-view="scan" aria-pressed="false">Scan results</button>
+            </div>
+            <div class="admin-filters" id="leaderboard-admin-filters">
+              <label>
+                <span>Mode</span>
+                <select id="leaderboard-admin-mode">
+                  <option value="all">All modes</option>
+                  <option value="normal">Arcade</option>
+                  <option value="zen">Zen</option>
+                </select>
+              </label>
+              <label>
+                <span>Status</span>
+                <select id="leaderboard-admin-status-filter">
+                  <option value="all">All statuses</option>
+                  <option value="verified">Verified</option>
+                  <option value="review">Review</option>
+                  <option value="legacy">Legacy</option>
+                  <option value="quarantined">Quarantined</option>
+                  <option value="deleted">Deleted</option>
+                </select>
+              </label>
+              <button class="secondary-button admin-refresh-button" id="leaderboard-admin-refresh" type="button">Refresh</button>
+            </div>
+            <p class="leaderboard-status" id="leaderboard-admin-status" aria-live="polite">Loading results…</p>
+            <ol class="admin-results-list" id="leaderboard-admin-list"></ol>
+            <button class="secondary-button admin-load-more" id="leaderboard-admin-load-more" type="button" hidden>Load more</button>
+
+            <section class="admin-review" id="leaderboard-admin-review" aria-labelledby="leaderboard-admin-review-heading" hidden>
+              <button class="secondary-button admin-review-back" id="leaderboard-admin-review-back" type="button">← Results</button>
+              <h3 id="leaderboard-admin-review-heading">Review result</h3>
+              <div class="admin-review__details" id="leaderboard-admin-details"></div>
+              <form class="admin-moderation-form" id="leaderboard-admin-form">
+                <label for="leaderboard-admin-reason">Moderation reason</label>
+                <textarea
+                  id="leaderboard-admin-reason"
+                  rows="3"
+                  minlength="8"
+                  maxlength="500"
+                  required
+                  placeholder="Explain the evidence for this action"
+                ></textarea>
+                <label class="admin-reset-confirm" id="leaderboard-admin-reset-confirm" hidden>
+                  <input id="leaderboard-admin-reset-checkbox" type="checkbox" />
+                  <span>I understand this deletes the selected cheat result and removes every pet and all current coins from that account.</span>
+                </label>
+                <div class="admin-moderation-actions">
+                  <button class="secondary-button" id="leaderboard-admin-quarantine" type="button">Quarantine result</button>
+                  <button class="danger-button" id="leaderboard-admin-delete-reset" type="button">Delete result &amp; reset rewards</button>
+                </div>
+              </form>
+              <p class="form-status" id="leaderboard-admin-action-status" aria-live="polite"></p>
+            </section>
+          </section>
+        </div>
         <footer class="copyright-footer">Copyright © 2026 OTC Software</footer>
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260714-3"></script>
-    <script type="module" src="./src/main.js?v=20260714-3"></script>
+    <script src="./src/service-worker-registration.js?v=20260714-4"></script>
+    <script type="module" src="./src/main.js?v=20260714-4"></script>
   </body>
 </html>
