@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const [
@@ -10,12 +10,10 @@ const [
   engineSource,
   petCatalogSource,
   petControllerSource,
-  musicSource,
   soundSource,
   serviceWorkerRegistrationSource,
   workerSource,
   stylesSource,
-  vercelIgnoreSource,
   mishaClimber,
   mishaSprite,
   fokaFloe,
@@ -33,12 +31,10 @@ const [
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
   readFile(new URL("../src/pet-catalog.js", import.meta.url), "utf8"),
   readFile(new URL("../src/pet-controller.js", import.meta.url), "utf8"),
-  readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/service-worker-registration.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
-  readFile(new URL("../.vercelignore", import.meta.url), "utf8"),
   readFile(new URL("../assets/pets/misha-climber.png", import.meta.url)),
   readFile(new URL("../assets/pets/misha-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/foka-ice-floe.png", import.meta.url)),
@@ -48,6 +44,11 @@ const [
   readFile(new URL("../assets/pets/tauta-bed.png", import.meta.url)),
   readFile(new URL("../assets/pets/tauta-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/pancake-sprite.png", import.meta.url))
+]);
+
+const [audioFiles, sourceFiles] = await Promise.all([
+  readdir(new URL("../assets/audio/", import.meta.url)),
+  readdir(new URL("../src/", import.meta.url))
 ]);
 
 test("the complete browser module graph uses one release version", () => {
@@ -69,7 +70,6 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`pet-catalog\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`pet-controller\\.js\\?v=${buildId}`));
-  assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`profile-client\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
@@ -77,7 +77,6 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, new RegExp(`pet-catalog\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`pet-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
-  assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`early-bootstrap\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`service-worker-registration\\.js\\?v=\\$\\{BUILD_ID\\}`));
@@ -101,11 +100,10 @@ test("the complete browser module graph uses one release version", () => {
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
-  assert.match(vercelIgnoreSource, /assets\/audio\/interactive-music-masters/);
-  assert.match(
-    workerSource,
-    /MUSIC_ASSET_PATHS\.has\(requestUrl\.pathname\)\)[\s\S]*cacheFirst\(event\.request\)/
-  );
+  assert.deepEqual(audioFiles.toSorted(), ["SOURCES.md", "tap-tones.wav"]);
+  assert.equal(sourceFiles.includes("music-controller.js"), false);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}\n${workerSource}`, /music-controller|music-toggle|interactive-music/i);
+  assert.doesNotMatch(workerSource, /MUSIC_ASSET_PATHS|cacheFirst\(/);
   assert.match(
     workerSource,
     /pathname\.startsWith\("\/assets\/audio\/"\)[\s\S]*fetch\(event\.request, \{ cache: "no-store" \}\)/
@@ -175,7 +173,8 @@ test("Arcade is the player-facing name for the compatible normal mode", () => {
   assert.match(indexHtml, /id="normal-button"[^>]*>\s*<span>Arcade<\/span>/);
   assert.match(indexHtml, /data-profile-mode="normal"[^>]*>Arcade</);
   assert.match(indexHtml, /data-leaderboard-mode="normal"[^>]*>Arcade</);
-  assert.match(mainSource, /Restart Arcade mode/);
+  assert.match(indexHtml, /id="result-restart-button"[\s\S]*aria-label="Restart Arcade mode"/);
+  assert.match(mainSource, /`Restart \$\{isZenResult \? "Zen" : "Arcade"\} mode`/);
   assert.match(mainSource, /The best score for Arcade mode is/);
   assert.match(configSource, /NORMAL: "normal"/);
   assert.doesNotMatch(configSource, /NORMAL: "arcade"/);
@@ -192,9 +191,10 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
 
   assert.match(soundSetting, /Sound FX/);
   assert.match(soundSetting, />\s*Beta\s*</i);
+  assert.match(soundSetting, /Low-latency tap tones/);
   assert.match(soundToggle, /role="switch"/);
   assert.match(soundToggle, /\bchecked\b/);
-  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
+  assert.match(indexHtml, /id="settings-current">Classic · FX on</);
   assert.match(mainSource, /speedytapper\.soundFx\.v1/);
   assert.match(mainSource, /let soundFxEnabled = true;/);
   assert.match(mainSource, /soundFxEnabled = storedSoundFx !== "off";/);
@@ -215,6 +215,7 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
   assert.match(soundSource, /latencyHint:\s*"interactive"/);
   assert.match(soundSource, /decodeAudioData\s*\(/);
   assert.match(soundSource, /createBufferSource\s*\(/);
+  assert.match(soundSource, /TONE_BANK_URL = "\.\/assets\/audio\/tap-tones\.wav"/);
   assert.match(soundSource, /\.resume\s*\(/);
   assert.match(soundSource, /\.suspend\s*\(/);
   assert.match(soundSource, /\.close\s*\(/);
@@ -227,6 +228,7 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
   assert.match(mainSource, /sound\.suspend\(\)/);
   assert.match(mainSource, /addEventListener\("pagehide"/);
   assert.doesNotMatch(soundSource, /webkitAudioContext|HTMLAudioElement|AudioClass|globalThis\.Audio(?!Context)/);
+  assert.doesNotMatch(soundSource, /hum|oops|lifeLost|tileOn|tileOff/i);
   assert.doesNotMatch(`${mainSource}\n${soundSource}`, /new Audio\s*\(|document\.createElement\(["']audio["']\)/);
 });
 
@@ -243,7 +245,8 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /id="result-fastest-value"/);
   assert.match(indexHtml, /id="result-average-value"/);
   assert.match(indexHtml, /id="main-menu-content"/);
-  assert.match(indexHtml, /id="main-menu-button"/);
+  assert.match(indexHtml, /id="result-menu-button"/);
+  assert.doesNotMatch(indexHtml, /id="main-menu-button"/);
   assert.doesNotMatch(indexHtml, /id="response-rails"|response-rail__/);
   assert.match(indexHtml, /id="response-progress"[^>]+hidden/);
   assert.match(
@@ -349,93 +352,35 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(stylesSource, /\.google-signin\s*\{[^}]+background:\s*transparent !important/s);
 });
 
-test("Music is an adaptive Web Audio soundtrack with an independent setting", () => {
-  const musicSetting = indexHtml.match(
-    /<label class="setting-row" for="music-toggle">[\s\S]*?<\/label>/
+test("Sound FX owns the sole fixed tap-tone sequence without music or ambience", () => {
+  const settingsPanel = indexHtml.match(
+    /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0] ?? "";
-  const interactiveMusicSetting = indexHtml.match(
-    /<label class="setting-row" for="interactive-music-toggle">[\s\S]*?<\/label>/
-  )?.[0] ?? "";
-  assert.match(musicSetting, />Music</);
-  assert.match(musicSetting, /Adaptive soundtrack/);
-  assert.match(musicSetting, /id="music-toggle"[^>]+role="switch"/);
-  assert.match(musicSetting, /\bchecked\b/);
-  assert.match(interactiveMusicSetting, />Interactive Music</);
-  assert.match(interactiveMusicSetting, />\s*Beta\s*</i);
-  assert.match(interactiveMusicSetting, /Correct taps play the melody/);
-  assert.match(interactiveMusicSetting, /id="interactive-music-toggle"[^>]+role="switch"/);
-  assert.match(interactiveMusicSetting, /\bchecked\b/);
-  assert.match(mainSource, /speedytapper\.music\.v1/);
-  assert.match(mainSource, /speedytapper\.interactiveMusic\.v1/);
-  assert.match(mainSource, /let musicEnabled = true;/);
-  assert.match(mainSource, /let interactiveMusicEnabled = true;/);
-  assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
-  assert.match(mainSource, /interactiveMusicEnabled = storedInteractiveMusic !== "off";/);
-  assert.match(mainSource, /music\.setInteractive\(interactiveMusicEnabled\)/);
-  assert.match(mainSource, /musicStageFor\(snapshot\)/);
-  assert.match(musicSource, /MUSIC_STAGES\.GRID_2/);
-  assert.match(musicSource, /MUSIC_STAGES\.GRID_4/);
-  assert.match(musicSource, /MUSIC_STAGES\.CHALLENGE/);
-  assert.match(mainSource, /finishGame[\s\S]*music\.advanceTrack\(MUSIC_STAGES\.MENU\)/);
-  assert.match(mainSource, /completedSessionId === currentSession/);
-  assert.match(mainSource, /setInterval\([\s\S]*updateMusicForSnapshot\(snapshot\)/);
-  assert.doesNotMatch(configSource, /musicStageStartsAtMs|fourByFourPressure|endurance/);
-  assert.match(engineSource, /const paceLevel = gridDimension === 1/);
-  assert.match(musicSource, /snapshot\?\.difficulty\?\.paceLevel/);
-  for (const filename of [
-    "neon-circuit-refined.m4a",
-    "deep-current.m4a",
-    "power-grid.m4a"
-  ]) {
-    assert.match(musicSource, new RegExp(filename.replace(".", "\\.")));
-    assert.match(workerSource, new RegExp(`/assets/audio/${filename.replace(".", "\\.")}`));
-  }
-  for (const filename of [
-    "interactive-neon-circuit-refined.m4a",
-    "interactive-deep-current.m4a",
-    "interactive-power-grid.m4a",
-    "interactive-notes-uniform-neon-circuit-refined.wav",
-    "interactive-notes-uniform-deep-current.wav",
-    "interactive-notes-uniform-power-grid.wav"
-  ]) {
-    assert.match(musicSource, new RegExp(filename.replace(".", "\\.")));
-    assert.match(workerSource, new RegExp(`/assets/audio/${filename.replace(".", "\\.")}`));
-  }
+
+  assert.match(settingsPanel, /id="sound-fx-toggle"[^>]+role="switch"[^>]+checked/);
+  assert.doesNotMatch(settingsPanel, /Music|music-toggle|interactive-music/i);
+  assert.doesNotMatch(mainSource, /speedytapper\.music|musicEnabled|interactiveMusic|music\./i);
+  assert.doesNotMatch(soundSource, /backing|soundtrack|ambient|hum|oops|life[- ]?loss/i);
   assert.match(
     mainSource,
-    /if \(result\.type === "hit"\) \{\s*updateMusicForSnapshot\(result\.snapshot\);\s*music\.playCorrectTap\(result\.snapshot\.hits\)/,
-    "A confirmed tap must apply the engine pace before triggering its interactive melody note."
+    /if \(result\.type === "hit"\) \{\s*sound\.playCorrectTap\(result\.snapshot\.hits\)/,
+    "Only a confirmed correct tap should advance the Sound FX tone sequence."
   );
   assert.equal(
-    (mainSource.match(/music\.playCorrectTap\(/g) ?? []).length,
+    (mainSource.match(/sound\.playCorrectTap\(/g) ?? []).length,
     1,
-    "Misses, dodges, and unready cues must never trigger or replay a melody note."
+    "Misses, dodges, and unready cues must never trigger or replay a tap tone."
   );
-  assert.match(mainSource, /resolveInteractiveMusicSection\(snapshot\)/);
-  assert.match(musicSource, /MUSIC_GAIN = 0\.45/);
-  assert.match(musicSource, /INTERACTIVE_BACKING_GAIN = 1\.25/);
-  assert.match(musicSource, /NOTE_GAIN = 0\.34/);
-  assert.match(musicSource, /MAX_NOTE_VOICES = 2/);
-  assert.match(musicSource, /resolveInteractiveNoteCue/);
-  assert.doesNotMatch(musicSource, /source\.playbackRate\.setValueAtTime/);
-  for (const oldFilename of [
-    "interactive-notes-neon-circuit-refined.wav",
-    "interactive-notes-deep-current.wav",
-    "interactive-notes-power-grid.wav"
-  ]) {
-    assert.doesNotMatch(musicSource, new RegExp(oldFilename.replace(".", "\\.")));
-    assert.doesNotMatch(workerSource, new RegExp(oldFilename.replace(".", "\\.")));
-  }
-  assert.match(musicSource, /latencyHint: interactive \? "interactive" : "playback"/);
-  assert.match(musicSource, /prepareInteractiveTrack\(desiredTrackIndex/);
-  assert.match(musicSource, /createBufferSource\(\)/);
-  assert.match(musicSource, /loopStart/);
-  assert.match(musicSource, /loopEnd/);
-  assert.match(musicSource, /linearRampToValueAtTime/);
-  assert.match(workerSource, /function cacheFirst\(request\)/);
+  assert.match(soundSource, /TONE_SLOT_COUNT = 16/);
+  assert.match(soundSource, /TONE_SLOT_SECONDS = 0\.5/);
+  assert.match(soundSource, /MAX_TONE_VOICES = 2/);
+  assert.match(soundSource, /const slotIndex = \(safeHitNumber - 1\) % TONE_SLOT_COUNT/);
+  assert.match(
+    soundSource,
+    /source\.start\(\s*context\.currentTime,\s*slotIndex \* TONE_SLOT_SECONDS,\s*TONE_SLOT_SECONDS\s*\)/
+  );
+  assert.doesNotMatch(soundSource, /loopStart|loopEnd|playbackRate/);
   assert.match(serviceWorkerRegistrationSource, /speedyTapperWorkerReady/);
-  assert.match(mainSource, /await globalThis\.speedyTapperWorkerReady/);
-  assert.match(workerSource, /const MUSIC_ASSET_PATHS = new Set\(\[/);
   assert.match(
     mainSource,
     /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(returnView\);/,
@@ -480,7 +425,7 @@ test("Google-only profiles replace local names and submit completed runs automat
   assert.doesNotMatch(mainSource, /profileClient\.submitResult\(\{[\s\S]{0,500}score:/);
   assert.match(
     mainSource,
-    /function finishGame\(snapshot, currentSession\)[\s\S]*void submitPendingResult\(\)/
+    /function presentCompletedRun\(snapshot, currentSession,[\s\S]*if \(!isZenResult\) void submitPendingResult\(\)/
   );
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /type="email"|type="password"|TikTok|Instagram|Facebook/i);
 });
@@ -584,10 +529,10 @@ test("result leaderboard navigation preserves result context and renders compact
   );
 });
 
-test("the settings shortcut uses simple music state copy and the app carries the OTC Software footer", () => {
-  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
-  assert.match(mainSource, /const musicStatus = musicEnabled \? "on" : "off";/);
-  assert.doesNotMatch(mainSource, /Music \$\{musicStatus\}[\s\S]*musicStatus[^\n]+interactive/);
+test("the settings shortcut reports only Sound FX state and the app carries the OTC Software footer", () => {
+  assert.match(indexHtml, /id="settings-current">Classic · FX on</);
+  assert.match(mainSource, /elements\.settingsCurrent\.textContent = `\$\{themeName\} · FX \$\{soundFxEnabled \? "on" : "off"\}`/);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Music on|Music off|musicStatus|interactiveMusic/i);
   assert.match(indexHtml, /<footer class="copyright-footer">Copyright © 2026 OTC Software<\/footer>/);
   assert.match(stylesSource, /\.copyright-footer/);
 });
@@ -603,30 +548,64 @@ test("player-facing copy explains that every result is saved without season jarg
   assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Season result|Current season|seasonal/i);
 });
 
-test("in-game and result controls provide restart and menu shortcuts", () => {
+test("Arcade and Zen expose mode-specific gameplay controls and shared top result shortcuts", () => {
   assert.match(indexHtml, /class="game-header"/);
   assert.match(indexHtml, /class="game-utility" id="game-utility" hidden/);
   assert.match(
     indexHtml,
-    /id="game-utility"[\s\S]*brand-logo[\s\S]*id="game-restart-button"[\s\S]*id="game-menu-button"[\s\S]*<header class="hud"/
+    /id="game-utility"[\s\S]*brand-logo[\s\S]*id="game-restart-button"[\s\S]*id="game-menu-button"[\s\S]*id="game-end-run-button"[\s\S]*<header class="hud"/
   );
   assert.match(indexHtml, /id="game-restart-button"[\s\S]*aria-label="Restart current game"/);
   assert.match(indexHtml, /id="game-menu-button"[\s\S]*aria-label="Return to main menu"/);
   assert.match(
     indexHtml,
-    /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="main-menu-button"/
+    /id="game-end-run-button"[\s\S]*aria-label="End Zen run and view results"[\s\S]*>\s*End run\s*<\/button>/
   );
+  assert.match(
+    indexHtml,
+    /<header class="dialog-utility"[\s\S]*?<\/header>\s*<nav class="result-navigation" id="result-navigation"[\s\S]*?id="result-restart-button"[\s\S]*?id="result-menu-button"[\s\S]*?<\/nav>/
+  );
+  assert.ok(
+    indexHtml.indexOf('id="result-navigation"') < indexHtml.indexOf('id="result-content"'),
+    "The shared square result controls must be above the result body."
+  );
+  const resultContentMarkup = indexHtml.slice(
+    indexHtml.indexOf('id="result-content"'),
+    indexHtml.indexOf('id="main-menu-content"')
+  );
+  assert.doesNotMatch(resultContentMarkup, /result-restart-button|result-menu-button|main-menu-button/);
+  assert.doesNotMatch(indexHtml, /id="main-menu-button"/);
   assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="leaderboard-toggle"[\s\S]*id="profile-toggle"/);
   assert.match(indexHtml, /id="coin-balance"[\s\S]*class="pixel-coin"[\s\S]*id="coin-count">0</);
 
   assert.match(mainSource, /gameRestartButton:\s*document\.querySelector\("#game-restart-button"\)/);
   assert.match(mainSource, /gameMenuButton:\s*document\.querySelector\("#game-menu-button"\)/);
+  assert.match(mainSource, /gameEndRunButton:\s*document\.querySelector\("#game-end-run-button"\)/);
   assert.match(mainSource, /resultRestartButton:\s*document\.querySelector\("#result-restart-button"\)/);
+  assert.match(mainSource, /resultMenuButton:\s*document\.querySelector\("#result-menu-button"\)/);
   const restartBody = mainSource.match(/function restartCurrentMode\(\)\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(restartBody, /pendingResult\?\.mode\s*\?\?\s*engine\.mode/);
   assert.match(restartBody, /startGame\([^)]+\);/);
   assert.match(mainSource, /function startGame\(mode\)[\s\S]*elements\.gameUtility\.hidden = false;/);
+  assert.match(
+    mainSource,
+    /const isZen = mode === GAME_MODES\.ZEN;\s*elements\.gameRestartButton\.hidden = isZen;\s*elements\.gameMenuButton\.hidden = isZen;\s*elements\.gameEndRunButton\.hidden = !isZen;/
+  );
+  assert.match(mainSource, /if \(mode === GAME_MODES\.ZEN\) elements\.gameEndRunButton\.disabled = false;/);
+  assert.match(mainSource, /function setDialogView\(view\)[\s\S]*elements\.resultNavigation\.hidden = view !== "result"/);
   assert.match(mainSource, /function resetResultUi\(\)[\s\S]*elements\.gameUtility\.hidden = true;/);
+  assert.match(
+    mainSource,
+    /function endZenRun\(\)[\s\S]*engine\.endZenRun\(now\(\)\)[\s\S]*presentCompletedRun\(result\.snapshot, currentSession, \{ localPractice: true \}\)/
+  );
+  assert.match(
+    mainSource,
+    /const isZenResult = localPractice && snapshot\.mode === GAME_MODES\.ZEN;\s*elements\.dialogTitle\.textContent = isZenResult \? "Results" : "Game Over";/
+  );
+  assert.match(mainSource, /elements\.resultDurationLabel\.textContent = isZenResult \? "Played" : "Survived"/);
+  assert.match(mainSource, /function renderResultSaveState\(\)[\s\S]*if \(pendingResult\.localPractice\) \{[\s\S]*elements\.resultSavePanel\.hidden = true/);
+  assert.match(mainSource, /if \(!isZenResult\) void submitPendingResult\(\)/);
+  assert.match(mainSource, /function submitPendingResult\(\)[\s\S]*pendingResult\.localPractice \|\|/);
 
   function assertClickHandler(elementName, handlerName) {
     assert.match(
@@ -640,8 +619,11 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
   assertClickHandler("gameRestartButton", "restartCurrentMode");
   assertClickHandler("resultRestartButton", "restartCurrentMode");
   assertClickHandler("gameMenuButton", "showMainMenu");
-  assertClickHandler("mainMenuButton", "showMainMenu");
+  assertClickHandler("gameEndRunButton", "endZenRun");
+  assertClickHandler("resultMenuButton", "showMainMenu");
   assert.match(mainSource, /function showMainMenu\(\)[\s\S]*elements\.normalButton\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(stylesSource, /\.game-utility__button\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;/s);
+  assert.match(stylesSource, /\.result-navigation\s*\{[^}]*display:\s*flex;/s);
   assert.match(stylesSource, /\.dialog\s*\{[^}]*width:\s*min\(100%,\s*460px\)/s);
   assert.match(
     stylesSource,
@@ -674,6 +656,12 @@ test("endless unranked Zen has no decoys, deadline, proof submission, or coins",
   assert.doesNotMatch(mainSource, /finishZenRun|scheduleZenEnd|runDeadlineAt|zenDurationMs/);
   assert.match(engineSource, /getRemainingMs\(\) \{\s*return null;/);
   assert.match(engineSource, /finishTimedRun\(now\) \{\s*return Object\.freeze\(\{ type: "ignored", reason: "not-timed"/);
+  assert.match(
+    engineSource,
+    /endZenRun\(now\)[\s\S]*this\.mode !== GAME_MODES\.ZEN[\s\S]*this\.state = GAME_STATES\.GAME_OVER;[\s\S]*this\.endReason = "manual";[\s\S]*type: "zen-ended"/
+  );
+  assert.match(mainSource, /You ended your Zen run with[\s\S]*Zen results are not saved and do not award coins/);
+  assert.match(mainSource, /function finishGame\(snapshot, currentSession\) \{\s*if \(snapshot\.mode !== GAME_MODES\.NORMAL\) return;/);
   assert.match(engineSource, /this\.#runProofEnabled = mode === GAME_MODES\.NORMAL/);
   assert.match(engineSource, /getNextDecoyDelayMs\(now\)[\s\S]*this\.mode === GAME_MODES\.ZEN[\s\S]*return null/);
   assert.match(engineSource, /activateDecoy\(now\)[\s\S]*this\.mode === GAME_MODES\.ZEN[\s\S]*reason: "decoys-disabled"/);
