@@ -625,3 +625,42 @@ Treat `status=all` as **all non-deleted statuses** in both the full administrati
 Consequences: A single administrator can clean any known cheat without a second privileged account, while destructive work remains deliberate, attributable, and reversible only through the existing audited mechanisms. Routine lists stay focused; deletion history remains available through an intentional filter.
 
 Revisit when: Multiple administrators justify two-person approval, role separation, moderation appeals, bulk account actions, or an independent audit-only role.
+
+## D-047 — End Zen explicitly and show ephemeral local results
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Endless Zen no longer has a natural completion, but using Arcade's Restart and Main menu controls discarded useful practice statistics without giving the player a deliberate way to finish. The standard Game Over wording also incorrectly implied failure in a mode with unlimited lives.
+
+Decision: Replace Zen's in-game Restart and Main menu controls with one **End run** action. It may end a waiting or active Zen run, freezes elapsed time, score, fastest and average reaction, rating distribution, and other accumulated statistics, clears the unfinished target, and opens the shared result layout under the title **Results**. Keep this result in memory only: it creates no ranked ticket or proof submission, leaderboard write, achievement, coin credit, profile record, or local persisted history. Restart and Main menu remain available as small square controls at the top of both the Zen Results and Arcade Game Over views; remove their bottom result controls. Arcade keeps its in-game Restart and Main menu shortcuts and still ends only after the third lost life. This supersedes D-045 only where it said leaving Zen produces no result screen and where its in-game controls discarded the run.
+
+Consequences: Players can inspect a self-ended Zen practice session without turning Zen back into a finite or rewarded mode. Ending at zero taps is valid and displays zero/empty statistics. The in-memory result survives a temporary round trip to historical Leaderboard or Profile views, but a reload, restart, or menu return discards it. Cached older clients remain unable to submit Zen because the server-side rejection is unchanged.
+
+Revisit when: Practice history should persist, Zen receives a separate noncompetitive server record type, an explicit pause/resume model is added, or result navigation is redesigned across all modes.
+
+## D-048 — Ship only one Sound-FX-controlled tap-tone bank
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: The hum and layered adaptive/Interactive Music paths created audible clicks, timing concerns, overlapping preference semantics, and a large audio asset surface. The desired immediate feedback is the correct-tap melody itself, and it should follow the Sound FX preference rather than either music switch.
+
+Decision: Remove the hum, life-loss cue, legacy adaptive soundtrack, Interactive Music backing, track rotation, pace mapping, all Music/Interactive Music switches and preferences, the music controller, runtime music caching, alternative tone banks, generation scripts, and in-tree music rollback masters. Keep only the former Deep Current uniform bank as `assets/audio/tap-tones.wav`; it was objectively the cleanest of the three equal-energy banks, with the highest harmonic concentration and gentlest largest sample transition. Treat that lossless 48 kHz/16-bit mono file as both runtime asset and current master. Play its fixed 16 half-second slots sequentially on correct taps only, wrapping after sixteen hits, at native pitch and independent of reaction time or game pace. Gate the entire lifecycle behind Sound FX, cap overlap at two voices, release a retired voice briefly, skip unready cues rather than playing them late, and keep the bank outside the service-worker app shell and runtime cache. Prior assets remain recoverable at Git commit `7d4b0d6427892af08ae77ece62734294c79d22be`. This supersedes D-006, D-011, D-012, D-015, D-022, D-025, D-030, and D-036 wherever they require hum, life-loss audio, music, Interactive Music, multiple banks, their settings, or their runtime caching.
+
+Consequences: One switch now has one understandable effect: it enables or disables immediate correct-tap tones. Disabled Sound FX performs no context creation, fetching, decoding, caching, or playback. The current tree is roughly 102 MB smaller and no background sound continues between taps. Automated PCM, lifecycle, sequence, and concurrency tests still do not replace physical-iPhone Safari and installed-PWA listening for latency, output level, and subjective timbre.
+
+Revisit when: A separately designed background-audio layer is ready, physical-device testing prefers a different mastered tone bank, a user-requested failure cue can meet the same latency/edge constraints, or native builds replace browser Web Audio.
+
+## D-049 — Restore life-loss feedback and one independent background loop
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: D-048 removed every non-tap asset to isolate audible clicking and preference ambiguity. The player clarified that the life-loss cue remains important feedback and asked for optional background music that supports rather than competes with the immediate tap tones. The former Interactive system's Deep Current opening was already authored as an original, seamless backing-only island without a time-driven lead.
+
+Decision: Restore the original lossless `oops.wav` cue under **Sound FX**, with at most one life-loss voice, a short retirement fade, predecode alongside the tap bank, and the same strict disabled/no-work and trusted-gesture rules. Add a separate, default-on **Music** preference which plays only during a run. Crop the 460,800-frame Deep Current backing-only opening into a retained lossless master and a 9.6-second AAC runtime loop; play it at `0.28` gain with a 120 ms entrance and 80 ms exit. Stop it for Results, Game Over, and Main menu. Keep the hum, adaptive stages, tempo/richness progression, track rotation, tap-note ownership by Music, Interactive Music toggle, Interactive Music controller paths, and all pace/reaction pitch changes removed. Keep every runtime audio asset outside the install-time app shell and service-worker cache. This supersedes D-048 only where it removed life-loss audio, background music, and a separate Music switch.
+
+Consequences: Sound FX once again means both immediate success and failure feedback, while Music is an independently removable background layer. Turning either category off creates no context or network/decode/playback work for that category. The single low-complexity loop avoids adaptive transition clicks and decodes to a small bounded buffer; its bass-heavy phone audibility and balance against two overlapping tones still require physical-iPhone listening. The soundtrack is entirely original SpeedyTapper audio: a stylistic reference influenced only broad restrained downtempo qualities, and no third-party recording or composition is sampled or imitated.
+
+Revisit when: Physical-device testing calls for a different low-end balance or gain, a longer non-repetitive bed is commissioned, music should continue into menus, or an explicitly redesigned adaptive system can justify its added lifecycle and test surface.

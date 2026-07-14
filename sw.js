@@ -1,4 +1,4 @@
-const BUILD_ID = "20260714-5";
+const BUILD_ID = "20260714-6";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [
@@ -12,6 +12,7 @@ const APP_SHELL = [
   `./src/pet-catalog.js?v=${BUILD_ID}`,
   `./src/pet-controller.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
+  `./src/music-controller.js?v=${BUILD_ID}`,
   `./src/profile-client.js?v=${BUILD_ID}`,
   `./src/service-worker-registration.js?v=${BUILD_ID}`,
   `./src/sound-controller.js?v=${BUILD_ID}`,

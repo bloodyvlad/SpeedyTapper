@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-5";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-5";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-6";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-6";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,27 +7,29 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-5";
+} from "./input-timing.js?v=20260714-6";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-5";
-import { createPetController } from "./pet-controller.js?v=20260714-5";
-import { createSoundController } from "./sound-controller.js?v=20260714-5";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-5";
+} from "./pet-catalog.js?v=20260714-6";
+import { createPetController } from "./pet-controller.js?v=20260714-6";
+import { createSoundController } from "./sound-controller.js?v=20260714-6";
+import { createMusicController } from "./music-controller.js?v=20260714-6";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-6";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-5";
+const APP_BUILD_ID = "20260714-6";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
+const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
 const SPEED_RATING_ORDER = Object.freeze(["godlike", "perfect", "great", "good"]);
 const SPEED_RATING_LABELS = Object.freeze({
   godlike: "Godlike",
@@ -156,6 +158,7 @@ const elements = {
   settingsToggle: document.querySelector("#settings-toggle"),
   settingsView: document.querySelector("#settings-view"),
   soundFxToggle: document.querySelector("#sound-fx-toggle"),
+  musicToggle: document.querySelector("#music-toggle"),
   scoreMultiplier: document.querySelector("#score-multiplier"),
   speedRatingOverlay: document.querySelector("#speed-rating-overlay"),
   speedSummaryBar: document.querySelector("#speed-summary-bar"),
@@ -249,8 +252,10 @@ let speedRatingPlacementRight = false;
 let activeTheme = THEMES.CLASSIC;
 let colorBlindMode = true;
 let soundFxEnabled = true;
+let musicEnabled = true;
 
 const sound = createSoundController();
+const music = createMusicController();
 const presentationScheduler = Object.freeze({
   requestFrame: (callback) => window.requestAnimationFrame(callback),
   cancelFrame: (frameId) => window.cancelAnimationFrame(frameId)
@@ -437,9 +442,10 @@ function renderDisplaySettings() {
   document.documentElement.dataset.theme = activeTheme;
   document.documentElement.dataset.glyphs = colorBlindMode ? "on" : "off";
   const themeName = activeTheme === THEMES.DISCO ? "Disco" : "Classic";
-  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"}`;
+  elements.settingsCurrent.textContent = `${themeName} · FX ${soundFxEnabled ? "on" : "off"} · Music ${musicEnabled ? "on" : "off"}`;
   elements.colorBlindToggle.checked = colorBlindMode;
   elements.soundFxToggle.checked = soundFxEnabled;
+  elements.musicToggle.checked = musicEnabled;
   elements.themeColorMeta.content = activeTheme === THEMES.DISCO ? "#050606" : "#0b0d18";
   for (const input of elements.themeInputs) {
     input.checked = input.value === activeTheme;
@@ -454,6 +460,9 @@ function initializeDisplaySettings() {
   const storedSoundFx = readStoredPreference(SOUND_FX_STORAGE_KEY);
   soundFxEnabled = storedSoundFx !== "off";
   sound.setEnabled(soundFxEnabled);
+  const storedMusic = readStoredPreference(MUSIC_STORAGE_KEY);
+  musicEnabled = storedMusic !== "off";
+  music.setEnabled(musicEnabled);
   renderDisplaySettings();
 }
 
@@ -477,6 +486,13 @@ function applySoundFx(enabled) {
   sound.setEnabled(soundFxEnabled);
   renderDisplaySettings();
   writeStoredPreference(SOUND_FX_STORAGE_KEY, soundFxEnabled ? "on" : "off");
+}
+
+function applyMusic(enabled) {
+  musicEnabled = Boolean(enabled);
+  music.setEnabled(musicEnabled);
+  renderDisplaySettings();
+  writeStoredPreference(MUSIC_STORAGE_KEY, musicEnabled ? "on" : "off");
 }
 
 function stopResponseProgress() {
@@ -570,6 +586,7 @@ function abandonCurrentRun() {
 async function startGame(mode) {
   clearTimers();
   void sound.startRun();
+  void music.startRun();
   if (mode === GAME_MODES.NORMAL) void refreshTopScore(mode);
   abandonCurrentRun();
   const startRequestId = runStartRequestId + 1;
@@ -883,6 +900,7 @@ function handleTileTap(event) {
 
 function handleMiss(result, currentSession, scheduleNextTarget = true) {
   if (result.lifeLost) cancelDecoyCadence();
+  if (result.lifeLost) sound.lifeLost();
   const reasonLabel = {
     empty: "Empty square",
     late: "Too slow",
@@ -962,6 +980,7 @@ function presentCompletedRun(snapshot, currentSession, { localPractice = false }
   }
   completedSessionId = currentSession;
   clearTimers();
+  music.stopRun();
   const isZenResult = localPractice && snapshot.mode === GAME_MODES.ZEN;
   elements.dialogTitle.textContent = isZenResult ? "Results" : "Game Over";
   elements.resultStats.hidden = false;
@@ -1051,6 +1070,7 @@ function showMainMenu() {
   setRunStartControlsDisabled(false);
   abandonCurrentRun();
   clearTimers();
+  music.stopRun();
   sessionId += 1;
   engine.reset();
   currentRunId = null;
@@ -2798,6 +2818,7 @@ function pauseForVisibilityChange() {
   if (!document.hidden) return;
   stopRunForPageExit();
   sound.suspend();
+  music.suspend();
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -2854,6 +2875,10 @@ elements.soundFxToggle.addEventListener("change", () => {
   applySoundFx(elements.soundFxToggle.checked);
   if (elements.soundFxToggle.checked) void sound.unlock();
 });
+elements.musicToggle.addEventListener("change", () => {
+  applyMusic(elements.musicToggle.checked);
+  if (elements.musicToggle.checked) void music.unlock();
+});
 elements.leaderboardToggle.addEventListener("click", () => {
   if (dialogView === "result" && pendingResult) {
     openResultLeaderboard();
@@ -2901,6 +2926,7 @@ document.addEventListener("pointerdown", (event) => {
 window.addEventListener("pagehide", () => {
   stopRunForPageExit();
   sound.suspend();
+  music.suspend();
 });
 
 initializeDisplaySettings();

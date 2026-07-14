@@ -51,8 +51,8 @@ Proposed decisions and uncommitted experiments must not appear under README comm
 - `src/config.js`: balancing constants, modes, colors, and theme palettes.
 - `src/game-engine.js`: deterministic gameplay rules and state; keep it independent of the DOM and browser UI.
 - `src/main.js`: DOM rendering, input wiring, navigation, persistence, and controller coordination.
-- `src/sound-controller.js`: optional low-latency Sound FX lifecycle.
-- `src/music-controller.js`: adaptive music lifecycle when present in an accepted release.
+- `src/sound-controller.js`: optional low-latency tap-tone and life-loss lifecycle.
+- `src/music-controller.js`: optional fixed background-music lifecycle; it must remain independent from Sound FX.
 - `src/profile-client.js`: same-origin Google profile and leaderboard client.
 - `server/src/`: PHP identity, session, validation, and MySQL repository rules.
 - `api/index.php`: PHP HTTP boundary for extensionless `/api/*` routes.
@@ -66,7 +66,7 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 ## Gameplay and data invariants
 
 - Normal mode is endless and ends only after all three lives are lost.
-- Zen is endless, unranked, no-coin practice. It never removes lives, spawns decoys, issues a ranked run ticket, submits a result, or ends automatically. Its target persists through mistakes, has no response deadline, and the next target delay moves halfway toward the previous correct reaction from a 1,000 ms start. Restart or Main menu discards the practice run.
+- Zen is endless, unranked, no-coin practice. It never removes lives, spawns decoys, issues a ranked run ticket, submits a result, or ends automatically. Its target persists through mistakes, has no response deadline, and the next target delay moves halfway toward the previous correct reaction from a 1,000 ms start. Its in-game End run action freezes an ephemeral local Results view; restarting or returning to the menu discards it.
 - Wrong colors, inactive cells, empty-board taps, and expired correct targets remain mistakes in Normal mode.
 - Arcade's independent decoys never use the player's color, live for 450–750 ms, and may overlap. A target cannot reuse a cell that displayed a decoy immediately before that activation frame. Natural expiry awards a dodge worth 550 Arcade points; a correct target tap or any failed/ended round clears live decoys without awarding a dodge.
 - Speed ratings use the same rounded milliseconds shown to the player: under 250 Godlike, under 350 Perfect, under 450 Great, otherwise Good.
@@ -82,14 +82,15 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 
 ## Audio invariants
 
-- Sound FX and Interactive Music default on while remembering explicit opt-outs. While Sound FX is disabled it must not create an `AudioContext` or fetch, decode, cache, or play Sound FX assets.
+- Sound FX and Music default on while remembering independent explicit opt-outs. Sound FX controls only the fixed tap-tone bank and life-loss cue; Music controls only the fixed background loop. A disabled audio category must not create its `AudioContext` or fetch, decode, cache, or play its assets.
 - Resume audible Web Audio only from a trusted user gesture.
 - Skip cues that are not ready; never play them late.
 - Suspend or close audio safely on backgrounding and opt-out.
 - Avoid `HTMLAudioElement`, user-agent sniffing, uncapped overlapping cues, and abrupt non-zero source stops in reaction-critical audio.
-- Retain approved lossless masters or equivalent rollback assets when optimizing runtime formats.
+- Do not reintroduce hum, Interactive Music, adaptive stages, track rotation, pace-dependent music, or pace/reaction pitch changes without a new accepted decision.
+- Keep `assets/audio/tap-tones.wav` and `assets/audio/oops.wav` lossless. Retain the background loop's lossless master or an equivalent recoverable source before replacing or removing any approved audio.
 - Record original or third-party source and licence details in `assets/audio/SOURCES.md`.
-- Do not replace or delete an approved production audio master without explicit authorization and a recoverable prior version.
+- Keep optional runtime audio outside the install-time app shell and fetch it without service-worker caching.
 
 ## Release IDs and PWA caching
 

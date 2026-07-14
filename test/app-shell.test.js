@@ -10,6 +10,7 @@ const [
   engineSource,
   petCatalogSource,
   petControllerSource,
+  musicSource,
   soundSource,
   serviceWorkerRegistrationSource,
   workerSource,
@@ -31,6 +32,7 @@ const [
   readFile(new URL("../src/game-engine.js", import.meta.url), "utf8"),
   readFile(new URL("../src/pet-catalog.js", import.meta.url), "utf8"),
   readFile(new URL("../src/pet-controller.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/music-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8"),
   readFile(new URL("../src/service-worker-registration.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
@@ -54,7 +56,7 @@ const [audioFiles, sourceFiles] = await Promise.all([
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-5");
+  assert.equal(buildId, "20260714-6");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -70,12 +72,14 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(mainSource, new RegExp(`input-timing\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`pet-catalog\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`pet-controller\\.js\\?v=${buildId}`));
+  assert.match(mainSource, new RegExp(`music-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`sound-controller\\.js\\?v=${buildId}`));
   assert.match(mainSource, new RegExp(`profile-client\\.js\\?v=${buildId}`));
   assert.match(engineSource, new RegExp(`config\\.js\\?v=${buildId}`));
   assert.match(workerSource, new RegExp(`input-timing\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`pet-catalog\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`pet-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
+  assert.match(workerSource, new RegExp(`music-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`sound-controller\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`profile-client\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`early-bootstrap\\.js\\?v=\\$\\{BUILD_ID\\}`));
@@ -100,9 +104,18 @@ test("the complete browser module graph uses one release version", () => {
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
-  assert.deepEqual(audioFiles.toSorted(), ["SOURCES.md", "tap-tones.wav"]);
-  assert.equal(sourceFiles.includes("music-controller.js"), false);
-  assert.doesNotMatch(`${indexHtml}\n${mainSource}\n${workerSource}`, /music-controller|music-toggle|interactive-music/i);
+  assert.deepEqual(audioFiles.toSorted(), [
+    "SOURCES.md",
+    "background-deep-current.m4a",
+    "background-masters",
+    "oops.wav",
+    "tap-tones.wav"
+  ]);
+  assert.equal(sourceFiles.includes("music-controller.js"), true);
+  assert.doesNotMatch(
+    `${indexHtml}\n${mainSource}\n${musicSource}\n${workerSource}`,
+    /interactive-music|interactiveMusic/i
+  );
   assert.doesNotMatch(workerSource, /MUSIC_ASSET_PATHS|cacheFirst\(/);
   assert.match(
     workerSource,
@@ -180,7 +193,7 @@ test("Arcade is the player-facing name for the compatible normal mode", () => {
   assert.doesNotMatch(configSource, /NORMAL: "arcade"/);
 });
 
-test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audio", () => {
+test("Sound FX defaults on, preserves opt-out, and owns tap plus life-loss cues", () => {
   const settingsPanel = indexHtml.match(
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0] ?? "";
@@ -191,10 +204,10 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
 
   assert.match(soundSetting, /Sound FX/);
   assert.match(soundSetting, />\s*Beta\s*</i);
-  assert.match(soundSetting, /Low-latency tap tones/);
+  assert.match(soundSetting, /Tap tones and life-loss cue/);
   assert.match(soundToggle, /role="switch"/);
   assert.match(soundToggle, /\bchecked\b/);
-  assert.match(indexHtml, /id="settings-current">Classic · FX on</);
+  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
   assert.match(mainSource, /speedytapper\.soundFx\.v1/);
   assert.match(mainSource, /let soundFxEnabled = true;/);
   assert.match(mainSource, /soundFxEnabled = storedSoundFx !== "off";/);
@@ -216,6 +229,7 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
   assert.match(soundSource, /decodeAudioData\s*\(/);
   assert.match(soundSource, /createBufferSource\s*\(/);
   assert.match(soundSource, /TONE_BANK_URL = "\.\/assets\/audio\/tap-tones\.wav"/);
+  assert.match(soundSource, /LIFE_LOSS_URL = "\.\/assets\/audio\/oops\.wav"/);
   assert.match(soundSource, /\.resume\s*\(/);
   assert.match(soundSource, /\.suspend\s*\(/);
   assert.match(soundSource, /\.close\s*\(/);
@@ -228,8 +242,47 @@ test("Sound FX defaults on, preserves opt-out, and uses standards-based Web Audi
   assert.match(mainSource, /sound\.suspend\(\)/);
   assert.match(mainSource, /addEventListener\("pagehide"/);
   assert.doesNotMatch(soundSource, /webkitAudioContext|HTMLAudioElement|AudioClass|globalThis\.Audio(?!Context)/);
-  assert.doesNotMatch(soundSource, /hum|oops|lifeLost|tileOn|tileOff/i);
+  assert.match(soundSource, /function lifeLost\(\)/);
+  assert.match(mainSource, /if \(result\.lifeLost\) sound\.lifeLost\(\)/);
+  assert.doesNotMatch(soundSource, /hum|tileOn|tileOff/i);
   assert.doesNotMatch(`${mainSource}\n${soundSource}`, /new Audio\s*\(|document\.createElement\(["']audio["']\)/);
+});
+
+test("Music defaults on, stays independent, and plays only around active runs", () => {
+  const settingsPanel = indexHtml.match(
+    /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
+  )?.[0] ?? "";
+  const musicSetting = settingsPanel.match(
+    /<label class="setting-row" for="music-toggle">[\s\S]*?<\/label>/
+  )?.[0] ?? "";
+  const musicToggle = musicSetting.match(/<input[^>]+id="music-toggle"[^>]*>/)?.[0] ?? "";
+
+  assert.match(musicSetting, />Music</);
+  assert.match(musicSetting, /Soft background groove/);
+  assert.match(musicToggle, /role="switch"/);
+  assert.match(musicToggle, /\bchecked\b/);
+  assert.match(mainSource, /const MUSIC_STORAGE_KEY = "speedytapper\.music\.v1"/);
+  assert.match(mainSource, /let musicEnabled = true;/);
+  assert.match(mainSource, /musicEnabled = storedMusic !== "off";/);
+  assert.match(mainSource, /music\.setEnabled\(musicEnabled\)/);
+  assert.match(
+    mainSource,
+    /function startGame\(mode\)[\s\S]*?music\.startRun\(\)/,
+    "A Start or Restart gesture must start the opted-in gameplay bed."
+  );
+  assert.match(
+    mainSource,
+    /function presentCompletedRun[\s\S]*?music\.stopRun\(\)/,
+    "Results and Game Over must fade the background bed."
+  );
+  assert.match(
+    mainSource,
+    /function showMainMenu[\s\S]*?music\.stopRun\(\)/,
+    "Returning to the menu must fade the background bed."
+  );
+  assert.match(mainSource, /musicToggle\.addEventListener\("change"[\s\S]*?music\.unlock\(\)/);
+  assert.match(mainSource, /music\.suspend\(\)/);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}\n${musicSource}`, /Interactive Music|interactiveMusic/i);
 });
 
 test("the streamlined dialog contains settings, leaderboard, and reaction statistics", () => {
@@ -352,15 +405,17 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(stylesSource, /\.google-signin\s*\{[^}]+background:\s*transparent !important/s);
 });
 
-test("Sound FX owns the sole fixed tap-tone sequence without music or ambience", () => {
+test("Sound FX owns tap and life-loss cues while simple Music stays independent", () => {
   const settingsPanel = indexHtml.match(
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0] ?? "";
 
   assert.match(settingsPanel, /id="sound-fx-toggle"[^>]+role="switch"[^>]+checked/);
-  assert.doesNotMatch(settingsPanel, /Music|music-toggle|interactive-music/i);
-  assert.doesNotMatch(mainSource, /speedytapper\.music|musicEnabled|interactiveMusic|music\./i);
-  assert.doesNotMatch(soundSource, /backing|soundtrack|ambient|hum|oops|life[- ]?loss/i);
+  assert.match(settingsPanel, /id="music-toggle"[^>]+role="switch"[^>]+checked/);
+  assert.doesNotMatch(`${settingsPanel}\n${mainSource}\n${musicSource}`, /interactive-music|interactiveMusic/i);
+  assert.match(mainSource, /speedytapper\.music\.v1/);
+  assert.match(musicSource, /background-deep-current\.m4a/);
+  assert.doesNotMatch(soundSource, /backing|soundtrack|ambient|hum/i);
   assert.match(
     mainSource,
     /if \(result\.type === "hit"\) \{\s*sound\.playCorrectTap\(result\.snapshot\.hits\)/,
@@ -371,6 +426,11 @@ test("Sound FX owns the sole fixed tap-tone sequence without music or ambience",
     1,
     "Misses, dodges, and unready cues must never trigger or replay a tap tone."
   );
+  assert.equal(
+    (mainSource.match(/sound\.lifeLost\(/g) ?? []).length,
+    1,
+    "Only a life-removing mistake should trigger the failure cue."
+  );
   assert.match(soundSource, /TONE_SLOT_COUNT = 16/);
   assert.match(soundSource, /TONE_SLOT_SECONDS = 0\.5/);
   assert.match(soundSource, /MAX_TONE_VOICES = 2/);
@@ -380,7 +440,7 @@ test("Sound FX owns the sole fixed tap-tone sequence without music or ambience",
     /source\.start\(\s*context\.currentTime,\s*slotIndex \* TONE_SLOT_SECONDS,\s*TONE_SLOT_SECONDS\s*\)/
   );
   assert.doesNotMatch(soundSource, /loopStart|loopEnd|playbackRate/);
-  assert.match(serviceWorkerRegistrationSource, /speedyTapperWorkerReady/);
+  assert.match(serviceWorkerRegistrationSource, /waitForCurrentWorker/);
   assert.match(
     mainSource,
     /if \(elements\.leaderboardView\.hidden\) openLeaderboard\(returnView\);/,
@@ -529,10 +589,10 @@ test("result leaderboard navigation preserves result context and renders compact
   );
 });
 
-test("the settings shortcut reports only Sound FX state and the app carries the OTC Software footer", () => {
-  assert.match(indexHtml, /id="settings-current">Classic · FX on</);
-  assert.match(mainSource, /elements\.settingsCurrent\.textContent = `\$\{themeName\} · FX \$\{soundFxEnabled \? "on" : "off"\}`/);
-  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Music on|Music off|musicStatus|interactiveMusic/i);
+test("the settings shortcut reports independent Sound FX and Music state", () => {
+  assert.match(indexHtml, /id="settings-current">Classic · FX on · Music on</);
+  assert.match(mainSource, /elements\.settingsCurrent\.textContent = `\$\{themeName\} · FX \$\{soundFxEnabled \? "on" : "off"\} · Music \$\{musicEnabled \? "on" : "off"\}`/);
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Interactive Music|interactiveMusic/i);
   assert.match(indexHtml, /<footer class="copyright-footer">Copyright © 2026 OTC Software<\/footer>/);
   assert.match(stylesSource, /\.copyright-footer/);
 });

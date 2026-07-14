@@ -1,6 +1,5 @@
 (() => {
-  const buildId = "20260714-5";
-  window.speedyTapperWorkerReady = Promise.resolve(false);
+  const buildId = "20260714-6";
   if (!("serviceWorker" in navigator)) return;
 
   const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);
@@ -38,7 +37,7 @@
     window.location.reload();
   });
 
-  window.speedyTapperWorkerReady = (async () => {
+  void (async () => {
     try {
       const registration = await navigator.serviceWorker.register(`./sw.js?v=${buildId}`, {
         updateViaCache: "none"
