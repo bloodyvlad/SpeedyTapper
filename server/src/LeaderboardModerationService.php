@@ -106,7 +106,7 @@ final class LeaderboardModerationService
     {
         $entryId = $this->validateEntryId($entryId);
         $statement = $this->database->prepare(
-            'SELECT l.*, p.nickname, p.coins, p.coin_time_remainder_ms, p.total_play_ms '
+            'SELECT l.*, p.nickname, p.coins, p.coin_debt, p.coin_time_remainder_ms, p.total_play_ms '
             . 'FROM leaderboard_entries l INNER JOIN players p ON p.id = l.player_id '
             . 'WHERE l.id = :entry_id LIMIT 1'
         );
@@ -581,7 +581,7 @@ final class LeaderboardModerationService
         string $reason,
     ): array {
         $playerStatement = $this->database->prepare(
-            'SELECT coins, coin_time_remainder_ms, total_play_ms FROM players '
+            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms FROM players '
             . 'WHERE id = :player_id FOR UPDATE'
         );
         $playerStatement->execute(['player_id' => $playerId]);
@@ -594,23 +594,48 @@ final class LeaderboardModerationService
             "SELECT COALESCE(SUM(CASE "
             . "WHEN verification_status = 'legacy' THEN duration_ms "
             . 'ELSE COALESCE(credited_play_ms, LEAST(duration_ms, COALESCE(server_elapsed_ms, duration_ms))) '
-            . 'END), 0) FROM completed_runs '
+            . 'END), 0) AS eligible_play_ms, '
+            . "COALESCE(SUM(CASE WHEN verification_status = 'verified' AND coin_status = 'eligible' "
+            . 'THEN COALESCE(credited_play_ms, LEAST(duration_ms, COALESCE(server_elapsed_ms, duration_ms))) '
+            . 'ELSE 0 END), 0) AS verified_play_ms '
+            . 'FROM completed_runs '
             . "WHERE player_id = :player_id AND coin_status IN ('legacy','eligible')"
         );
         $eligible->execute(['player_id' => $playerId]);
-        $totalPlayMs = (int) $eligible->fetchColumn();
-        $coinBalance = intdiv($totalPlayMs, 60_000);
+        $playTime = $eligible->fetch() ?: [];
+        $totalPlayMs = (int) ($playTime['eligible_play_ms'] ?? 0);
+        $verifiedPlayMs = (int) ($playTime['verified_play_ms'] ?? 0);
+
+        $economyStatement = $this->database->prepare(
+            "SELECT COALESCE(SUM(coin_delta), 0) AS economy_delta, "
+            . "COALESCE(SUM(CASE WHEN event_type = 'achievement_reward' THEN coin_delta ELSE 0 END), 0) "
+            . 'AS achievement_coins FROM coin_ledger '
+            . "WHERE player_id = :player_id AND event_type IN ('pet_purchase','achievement_reward')"
+        );
+        $economyStatement->execute(['player_id' => $playerId]);
+        $economy = $economyStatement->fetch() ?: [];
+        $economyDelta = (int) ($economy['economy_delta'] ?? 0);
+        $achievementCoins = (int) ($economy['achievement_coins'] ?? 0);
+        $netCoins = intdiv($totalPlayMs, 60_000) + $economyDelta;
+        $wallet = CoinEconomy::fromNet($netCoins);
+        $coinBalance = $wallet['coins'];
+        $coinDebt = $wallet['debt'];
         $remainderMs = $totalPlayMs % 60_000;
+        $totalCoinsCollected = intdiv($verifiedPlayMs, 60_000) + $achievementCoins;
         $oldCoinBalance = (int) $player['coins'];
+        $oldCoinDebt = (int) $player['coin_debt'];
         $oldRemainderMs = (int) $player['coin_time_remainder_ms'];
         $oldTotalPlayMs = (int) $player['total_play_ms'];
 
         $update = $this->database->prepare(
-            'UPDATE players SET coins = :coins, coin_time_remainder_ms = :remainder_ms, '
+            'UPDATE players SET coins = :coins, coin_debt = :coin_debt, '
+            . 'total_coins_collected = :total_coins_collected, coin_time_remainder_ms = :remainder_ms, '
             . 'total_play_ms = :total_play_ms, updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
         );
         $update->execute([
             'coins' => $coinBalance,
+            'coin_debt' => $coinDebt,
+            'total_coins_collected' => $totalCoinsCollected,
             'remainder_ms' => $remainderMs,
             'total_play_ms' => $totalPlayMs,
             'player_id' => $playerId,
@@ -620,11 +645,12 @@ final class LeaderboardModerationService
         $ledger = $this->database->prepare(
             'INSERT INTO coin_ledger '
             . '(event_id, event_key, player_id, run_id, event_type, play_ms_delta, coin_delta, '
-            . 'remainder_before_ms, remainder_after_ms, coin_balance_after, total_play_ms_after, '
+            . 'remainder_before_ms, remainder_after_ms, coin_balance_after, coin_debt_after, '
+            . 'total_play_ms_after, '
             . 'coin_status, actor, reason) VALUES '
             . '(:event_id, :event_key, :player_id, :run_id, :event_type, :play_ms_delta, '
             . ':coin_delta, :remainder_before_ms, :remainder_after_ms, :coin_balance_after, '
-            . ':total_play_ms_after, :coin_status, :actor, :reason)'
+            . ':coin_debt_after, :total_play_ms_after, :coin_status, :actor, :reason)'
         );
         $ledger->execute([
             'event_id' => Uuid::v4(),
@@ -633,10 +659,12 @@ final class LeaderboardModerationService
             'run_id' => $runId,
             'event_type' => $eventType,
             'play_ms_delta' => $totalPlayMs - $oldTotalPlayMs,
-            'coin_delta' => $coinBalance - $oldCoinBalance,
+            'coin_delta' => CoinEconomy::net($coinBalance, $coinDebt)
+                - CoinEconomy::net($oldCoinBalance, $oldCoinDebt),
             'remainder_before_ms' => $oldRemainderMs,
             'remainder_after_ms' => $remainderMs,
             'coin_balance_after' => $coinBalance,
+            'coin_debt_after' => $coinDebt,
             'total_play_ms_after' => $totalPlayMs,
             'coin_status' => $coinStatus,
             'actor' => $actor,
@@ -646,12 +674,16 @@ final class LeaderboardModerationService
         return [
             'oldCoinBalance' => $oldCoinBalance,
             'coinBalance' => $coinBalance,
-            'coinDelta' => $coinBalance - $oldCoinBalance,
+            'oldCoinDebt' => $oldCoinDebt,
+            'coinDebt' => $coinDebt,
+            'coinDelta' => CoinEconomy::net($coinBalance, $coinDebt)
+                - CoinEconomy::net($oldCoinBalance, $oldCoinDebt),
             'oldRemainderMs' => $oldRemainderMs,
             'remainderMs' => $remainderMs,
             'oldTotalPlayMs' => $oldTotalPlayMs,
             'totalPlayMs' => $totalPlayMs,
             'playMsDelta' => $totalPlayMs - $oldTotalPlayMs,
+            'totalCoinsCollected' => $totalCoinsCollected,
         ];
     }
 
@@ -669,17 +701,18 @@ final class LeaderboardModerationService
         $dodges = (int) ($row['dodge_count'] ?? 0);
         $score = (int) ($row['score'] ?? 0);
         $duration = (int) ($row['duration_ms'] ?? 0);
+        $dodgePoints = ($row['mode'] ?? null) === 'zen' ? 0 : self::DODGE_POINTS;
         $ratingTotal = (int) ($row['godlike_count'] ?? 0)
             + (int) ($row['perfect_count'] ?? 0)
             + (int) ($row['great_count'] ?? 0)
             + (int) ($row['good_count'] ?? 0);
-        $minimumScore = $hits * self::MIN_POINTS_PER_HIT + $dodges * self::DODGE_POINTS;
-        $maximumScore = $hits * self::MAX_POINTS_PER_HIT + $dodges * self::DODGE_POINTS;
+        $minimumScore = $hits * self::MIN_POINTS_PER_HIT + $dodges * $dodgePoints;
+        $maximumScore = $hits * self::MAX_POINTS_PER_HIT + $dodges * $dodgePoints;
         if ($score < $minimumScore || $score > $maximumScore) {
             $add(
                 'score-outside-aggregate-bounds',
                 'high',
-                'Score is outside the possible 100–5000 points per hit plus dodge awards.',
+                'Score is outside the possible per-hit range plus mode-specific dodge awards.',
             );
         }
         if ($ratingTotal !== $hits) {
@@ -728,7 +761,7 @@ final class LeaderboardModerationService
             }
             $expected = (int) ($row['reaction_base_points'] ?? 0)
                 + (int) ($row['multiplier_bonus_points'] ?? 0)
-                + $dodges * self::DODGE_POINTS;
+                + $dodges * $dodgePoints;
             if ($expected !== $score) {
                 $add('completed-run-score-mismatch', 'high', 'Completed-run point components do not equal the score.');
             }

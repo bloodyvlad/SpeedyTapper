@@ -83,6 +83,31 @@ test("proof time stays monotonic after separately rounded target and reaction in
   ]);
 });
 
+test("Zen target cadence starts at one second and moves halfway toward each reaction", () => {
+  let randomCalls = 0;
+  const engine = makeEngine(() => {
+    randomCalls += 1;
+    return 0;
+  });
+  engine.start(0, GAME_MODES.ZEN);
+  const callsAfterStart = randomCalls;
+
+  assert.equal(engine.getNextDelayMs(0), 1_000);
+  assert.equal(engine.getSnapshot(0).nextTargetDelayMs, 1_000);
+  assert.equal(randomCalls, callsAfterStart, "Zen cadence must not consume random spawn timing.");
+
+  const faster = hitRound(engine, 1_000, 400);
+  assert.equal(faster.snapshot.nextTargetDelayMs, 700);
+  assert.equal(engine.getNextDelayMs(1_400), 700);
+
+  const slower = hitRound(engine, 2_100, 1_000);
+  assert.equal(slower.snapshot.nextTargetDelayMs, 850);
+  assert.equal(engine.getNextDelayMs(3_100), 850);
+
+  engine.start(4_000, GAME_MODES.ZEN);
+  assert.equal(engine.getNextDelayMs(4_000), 1_000, "A new Zen run resets the learned cadence.");
+});
+
 test("the board grows to 2x2 after four taps but keeps the 1000 ms lifetime", () => {
   const engine = makeEngine();
   engine.start(0);
@@ -577,6 +602,47 @@ test("Zen keeps an exact logical finish when a pre-deadline hit advances the han
     [1, 180_000, 180_001, active.snapshot.targetIndex],
     [5, 180_000, 180_001]
   ]);
+});
+
+test("Zen targets stay active through wrong taps and have no response deadline", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.ZEN);
+  engine.hits = 4;
+  const active = engine.activateRound(10_000);
+  const targetIndex = active.snapshot.targetIndex;
+  const wrongIndex = (targetIndex + 1) % 4;
+
+  assert.equal(active.snapshot.reactionProgress, null);
+  assert.equal(engine.expireRound(11_000).reason, "target-does-not-expire");
+  assert.equal(engine.getSnapshot(80_000).targetIndex, targetIndex);
+  assert.equal(engine.getSnapshot(80_000).state, GAME_STATES.ACTIVE);
+
+  const wrong = engine.tap(wrongIndex, 80_000);
+  assert.equal(wrong.type, "miss");
+  assert.equal(wrong.targetRetained, true);
+  assert.equal(wrong.snapshot.targetIndex, targetIndex);
+  assert.equal(wrong.snapshot.state, GAME_STATES.ACTIVE);
+
+  const hit = engine.tap(targetIndex, 100_000);
+  assert.equal(hit.type, "hit");
+  assert.equal(hit.reactionMs, 90_000);
+  assert.equal(hit.snapshot.fastestReactionMs, 90_000);
+  assert.equal(hit.snapshot.state, GAME_STATES.WAITING);
+});
+
+test("a Zen mistake clears live decoys but retains the correct target", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(0, GAME_MODES.ZEN);
+  engine.hits = 4;
+  const active = engine.activateRound(35_000);
+  const decoy = engine.activateDecoy(35_050);
+
+  const result = engine.tap(decoy.decoy.cellIndex, 35_100);
+  assert.equal(result.type, "miss");
+  assert.equal(result.targetRetained, true);
+  assert.equal(result.snapshot.targetIndex, active.snapshot.targetIndex);
+  assert.equal(result.snapshot.activeDecoys.length, 0);
+  assert.equal(result.snapshot.dodges, 0);
 });
 
 test("Zen completion clears an expiring decoy without a post-deadline dodge", () => {

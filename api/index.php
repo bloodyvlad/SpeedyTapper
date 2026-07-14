@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\AchievementService;
 use SpeedyTapper\App;
 use SpeedyTapper\Config;
 use SpeedyTapper\Database;
@@ -36,14 +37,21 @@ try {
         $config->seasonName,
     );
     $leaderboard->ensureSeason();
-    $pets = new PetShopService($database);
+    $achievements = new AchievementService($database);
+    $pets = new PetShopService($database, $achievements);
     $app = new App(
         config: $config,
         players: new PlayerRepository($database, $pets),
         pets: $pets,
         leaderboard: $leaderboard,
         attempts: new RunAttemptService($database),
-        runs: new RunSubmissionService($database, $leaderboard, new RunProofValidator()),
+        achievements: $achievements,
+        runs: new RunSubmissionService(
+            $database,
+            $leaderboard,
+            new RunProofValidator(),
+            $achievements,
+        ),
         session: new SessionStore($request->isSecure()),
         google: new GoogleClientIdentityVerifier($config->googleClientId),
     );

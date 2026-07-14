@@ -53,7 +53,7 @@ const [
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260713-16");
+  assert.equal(buildId, "20260714-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -131,6 +131,11 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
   }
   assert.match(mainSource, /action\.textContent = owned \? "Change" : "Buy"/);
   assert.match(mainSource, /profileClient\.selectPet\(petId\)/);
+  assert.match(
+    mainSource,
+    /body\.pet\?\.purchased === true[\s\S]*achievementsPayload = null;[\s\S]*loadAchievements\(\{ showLoading: false \}\)/,
+    "A committed first purchase refreshes the achievement state."
+  );
   assert.match(mainSource, /pets\.handleGameplayTap\(event\.clientX\)/);
   assert.match(mainSource, /pets\.handleNonGameTap\(event\.clientX/);
   assert.match(petControllerSource, /LEGACY_MISHA_NICKNAME = "misha_boy"/);
@@ -592,8 +597,22 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(mainSource, /function cancelDecoyCadence\(\)[\s\S]*decoyCadenceId \+= 1/);
   assert.match(
     mainSource,
-    /function handleMiss\(result, currentSession\)[\s\S]*if \(result\.lifeLost\) cancelDecoyCadence\(\)[\s\S]*if \(result\.lifeLost\) scheduleDecoySpawn\(currentSession\)/
+    /function handleMiss\(result, currentSession, scheduleNextTarget = true\)[\s\S]*if \(result\.lifeLost\) cancelDecoyCadence\(\)[\s\S]*if \(result\.lifeLost\) scheduleDecoySpawn\(currentSession\)/
   );
+  assert.match(configSource, /initialTargetDelayMs:\s*1_000/);
+  assert.match(configSource, /cadenceAdaptation:\s*0\.5/);
+  assert.match(engineSource, /this\.zenTargetDelayMs \+= adaptation \* \(reactionMs - this\.zenTargetDelayMs\)/);
+  assert.match(engineSource, /reason:\s*"target-does-not-expire"/);
+  assert.match(engineSource, /this\.mode === GAME_MODES\.ZEN[\s\S]*\? 0[\s\S]*expired\.length \* this\.config\.dodgePoints/);
+  assert.match(engineSource, /targetRetained:\s*true/);
+  assert.match(engineSource, /this\.mode !== GAME_MODES\.ZEN &&[\s\S]*reactionProgress/);
+  assert.match(
+    mainSource,
+    /if \(engine\.mode !== GAME_MODES\.ZEN\) \{[\s\S]*scheduleDeadline\(currentSession, roundId, deadlineAt\)[\s\S]*if \(engine\.mode !== GAME_MODES\.ZEN\) \{[\s\S]*startResponseProgress/
+  );
+  assert.match(mainSource, /result\.targetRetained === true \|\| pendingZenTarget/);
+  assert.match(mainSource, /spawnTimer !== null \|\| roundActivationFrame !== null/);
+  assert.match(mainSource, /pointsAwarded > 0 \? `\$\{label\} \+\$\{pointsAwarded\.toLocaleString\(\)\}` : label/);
   assert.match(mainSource, /cadenceId !== decoyCadenceId/);
   assert.match(mainSource, /decoySpawnTimer !== spawnTimerId/);
   assert.match(mainSource, /decoyExpiryTimer !== expiryTimerId/);
@@ -645,6 +664,54 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(mainSource, /document\.querySelector\('script\[data-google-identity="true"\]'\)\?\.remove\(\)/);
   assert.match(mainSource, /if \(!globalThis\.google\?\.accounts\?\.id\) \{[\s\S]*script\.remove\(\);[\s\S]*reject\(/);
   assert.match(mainSource, /function showResultView\([\s\S]*renderResultSaveState\(\);[\s\S]*renderGoogleButtons\(\)/);
+});
+
+test("six durable achievements expose claimable green checks and claimed grey states", () => {
+  const achievementIds = [...indexHtml.matchAll(/data-achievement-id="([^"]+)"/g)].map(
+    ([, id]) => id
+  );
+  assert.deepEqual(achievementIds, [
+    "complete_zen",
+    "complete_arcade",
+    "godlike_speed",
+    "collect_5_coins",
+    "score_over_100k",
+    "buy_a_pet"
+  ]);
+  assert.match(indexHtml, /id="achievements-toggle"[^>]+aria-controls="achievements-view"/s);
+  assert.match(indexHtml, /id="achievements-view" hidden/);
+  assert.match(indexHtml, /id="achievements-back-button"[^>]*>← Back</);
+  assert.match(indexHtml, /id="achievements-progress">0 of 6 claimed</);
+  assert.equal((indexHtml.match(/achievement-card--locked/g) ?? []).length, 6);
+  assert.match(indexHtml, /Complete Zen mode/);
+  assert.match(indexHtml, /Complete Arcade mode/);
+  assert.match(indexHtml, /Show Godlike speed/);
+  assert.match(indexHtml, /Collect 5 coins/);
+  assert.match(indexHtml, /Score more than 100K/);
+  assert.match(indexHtml, /Buy a pet/);
+  assert.match(indexHtml, /\+10 coins/);
+
+  assert.match(mainSource, /function openAchievements\(\)/);
+  assert.match(mainSource, /profileClient\.getAchievements\(\)/);
+  assert.match(mainSource, /profileClient\.claimAchievement\(achievementId\)/);
+  assert.match(
+    mainSource,
+    /async function claimAchievement\(achievementId\)[\s\S]*achievementsRequestId \+= 1;[\s\S]*profileClient\.claimAchievement\(achievementId\)/
+  );
+  assert.match(mainSource, /card\.classList\.add\(`achievement-card--\$\{state\}`\)/);
+  assert.match(mainSource, /card\.disabled = state !== "claimable" \|\| achievementClaimId !== null/);
+  assert.match(mainSource, /coinBalance:\s*body\.coinBalance/);
+  assert.match(mainSource, /body\.duplicate === true/);
+  assert.doesNotMatch(mainSource, /localStorage[^\n]*achievement/i);
+
+  assert.match(stylesSource, /\.achievement-card\s*\{[^}]+min-height:\s*76px/s);
+  assert.match(stylesSource, /\.achievement-card--claimable\s*\{[^}]+border-color:/s);
+  assert.match(
+    stylesSource,
+    /\.achievement-card--claimable \.achievement-card__check\s*\{[^}]+background:\s*#72e995/s
+  );
+  assert.match(stylesSource, /\.achievement-card--claimed\s*\{[^}]+opacity:\s*0\.76/s);
+  assert.match(stylesSource, /\.achievement-card:focus-visible\s*\{[^}]+outline:\s*3px solid white/s);
 });
 
 test("Classic and Disco gameplay tiles keep distinct material treatments", () => {

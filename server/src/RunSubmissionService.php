@@ -19,6 +19,7 @@ final class RunSubmissionService
         private readonly PDO $database,
         private readonly LeaderboardRepository $leaderboard,
         private readonly RunProofValidator $validator,
+        private readonly AchievementService $achievements,
     ) {
     }
 
@@ -121,7 +122,15 @@ final class RunSubmissionService
             $progression = $verificationStatus === 'verified'
                 ? CoinProgression::accrue((int) $player['coin_time_remainder_ms'], $creditedPlayMs)
                 : CoinProgression::accrue((int) $player['coin_time_remainder_ms'], 0);
-            $coinBalance = (int) $player['coins'] + $progression->coinsEarned;
+            $wallet = CoinEconomy::applyCredit(
+                (int) $player['coins'],
+                (int) $player['coin_debt'],
+                $progression->coinsEarned,
+            );
+            $coinDebt = $wallet['debt'];
+            $coinBalance = $wallet['coins'];
+            $totalCoinsCollected = (int) $player['total_coins_collected']
+                + ($verificationStatus === 'verified' ? $progression->coinsEarned : 0);
             $totalPlayMs = (int) $player['total_play_ms']
                 + ($verificationStatus === 'verified' ? $creditedPlayMs : 0);
             $improved = $this->leaderboard->insertResultInTransaction(
@@ -132,11 +141,15 @@ final class RunSubmissionService
 
             if ($verificationStatus === 'verified') {
                 $updatePlayer = $this->database->prepare(
-                    'UPDATE players SET coins = :coins, coin_time_remainder_ms = :coin_time_remainder_ms, '
-                    . 'total_play_ms = :total_play_ms, updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
+                    'UPDATE players SET coins = :coins, coin_debt = :coin_debt, '
+                    . 'total_coins_collected = :total_coins_collected, '
+                    . 'coin_time_remainder_ms = :coin_time_remainder_ms, total_play_ms = :total_play_ms, '
+                    . 'updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
                 );
                 $updatePlayer->execute([
                     'coins' => $coinBalance,
+                    'coin_debt' => $coinDebt,
+                    'total_coins_collected' => $totalCoinsCollected,
                     'coin_time_remainder_ms' => $progression->remainderMs,
                     'total_play_ms' => $totalPlayMs,
                     'player_id' => $playerId,
@@ -153,6 +166,13 @@ final class RunSubmissionService
                 $progression->coinsEarned,
                 $creditedPlayMs,
             );
+            if ($verificationStatus === 'verified') {
+                $this->achievements->unlockForRunInTransaction(
+                    $playerId,
+                    $score,
+                    $totalCoinsCollected,
+                );
+            }
             $this->insertProof($proof, 'verified', null);
             $this->insertCoinLedger(
                 $playerId,
@@ -162,6 +182,7 @@ final class RunSubmissionService
                 (int) $player['coin_time_remainder_ms'],
                 $progression->remainderMs,
                 $coinBalance,
+                $coinDebt,
                 $totalPlayMs,
                 $coinStatus,
             );
@@ -197,7 +218,8 @@ final class RunSubmissionService
     private function lockPlayer(string $playerId): array
     {
         $statement = $this->database->prepare(
-            'SELECT coins, coin_time_remainder_ms, total_play_ms FROM players WHERE id = :player_id FOR UPDATE'
+            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms '
+            . 'FROM players WHERE id = :player_id FOR UPDATE'
         );
         $statement->execute(['player_id' => $playerId]);
         $player = $statement->fetch();
@@ -398,16 +420,19 @@ final class RunSubmissionService
         int $remainderBefore,
         int $remainderAfter,
         int $coinBalance,
+        int $coinDebt,
         int $totalPlayMs,
         string $coinStatus,
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO coin_ledger '
             . '(event_id, event_key, player_id, run_id, event_type, play_ms_delta, coin_delta, '
-            . 'remainder_before_ms, remainder_after_ms, coin_balance_after, total_play_ms_after, '
+            . 'remainder_before_ms, remainder_after_ms, coin_balance_after, coin_debt_after, '
+            . 'total_play_ms_after, '
             . 'coin_status, actor, reason) VALUES '
             . '(:event_id, :event_key, :player_id, :run_id, \'run_credit\', :play_ms_delta, :coin_delta, '
-            . ':remainder_before_ms, :remainder_after_ms, :coin_balance_after, :total_play_ms_after, '
+            . ':remainder_before_ms, :remainder_after_ms, :coin_balance_after, :coin_debt_after, '
+            . ':total_play_ms_after, '
             . ':coin_status, \'verification-server\', :reason)'
         );
         $statement->execute([
@@ -420,6 +445,7 @@ final class RunSubmissionService
             'remainder_before_ms' => $remainderBefore,
             'remainder_after_ms' => $remainderAfter,
             'coin_balance_after' => $coinBalance,
+            'coin_debt_after' => $coinDebt,
             'total_play_ms_after' => $totalPlayMs,
             'coin_status' => $coinStatus,
             'reason' => match ($coinStatus) {

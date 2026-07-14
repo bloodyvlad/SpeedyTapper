@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260713-16";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260714-1";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -263,6 +263,7 @@ export class GameEngine {
     this.#runProofEvents = [];
     this.#runProofFinished = false;
     this.#proofClockFloor = 0;
+    this.zenTargetDelayMs = this.config.zen.initialTargetDelayMs;
   }
 
   start(now = 0, mode = GAME_MODES.NORMAL) {
@@ -302,6 +303,10 @@ export class GameEngine {
   }
 
   getNextDelayMs(now) {
+    if (this.mode === GAME_MODES.ZEN) {
+      return this.zenTargetDelayMs;
+    }
+
     const recoveryRemainingMs = this.getRecoveryRemainingMs(now);
     const difficultyAt = now + recoveryRemainingMs;
     const difficulty = resolveDifficulty(
@@ -538,7 +543,10 @@ export class GameEngine {
     }
 
     const reactionMs = Math.max(0, now - this.activeAt);
-    if (reactionMs >= this.roundDifficulty.responseWindowMs) {
+    if (
+      this.mode !== GAME_MODES.ZEN &&
+      reactionMs >= this.roundDifficulty.responseWindowMs
+    ) {
       return this.#miss("late", now, reactionMs, settled, resolvedAt, cellIndex);
     }
 
@@ -579,6 +587,10 @@ export class GameEngine {
     const streakSteps = this.config.streak.ratingSteps[speedRating.id] ?? 0;
     if (streakSteps > 0) this.#advanceStreak(streakSteps);
     const multiplierRaised = this.multiplier > multiplierBeforeAdvance;
+    if (this.mode === GAME_MODES.ZEN) {
+      const adaptation = this.config.zen.cadenceAdaptation;
+      this.zenTargetDelayMs += adaptation * (reactionMs - this.zenTargetDelayMs);
+    }
     this.#finishRound();
 
     const shouldChangeColor =
@@ -607,6 +619,14 @@ export class GameEngine {
   expireRound(now) {
     if (this.state !== GAME_STATES.ACTIVE) {
       return Object.freeze({ type: "ignored", reason: "not-active", snapshot: this.getSnapshot(now) });
+    }
+
+    if (this.mode === GAME_MODES.ZEN) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "target-does-not-expire",
+        snapshot: this.getSnapshot(now)
+      });
     }
 
     // Target expiry clears every visible decoy as part of the failed round.
@@ -683,7 +703,9 @@ export class GameEngine {
       cells[this.targetIndex] = { kind: "target", colorIndex: this.playerColorIndex };
     }
     const reactionProgress =
-      this.state === GAME_STATES.ACTIVE && this.activeAt !== null
+      this.mode !== GAME_MODES.ZEN &&
+      this.state === GAME_STATES.ACTIVE &&
+      this.activeAt !== null
         ? clamp(1 - (now - this.activeAt) / difficulty.responseWindowMs, 0, 1)
         : null;
 
@@ -708,6 +730,7 @@ export class GameEngine {
       multiplierHitCounts: Object.freeze({ ...this.multiplierHitCounts }),
       multiplierBasePoints: Object.freeze({ ...this.multiplierBasePoints }),
       reactionProgress,
+      nextTargetDelayMs: this.mode === GAME_MODES.ZEN ? this.zenTargetDelayMs : null,
       recoveryRemainingMs: this.getRecoveryRemainingMs(now),
       elapsedMs,
       remainingMs: this.getRemainingMs(now),
@@ -790,6 +813,25 @@ export class GameEngine {
     }
     this.misses += 1;
 
+    const targetRetained =
+      this.mode === GAME_MODES.ZEN &&
+      this.state === GAME_STATES.ACTIVE &&
+      this.targetIndex !== null;
+
+    if (targetRetained) {
+      this.activeDecoys = [];
+      return Object.freeze({
+        type: "miss",
+        reason,
+        reactionMs,
+        lifeLost,
+        targetRetained: true,
+        dodgesAwarded: settled.count,
+        dodgePointsAwarded: settled.pointsAwarded,
+        snapshot: this.getSnapshot(Math.max(now, resolvedAt))
+      });
+    }
+
     if (lifeLost && this.lives === 0) {
       this.state = GAME_STATES.GAME_OVER;
       // Use the same integer logical instant recorded in the proof. Adding two
@@ -817,6 +859,7 @@ export class GameEngine {
       reason,
       reactionMs,
       lifeLost,
+      targetRetained: false,
       dodgesAwarded: settled.count,
       dodgePointsAwarded: settled.pointsAwarded,
       snapshot: this.getSnapshot(Math.max(now, resolvedAt))
@@ -903,7 +946,9 @@ export class GameEngine {
     for (const decoy of expired) {
       this.recentlyExpiredDecoyIndexes.add(decoy.cellIndex);
     }
-    const pointsAwarded = expired.length * this.config.dodgePoints;
+    const pointsAwarded = this.mode === GAME_MODES.ZEN
+      ? 0
+      : expired.length * this.config.dodgePoints;
     this.points += pointsAwarded;
     this.dodges += expired.length;
     const decoyIds = expired.map(({ id }) => id);

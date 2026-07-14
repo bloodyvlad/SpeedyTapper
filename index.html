@@ -10,11 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260713-16"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260713-16" />
+    <script src="./src/early-bootstrap.js?v=20260714-1"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260714-1" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260713-16" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-1" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -248,6 +248,15 @@
             </fieldset>
             <div class="menu-spacer" aria-hidden="true"></div>
             <button
+              class="secondary-button settings-toggle achievements-toggle"
+              id="achievements-toggle"
+              type="button"
+              aria-controls="achievements-view"
+            >
+              <span>Achievements</span>
+              <span class="settings-toggle__value" id="achievements-summary">0 / 6 claimed</span>
+            </button>
+            <button
               class="secondary-button settings-toggle"
               id="pet-shop-toggle"
               type="button"
@@ -411,6 +420,101 @@
             </div>
           </fieldset>
         </div>
+        <div class="overlay-view" id="achievements-view" hidden>
+          <button class="secondary-button view-back-button" id="achievements-back-button" type="button">← Back</button>
+          <section class="achievements-panel" aria-labelledby="achievements-heading">
+            <div class="section-heading">
+              <h2 id="achievements-heading">Achievements</h2>
+              <span id="achievements-progress">0 of 6 claimed</span>
+            </div>
+            <div class="achievements-list" id="achievements-list">
+              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="complete_zen" disabled>
+                <span class="achievement-card__check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
+                </span>
+                <span class="achievement-card__copy">
+                  <strong>Complete Zen mode</strong>
+                  <small>Finish a full three-minute Zen run.</small>
+                </span>
+                <span class="achievement-card__action">
+                  <strong>+1 coin</strong>
+                  <small>In progress</small>
+                </span>
+              </button>
+              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="complete_arcade" disabled>
+                <span class="achievement-card__check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
+                </span>
+                <span class="achievement-card__copy">
+                  <strong>Complete Arcade mode</strong>
+                  <small>Play until all three Arcade lives are gone.</small>
+                </span>
+                <span class="achievement-card__action">
+                  <strong>+1 coin</strong>
+                  <small>In progress</small>
+                </span>
+              </button>
+              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="godlike_speed" disabled>
+                <span class="achievement-card__check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
+                </span>
+                <span class="achievement-card__copy">
+                  <strong>Show Godlike speed</strong>
+                  <small>Make a correct tap in under 250 ms.</small>
+                </span>
+                <span class="achievement-card__action">
+                  <strong>+1 coin</strong>
+                  <small>In progress</small>
+                </span>
+              </button>
+              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="collect_5_coins" disabled>
+                <span class="achievement-card__check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
+                </span>
+                <span class="achievement-card__copy">
+                  <strong>Collect 5 coins</strong>
+                  <small>Collect five coins in total.</small>
+                </span>
+                <span class="achievement-card__action">
+                  <strong>+5 coins</strong>
+                  <small>In progress</small>
+                </span>
+              </button>
+              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="score_over_100k" disabled>
+                <span class="achievement-card__check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
+                </span>
+                <span class="achievement-card__copy">
+                  <strong>Score more than 100K</strong>
+                  <small>Score over 100,000 points in one run.</small>
+                </span>
+                <span class="achievement-card__action">
+                  <strong>+5 coins</strong>
+                  <small>In progress</small>
+                </span>
+              </button>
+              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="buy_a_pet" disabled>
+                <span class="achievement-card__check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
+                </span>
+                <span class="achievement-card__copy">
+                  <strong>Buy a pet</strong>
+                  <small>Purchase any pet from the shop.</small>
+                </span>
+                <span class="achievement-card__action">
+                  <strong>+10 coins</strong>
+                  <small>In progress</small>
+                </span>
+              </button>
+            </div>
+            <p class="form-status achievements-status" id="achievements-status" aria-live="polite">
+              Sign in with Google in Profile to track and claim achievements.
+            </p>
+            <button class="secondary-button achievements-profile-button" id="achievements-profile-button" type="button">
+              Open Profile to sign in
+            </button>
+          </section>
+        </div>
         <div class="overlay-view" id="profile-view" hidden>
           <nav class="leaderboard-utility" aria-label="Profile navigation">
             <button
@@ -517,7 +621,7 @@
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260713-16"></script>
-    <script type="module" src="./src/main.js?v=20260713-16"></script>
+    <script src="./src/service-worker-registration.js?v=20260714-1"></script>
+    <script type="module" src="./src/main.js?v=20260714-1"></script>
   </body>
 </html>

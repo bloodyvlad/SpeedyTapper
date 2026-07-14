@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SpeedyTapper;
 
 /**
- * Replays reaction-proof-v1 and derives every persisted score field.
+ * Replays reaction-proof-v2 and derives every persisted score field.
  *
  * This closes the previous one-shot aggregate-forgery path. It is intentionally
  * not described as proof that a human produced the browser events: a modified
@@ -47,6 +47,8 @@ final class RunProofValidator
     private const SCORE_CEILING = 1_000;
     private const STREAK_TARGET = 5;
     private const MAX_MULTIPLIER = 5;
+    private const ZEN_INITIAL_TARGET_DELAY_MS = 1_000;
+    private const ZEN_CADENCE_ADAPTATION = 0.5;
 
     public function validate(RunProof $proof): ScoreSubmission
     {
@@ -84,6 +86,7 @@ final class RunProofValidator
         $targetAt = null;
         $targetCell = null;
         $targetDifficulty = null;
+        $zenTargetDelayMs = self::ZEN_INITIAL_TARGET_DELAY_MS;
         $recentlyExpiredCells = [];
         $activeDecoys = [];
         $nextDecoyId = 1;
@@ -97,7 +100,14 @@ final class RunProofValidator
         $missingDecoyTransitions = 0;
         $lateDecoySchedules = 0;
 
-        $targetSchedule = $this->targetSchedule(0, 0, $hits, $challengeStartHits);
+        $targetSchedule = $this->targetSchedule(
+            0,
+            0,
+            $hits,
+            $challengeStartHits,
+            $mode,
+            $zenTargetDelayMs,
+        );
         $targetScheduleSamples = 0;
         $targetAtMinimumSamples = 0;
         $targetCadenceFractions = [];
@@ -140,6 +150,8 @@ final class RunProofValidator
                 $this->invalid('The next target transition is missing from the proof.', $eventIndex);
             }
             if (
+                $mode !== 'zen'
+                &&
                 $state === 'active'
                 && $targetAt !== null
                 && $targetDifficulty !== null
@@ -183,13 +195,16 @@ final class RunProofValidator
                 }
                 $targetScheduleSamples++;
                 $targetRange = $targetSchedule['maximum'] - $targetSchedule['minimum'];
-                if ($targetRange > 0) {
+                if ($mode !== 'zen' && $targetRange > 0) {
                     $targetCadenceFractions[] = max(
                         0,
                         ($at - $targetSchedule['minimum']) / $targetRange,
                     );
                 }
-                if (abs($at - $targetSchedule['minimum']) <= self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS) {
+                if (
+                    $mode !== 'zen'
+                    && abs($at - $targetSchedule['minimum']) <= self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS
+                ) {
                     $targetAtMinimumSamples++;
                 }
                 if ($at > $targetSchedule['maximum'] + self::SCHEDULER_LAG_RISK_MS) {
@@ -236,7 +251,7 @@ final class RunProofValidator
                 $reactionMs = $inputAt - $targetAt;
                 if (
                     $reactionMs < 0
-                    || $reactionMs >= $targetDifficulty['responseWindowMs']
+                    || ($mode !== 'zen' && $reactionMs >= $targetDifficulty['responseWindowMs'])
                     || $cell !== $targetCell
                 ) {
                     $this->invalid('A claimed correct tap does not match the active target.', $eventIndex);
@@ -265,12 +280,23 @@ final class RunProofValidator
                     );
                 }
 
+                if ($mode === 'zen') {
+                    $zenTargetDelayMs += self::ZEN_CADENCE_ADAPTATION
+                        * ($reactionMs - $zenTargetDelayMs);
+                }
                 $state = 'waiting';
                 $targetAt = null;
                 $targetCell = null;
                 $targetDifficulty = null;
                 $activeDecoys = [];
-                $targetSchedule = $this->targetSchedule($handledAt, 0, $hits, $challengeStartHits);
+                $targetSchedule = $this->targetSchedule(
+                    $handledAt,
+                    0,
+                    $hits,
+                    $challengeStartHits,
+                    $mode,
+                    $zenTargetDelayMs,
+                );
                 $lastHandledAt = $handledAt;
             } elseif ($type === RunProof::EVENT_MISS) {
                 [, $inputAt, $handledAt, $reason, $cell] = $event;
@@ -297,12 +323,15 @@ final class RunProofValidator
                     if ($reason === RunProof::MISS_WRONG) {
                         $this->assertCell($cell, $targetDifficulty['gridDimension'], $eventIndex);
                         if (
-                            $reactionMs >= $targetDifficulty['responseWindowMs']
+                            ($mode !== 'zen' && $reactionMs >= $targetDifficulty['responseWindowMs'])
                             || $cell === $targetCell
                         ) {
                             $this->invalid('Wrong-color miss does not match the active target.', $eventIndex);
                         }
                     } elseif ($reason === RunProof::MISS_LATE) {
+                        if ($mode === 'zen') {
+                            $this->invalid('Zen targets do not expire.', $eventIndex);
+                        }
                         if ($reactionMs < $targetDifficulty['responseWindowMs']) {
                             $this->invalid('Late miss occurred before the response deadline.', $eventIndex);
                         }
@@ -320,10 +349,13 @@ final class RunProofValidator
                 $misses++;
                 $multiplier = 1;
                 $streakProgress = 0;
-                $state = 'waiting';
-                $targetAt = null;
-                $targetCell = null;
-                $targetDifficulty = null;
+                $retainZenTarget = $mode === 'zen' && $state === 'active';
+                if (!$retainZenTarget) {
+                    $state = 'waiting';
+                    $targetAt = null;
+                    $targetCell = null;
+                    $targetDifficulty = null;
+                }
                 $activeDecoys = [];
                 $lastHandledAt = $handledAt;
 
@@ -350,8 +382,8 @@ final class RunProofValidator
                             $challengeStartHits,
                         );
                     }
-                } else {
-                    $targetSchedule = $this->targetSchedule($handledAt, 0, $hits, $challengeStartHits);
+                } elseif (!$retainZenTarget && $state !== 'waiting') {
+                    $this->invalid('Zen miss left the run in an invalid state.', $eventIndex);
                 }
             } elseif ($type === RunProof::EVENT_DECOY_ACTIVATE) {
                 [, $at, $id, $cell, $lifetime] = $event;
@@ -444,7 +476,9 @@ final class RunProofValidator
                     unset($activeDecoys[$decoy['cell']]);
                     $recentlyExpiredCells[$decoy['cell']] = true;
                     $dodges++;
-                    $score += self::DODGE_POINTS;
+                    if ($mode !== 'zen') {
+                        $score += self::DODGE_POINTS;
+                    }
                 }
             } elseif ($type === RunProof::EVENT_FINISH) {
                 [, $logicalFinishAt, $handledAt] = $event;
@@ -464,16 +498,6 @@ final class RunProofValidator
                 } else {
                     if ($logicalFinishAt !== self::ZEN_DURATION_MS) {
                         $this->invalid('Zen run must finish at exactly three minutes.', $eventIndex);
-                    }
-                    if (
-                        $state === 'active'
-                        && $targetAt !== null
-                        && $targetDifficulty !== null
-                        && $logicalFinishAt > $targetAt
-                            + $targetDifficulty['responseWindowMs']
-                            + self::MAX_TRANSITION_LAG_MS
-                    ) {
-                        $this->invalid('Zen finish omits an earlier target deadline.', $eventIndex);
                     }
                 }
                 $survivalMs = $logicalFinishAt;
@@ -613,8 +637,14 @@ final class RunProofValidator
         int $recoveryMs,
         int $hits,
         ?int $challengeStartHits,
+        string $mode = 'normal',
+        float $zenTargetDelayMs = self::ZEN_INITIAL_TARGET_DELAY_MS,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
+        if ($mode === 'zen') {
+            $targetAt = $readyAt + $zenTargetDelayMs;
+            return ['minimum' => $targetAt, 'maximum' => $targetAt];
+        }
         $range = $this->difficulty($hits, $readyAt, $challengeStartHits)['spawnDelayRangeMs'];
         return ['minimum' => $readyAt + $range[0], 'maximum' => $readyAt + $range[1]];
     }

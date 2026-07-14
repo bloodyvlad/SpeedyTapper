@@ -19,7 +19,7 @@ npm run check:php
 
 Run `php server/bin/purge-run-attempts.php --apply` from a daily Hostinger cron job. It deletes only bounded batches of unranked stale attempt metadata (7-day abandoned/expired retention and 30-day rejected retention); dry-run is the default, and completed/ranked/reviewed runs are never eligible.
 
-The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` replaces the former one-result-per-player uniqueness constraint with a lookup index and preserves every existing row, profile, coin balance, and completed run. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; and `009` adds debt-aware economy events. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 
@@ -45,8 +45,7 @@ Always public. The Google client ID is intentionally public configuration.
   "ranks": {
     "normal": { "rank": 12, "totalEntries": 250, "topPercent": 5 },
     "zen": { "rank": null, "totalEntries": 180, "topPercent": null }
-  }
-}
+    }
 ```
 
 When signed out, `authenticated` is false and `profile` and `ranks` are null.
@@ -100,7 +99,7 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 
 ### `POST /api/runs`
 
-Starts a ranked run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260713-16" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. A failed request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260714-1" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. A failed request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -114,8 +113,8 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260713-16",
-  "ruleset": "reaction-proof-v1",
+  "buildId": "20260714-1",
+  "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [
     [2, 100, 102, 0, 0],
@@ -126,7 +125,15 @@ Authentication and a confirmed public nickname are required. The body contains t
 }
 ```
 
-Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Arcade requires its third life loss; Zen requires an exact logical finish at `180000`. The server clock must cover the proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, and `verifiedResult`. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
+Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Arcade requires its third life loss. Zen has no target-response deadline: the current target survives mistakes, its next quiet interval moves halfway toward the preceding correct reaction from a 1,000 ms start, decoy dodges score zero, and the proof finishes at exactly `180000`. The server clock must cover the proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, and `verifiedResult`. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
+
+### `GET /api/achievements` and `POST /api/achievements/claim`
+
+Authentication is required. The read returns the six catalog goals with per-player unlock/claim state. Claim body: `{ "achievementId": "stable_catalog_id" }`. Only protocol-verified, coin-eligible runs unlock gameplay goals. A claim is idempotent, pays any outstanding coin debt before increasing spendable coins, and records one immutable `achievement_reward` ledger event.
+
+### `GET /api/pets` and `POST /api/pets/select`
+
+Authentication and a confirmed nickname are required for selection. The public read returns the server catalog, owned IDs, current selection, and spendable coin balance. Selection body: `{ "petId": "stable_catalog_id" }`. An owned pet is equipped free. A first purchase locks the player, debits the authoritative price, records ownership, unlocks **Buy a pet**, equips the pet, and appends a negative `pet_purchase` ledger event in one transaction.
 
 Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can never award a result.
 
@@ -137,6 +144,6 @@ Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can nev
 - PHP issues the run ID, binds it to one confirmed player and browser session, permits only one issued attempt per player, bounds elapsed time with its own clock, replays the chronological proof, derives all result fields, and consumes the run once. Start and completion limits are persisted by internal player UUID, so re-login does not clear them.
 - Requests are capped at 256 KiB and 10,000 proof events. An authenticated per-session finish limit is consumed before proof JSON is parsed, while persisted per-minute and daily player limits run before replay or proof persistence. Rejected proofs retain hashes and compact audit metadata rather than attacker-controlled event JSON. The bounded maintenance command removes stale unranked attempts. Shared-hosting or edge-level IP throttling remains recommended for broader availability protection.
 - This is protocol verification, not proof of human input. A sufficiently modified browser, scripted client, or computer-vision bot can still create plausible real-time play. High-risk distributions can be held for manual review; never describe the board as bot-proof.
-- Existing aggregate rows are `legacy` because they cannot be retrospectively verified. `server/bin/leaderboard-admin.php` scans exact IDs and supports `approve`, `reject`, `quarantine`, `restore`, and logical `delete`; mutations are dry-run by default. Quarantine is reversible and coin reconciliation recomputes the complete eligible timeline rather than subtracting one historical award in isolation.
+- Existing aggregate rows are `legacy` because they cannot be retrospectively verified. `server/bin/leaderboard-admin.php` can list all records or filter suspected/non-ranked states and supports exact-ID `approve`, `reject`, `quarantine`, `restore`, and logical `delete`; mutations are dry-run by default. Quarantine is reversible. Coin reconciliation recomputes eligible play plus pet spending and achievement rewards; if revoked earnings were already spent, `coin_debt` absorbs later credits before the spendable balance increases.
 - PHP's default file-session store is appropriate for this single shared-hosting deployment. A multi-node deployment would need shared session storage or signed/revocable session tokens.
 - Configure the Google OAuth Web client with the final HTTPS origin before sign-in can be production-tested.

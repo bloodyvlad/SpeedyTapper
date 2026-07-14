@@ -65,8 +65,8 @@ test("verified run submissions contain proof rather than authoritative score agg
     runId: "4f27f9de-37de-4c31-8090-279a037bf76a",
     mode: "normal",
     proofVersion: 1,
-    ruleset: "reaction-proof-v1",
-    buildId: "20260713-16",
+    ruleset: "reaction-proof-v2",
+    buildId: "20260714-1",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -90,11 +90,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("zen", "20260713-16");
+  await client.startRun("zen", "20260714-1");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260713-16" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260714-1" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
@@ -135,6 +135,38 @@ test("pet catalog reads and buy-or-change mutations use the dedicated same-origi
   );
   assert.deepEqual(JSON.parse(calls[2][1].body), { petId: "misha" });
   assert.throws(() => client.selectPet(""), TypeError);
+});
+
+test("achievement reads and claims stay same-origin, CSRF-protected, and send only the achievement ID", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return args[0] === "/api/session"
+        ? response({ csrfToken: "csrf-token-with-more-than-thirty-two-characters" })
+        : response({ achievements: [], coinBalance: 6 });
+    }
+  });
+
+  await client.getAchievements();
+  await client.claimAchievement("complete_zen");
+
+  assert.equal(calls[0][0], "/api/achievements");
+  assert.equal(calls[1][0], "/api/session");
+  assert.equal(calls[2][0], "/api/achievements/claim");
+  assert.equal(calls[2][1].method, "POST");
+  assert.equal(calls[2][1].credentials, "same-origin");
+  assert.equal(
+    calls[2][1].headers["X-SpeedyTapper-CSRF"],
+    "csrf-token-with-more-than-thirty-two-characters"
+  );
+  assert.deepEqual(JSON.parse(calls[2][1].body), { id: "complete_zen" });
+});
+
+test("achievement claims require a stable achievement ID", () => {
+  const client = createProfileClient({ fetchImpl: async () => response({}) });
+  assert.throws(() => client.claimAchievement(""), /achievement ID/i);
+  assert.throws(() => client.claimAchievement(null), /achievement ID/i);
 });
 
 test("API failures retain server error codes for login and ranking UX", async () => {

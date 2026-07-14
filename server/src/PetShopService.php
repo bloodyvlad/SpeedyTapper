@@ -10,8 +10,10 @@ use Throwable;
 
 final class PetShopService
 {
-    public function __construct(private readonly PDO $database)
-    {
+    public function __construct(
+        private readonly PDO $database,
+        private readonly AchievementService $achievements,
+    ) {
     }
 
     /** @return array{ownedPetIds: list<string>, equippedPetId: ?string} */
@@ -80,10 +82,11 @@ final class PetShopService
 
                 $debit = $this->database->prepare(
                     'UPDATE players SET coins = coins - :price, updated_at = UTC_TIMESTAMP(3) '
-                    . 'WHERE id = :player_id AND coins >= :price'
+                    . 'WHERE id = :player_id AND coins >= :minimum_balance'
                 );
                 $debit->execute([
                     'price' => $pricePaid,
+                    'minimum_balance' => $pricePaid,
                     'player_id' => $playerId,
                 ]);
                 if ($debit->rowCount() !== 1) {
@@ -101,6 +104,7 @@ final class PetShopService
                     'pet_id' => $pet['id'],
                     'price_paid' => $pricePaid,
                 ]);
+                $this->achievements->unlockBuyPetInTransaction($playerId);
             }
 
             $select = $this->database->prepare(
@@ -111,6 +115,17 @@ final class PetShopService
                 'player_id' => $playerId,
                 'pet_id' => $pet['id'],
             ]);
+
+            if ($purchased) {
+                $this->insertPurchaseLedger(
+                    $playerId,
+                    $pet['id'],
+                    $pricePaid,
+                    $coinBalance,
+                    (int) $player['coin_debt'],
+                    (int) $player['total_play_ms'],
+                );
+            }
 
             $this->database->commit();
             return [
@@ -131,11 +146,11 @@ final class PetShopService
         }
     }
 
-    /** @return array{coins: int} */
+    /** @return array{coins: int, coin_debt: int, total_play_ms: int} */
     private function lockPlayer(string $playerId): array
     {
         $statement = $this->database->prepare(
-            'SELECT coins FROM players WHERE id = :player_id FOR UPDATE'
+            'SELECT coins, coin_debt, total_play_ms FROM players WHERE id = :player_id FOR UPDATE'
         );
         $statement->execute(['player_id' => $playerId]);
         $player = $statement->fetch();
@@ -143,6 +158,34 @@ final class PetShopService
             throw new ApiException(401, 'Sign in with Google to continue.');
         }
         return $player;
+    }
+
+    private function insertPurchaseLedger(
+        string $playerId,
+        string $petId,
+        int $pricePaid,
+        int $coinBalance,
+        int $coinDebt,
+        int $totalPlayMs,
+    ): void {
+        $statement = $this->database->prepare(
+            'INSERT INTO coin_ledger '
+            . '(event_id, event_key, player_id, event_type, play_ms_delta, coin_delta, '
+            . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
+            . 'VALUES (:event_id, :event_key, :player_id, \'pet_purchase\', 0, :coin_delta, '
+            . ':coin_balance_after, :coin_debt_after, :total_play_ms_after, \'eligible\', '
+            . '\'pet-shop\', :reason)'
+        );
+        $statement->execute([
+            'event_id' => Uuid::v4(),
+            'event_key' => 'pet:' . $playerId . ':' . $petId,
+            'player_id' => $playerId,
+            'coin_delta' => -$pricePaid,
+            'coin_balance_after' => $coinBalance,
+            'coin_debt_after' => $coinDebt,
+            'total_play_ms_after' => $totalPlayMs,
+            'reason' => 'Purchased pet ' . $petId . '.',
+        ]);
     }
 
     private function findOwnership(string $playerId, string $petId): array|false

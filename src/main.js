@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260713-16";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260713-16";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-1";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -8,26 +8,26 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260713-16";
+} from "./input-timing.js?v=20260714-1";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260713-16";
+} from "./music-controller.js?v=20260714-1";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG
-} from "./pet-catalog.js?v=20260713-16";
-import { createPetController } from "./pet-controller.js?v=20260713-16";
-import { createSoundController } from "./sound-controller.js?v=20260713-16";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-16";
+} from "./pet-catalog.js?v=20260714-1";
+import { createPetController } from "./pet-controller.js?v=20260714-1";
+import { createSoundController } from "./sound-controller.js?v=20260714-1";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-1";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
-const APP_BUILD_ID = "20260713-16";
+const APP_BUILD_ID = "20260714-1";
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
 const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
@@ -42,6 +42,15 @@ const SPEED_RATING_LABELS = Object.freeze({
 });
 
 const elements = {
+  achievementCards: [...document.querySelectorAll("[data-achievement-id]")],
+  achievementsBackButton: document.querySelector("#achievements-back-button"),
+  achievementsList: document.querySelector("#achievements-list"),
+  achievementsProfileButton: document.querySelector("#achievements-profile-button"),
+  achievementsProgress: document.querySelector("#achievements-progress"),
+  achievementsStatus: document.querySelector("#achievements-status"),
+  achievementsSummary: document.querySelector("#achievements-summary"),
+  achievementsToggle: document.querySelector("#achievements-toggle"),
+  achievementsView: document.querySelector("#achievements-view"),
   app: document.querySelector("#app"),
   board: document.querySelector("#board"),
   colorBlindToggle: document.querySelector("#color-blind-toggle"),
@@ -200,6 +209,9 @@ let profileRequestId = 0;
 let petShopMutationId = 0;
 let petShopPendingPetId = null;
 const petPreviewTimers = new Map();
+let achievementsRequestId = 0;
+let achievementsPayload = null;
+let achievementClaimId = null;
 let profileSession = Object.freeze({
   authenticated: false,
   googleClientId: null,
@@ -650,7 +662,10 @@ function showDodgeAward(result) {
   if (dodgesAwarded <= 0) return false;
   const pointsAwarded = result.pointsAwarded ?? result.dodgePointsAwarded ?? 0;
   const label = dodgesAwarded === 1 ? "Dodged that!" : `${dodgesAwarded} dodged!`;
-  showFeedback(`${label} +${pointsAwarded.toLocaleString()}`, false);
+  showFeedback(
+    pointsAwarded > 0 ? `${label} +${pointsAwarded.toLocaleString()}` : label,
+    false
+  );
   return true;
 }
 
@@ -768,13 +783,17 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
       roundPresentationExpired = false;
       updateMusicForSnapshot(result.snapshot);
       sound.tileOn();
-      const deadlineAt = reactionDeadline(
-        visibleAt,
-        result.snapshot.difficulty.responseWindowMs
-      );
-      scheduleDeadline(currentSession, roundId, deadlineAt);
+      if (engine.mode !== GAME_MODES.ZEN) {
+        const deadlineAt = reactionDeadline(
+          visibleAt,
+          result.snapshot.difficulty.responseWindowMs
+        );
+        scheduleDeadline(currentSession, roundId, deadlineAt);
+      }
       render();
-      startResponseProgress(currentSession, result.snapshot);
+      if (engine.mode !== GAME_MODES.ZEN) {
+        startResponseProgress(currentSession, result.snapshot);
+      }
     });
   }, delayMs + additionalDelayMs);
 }
@@ -860,6 +879,18 @@ function handleTileTap(event) {
   if (result.type === "ignored") return;
   pets.handleGameplayTap(event.clientX);
 
+  const pendingZenTarget =
+    engine.mode === GAME_MODES.ZEN &&
+    result.type === "miss" &&
+    result.reason === "empty" &&
+    (spawnTimer !== null || roundActivationFrame !== null);
+  if (result.targetRetained === true || pendingZenTarget) {
+    window.clearTimeout(decoyExpiryTimer);
+    decoyExpiryTimer = null;
+    handleMiss(result, sessionId, false);
+    return;
+  }
+
   sound.tileOff();
   window.clearTimeout(spawnTimer);
   spawnTimer = null;
@@ -901,7 +932,7 @@ function handleTileTap(event) {
   handleMiss(result, sessionId);
 }
 
-function handleMiss(result, currentSession) {
+function handleMiss(result, currentSession, scheduleNextTarget = true) {
   if (result.lifeLost) cancelDecoyCadence();
   if (result.lifeLost) sound.lifeLost();
   const reasonLabel = {
@@ -918,7 +949,7 @@ function handleMiss(result, currentSession) {
   if (engine.isRunComplete()) {
     finishGame(result.snapshot, currentSession);
   } else {
-    scheduleRound(currentSession);
+    if (scheduleNextTarget) scheduleRound(currentSession);
     if (result.lifeLost) scheduleDecoySpawn(currentSession);
   }
 }
@@ -977,10 +1008,10 @@ function finishGame(snapshot, currentSession) {
     runId: currentRunId,
     verificationAvailable:
       currentRunTicket?.runId === currentRunId &&
-      currentRunTicket?.ruleset === "reaction-proof-v1",
+      currentRunTicket?.ruleset === "reaction-proof-v2",
     proof: {
       proofVersion: currentRunTicket?.proofVersion ?? 1,
-      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v1",
+      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v2",
       buildId: currentRunTicket?.buildId ?? APP_BUILD_ID,
       events: engine.getRunProofEvents()
     },
@@ -1048,6 +1079,7 @@ function resetResultUi() {
   renderSpeedSummary(null);
   closePetShop();
   closeSettings();
+  closeAchievements();
   closeLeaderboard();
   closeProfile();
 }
@@ -1096,6 +1128,184 @@ function setLeaderboardStatus(message, isError = false) {
   elements.leaderboardStatus.classList.toggle("is-error", isError);
 }
 
+function setAchievementsStatus(message, isError = false) {
+  elements.achievementsStatus.textContent = message;
+  elements.achievementsStatus.classList.toggle("is-error", isError);
+}
+
+function renderAchievements({ updateStatus = true } = {}) {
+  const items = Array.isArray(achievementsPayload?.achievements)
+    ? achievementsPayload.achievements
+    : [];
+  const achievementsById = new Map(
+    items
+      .filter((achievement) => achievement && typeof achievement.id === "string")
+      .map((achievement) => [achievement.id, achievement])
+  );
+  const authenticated = achievementsPayload?.authenticated === true && profileSession.authenticated;
+  const totalCount = Number.isInteger(achievementsPayload?.totalCount)
+    ? achievementsPayload.totalCount
+    : elements.achievementCards.length;
+  const claimedCount = Number.isInteger(achievementsPayload?.claimedCount)
+    ? Math.min(totalCount, Math.max(0, achievementsPayload.claimedCount))
+    : 0;
+  const claimableCount = items.filter((achievement) => achievement?.state === "claimable").length;
+
+  elements.achievementsProgress.textContent = `${claimedCount} of ${totalCount} claimed`;
+  elements.achievementsSummary.textContent = authenticated
+    ? `${claimedCount} / ${totalCount} claimed`
+    : profileSession.authenticated ? "Loading…" : "Sign in to claim";
+  elements.achievementsProfileButton.hidden = authenticated;
+
+  for (const card of elements.achievementCards) {
+    const achievement = achievementsById.get(card.dataset.achievementId);
+    const state = authenticated && ["locked", "claimable", "claimed"].includes(achievement?.state)
+      ? achievement.state
+      : "locked";
+    const rewardCoins = Number.isInteger(achievement?.rewardCoins) && achievement.rewardCoins > 0
+      ? achievement.rewardCoins
+      : Number.parseInt(card.querySelector(".achievement-card__action strong")?.textContent, 10) || 0;
+    const copy = card.querySelector(".achievement-card__copy");
+    const action = card.querySelector(".achievement-card__action");
+    const isClaiming = achievementClaimId === card.dataset.achievementId;
+    const actionLabel = isClaiming
+      ? "Claiming…"
+      : state === "claimable" ? "Claim coins" : state === "claimed" ? "Claimed" : authenticated ? "In progress" : "Sign in";
+
+    if (achievement && copy) {
+      copy.querySelector("strong").textContent = achievement.title;
+      copy.querySelector("small").textContent = achievement.description;
+    }
+    if (action) {
+      action.querySelector("strong").textContent = `+${rewardCoins} ${rewardCoins === 1 ? "coin" : "coins"}`;
+      action.querySelector("small").textContent = actionLabel;
+    }
+    card.classList.remove(
+      "achievement-card--locked",
+      "achievement-card--claimable",
+      "achievement-card--claimed"
+    );
+    card.classList.add(`achievement-card--${state}`);
+    card.disabled = state !== "claimable" || achievementClaimId !== null;
+    card.toggleAttribute("aria-busy", isClaiming);
+    card.setAttribute(
+      "aria-label",
+      `${achievement?.title ?? copy?.querySelector("strong")?.textContent ?? "Achievement"}. ${actionLabel}. Reward: ${rewardCoins} ${rewardCoins === 1 ? "coin" : "coins"}.`
+    );
+  }
+
+  if (!updateStatus) return;
+  if (!authenticated) {
+    setAchievementsStatus("Sign in with Google in Profile to track and claim achievements.");
+  } else if (claimableCount > 0) {
+    setAchievementsStatus("Tap a green check to collect its coin reward.");
+  } else {
+    setAchievementsStatus("Keep playing to unlock more achievements.");
+  }
+}
+
+async function loadAchievements({ showLoading = true } = {}) {
+  const requestId = achievementsRequestId + 1;
+  achievementsRequestId = requestId;
+  if (showLoading && !elements.achievementsView.hidden) {
+    setAchievementsStatus("Loading achievements…");
+  }
+
+  try {
+    const body = await profileClient.getAchievements();
+    if (requestId !== achievementsRequestId) return;
+    if (!body || !Array.isArray(body.achievements)) {
+      throw new Error("Achievements are temporarily unavailable.");
+    }
+    achievementsPayload = body;
+    if (body.authenticated === true && Number.isInteger(body.coinBalance)) {
+      profileSession = normalizeProfileSession({
+        ...profileSession,
+        authenticated: true,
+        coinBalance: body.coinBalance
+      });
+      renderUtilityRank();
+    } else if (body.authenticated === false && profileSession.authenticated) {
+      profileSession = normalizeProfileSession({ authenticated: false });
+      renderUtilityRank();
+      renderProfile();
+      renderResultSaveState();
+    }
+    renderAchievements();
+  } catch (error) {
+    if (requestId !== achievementsRequestId) return;
+    renderAchievements({ updateStatus: false });
+    setAchievementsStatus(error.message, true);
+  }
+}
+
+async function claimAchievement(achievementId) {
+  if (!profileSession.authenticated || achievementClaimId !== null) return;
+  const achievement = achievementsPayload?.achievements?.find(
+    (item) => item?.id === achievementId && item.state === "claimable"
+  );
+  if (!achievement) return;
+
+  achievementsRequestId += 1;
+  achievementClaimId = achievementId;
+  renderAchievements({ updateStatus: false });
+  setAchievementsStatus(`Claiming “${achievement.title}”…`);
+  try {
+    const body = await profileClient.claimAchievement(achievementId);
+    if (!body || !Array.isArray(body.achievements)) {
+      throw new Error("The reward response was invalid. Refresh and try again.");
+    }
+    achievementsPayload = body;
+    if (Number.isInteger(body.coinBalance) && body.coinBalance >= 0) {
+      profileSession = normalizeProfileSession({
+        ...profileSession,
+        coinBalance: body.coinBalance
+      });
+      renderUtilityRank();
+    }
+    const coinsEarned = Number.isInteger(body.coinsEarned) ? body.coinsEarned : 0;
+    renderAchievements({ updateStatus: false });
+    setAchievementsStatus(
+      body.duplicate === true
+        ? `“${achievement.title}” was already claimed.`
+        : `${achievement.title} claimed — ${coinsEarned} ${coinsEarned === 1 ? "coin" : "coins"} added.`
+    );
+  } catch (error) {
+    if (error instanceof ProfileApiError && error.status === 401) {
+      profileSession = normalizeProfileSession({ authenticated: false });
+      achievementsPayload = null;
+      renderUtilityRank();
+      renderProfile();
+    }
+    setAchievementsStatus(error.message, true);
+  } finally {
+    achievementClaimId = null;
+    renderAchievements({ updateStatus: false });
+  }
+}
+
+function openAchievements() {
+  closeSettings();
+  closeLeaderboard();
+  closeProfile();
+  dialogView = "achievements";
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.achievementsView.hidden = false;
+  elements.dialogUtility.hidden = true;
+  elements.dialogTitle.textContent = "Achievements";
+  elements.dialogMessage.textContent = "Complete challenges, then tap a green check to collect the reward.";
+  elements.dialog.scrollTop = 0;
+  renderAchievements();
+  void loadAchievements();
+  elements.achievementsBackButton.focus({ preventScroll: true });
+}
+
+function closeAchievements() {
+  achievementsRequestId += 1;
+  elements.achievementsView.hidden = true;
+}
+
 function selectLeaderboardMode(mode) {
   leaderboardMode = mode;
   for (const tab of elements.leaderboardTabs) {
@@ -1109,6 +1319,7 @@ function selectLeaderboardMode(mode) {
 function showMenuView(focusTarget = null) {
   closePetShop();
   closeSettings();
+  closeAchievements();
   closeLeaderboard();
   closeProfile();
   setDialogView("menu");
@@ -1124,6 +1335,7 @@ function showMenuView(focusTarget = null) {
 
 function openPetShop() {
   closeSettings();
+  closeAchievements();
   closeLeaderboard();
   closeProfile();
   setDialogView("pet-shop");
@@ -1152,6 +1364,7 @@ function closePetShop() {
 
 function openSettings() {
   closePetShop();
+  closeAchievements();
   closeLeaderboard();
   closeProfile();
   setDialogView("settings");
@@ -1173,6 +1386,7 @@ function closeSettings() {
 function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
   closePetShop();
   closeSettings();
+  closeAchievements();
   closeLeaderboard();
   profileReturnView = returnView;
   setDialogView("profile");
@@ -1200,6 +1414,10 @@ function closeProfile() {
 }
 
 function returnFromProfile() {
+  if (profileReturnView === "achievements") {
+    openAchievements();
+    return;
+  }
   if (profileReturnView === "result" && pendingResult) {
     showResultView(elements.profileToggle);
     return;
@@ -1210,6 +1428,7 @@ function returnFromProfile() {
 function openLeaderboard(returnView = "menu") {
   closePetShop();
   closeSettings();
+  closeAchievements();
   closeProfile();
   leaderboardReturnView = returnView;
   leaderboardReturnScrollTop = elements.dialog.scrollTop;
@@ -1238,6 +1457,7 @@ function showResultView(focusTarget = null) {
 
   closeSettings();
   closePetShop();
+  closeAchievements();
   closeLeaderboard();
   closeProfile();
   setDialogView("result");
@@ -1647,6 +1867,10 @@ async function selectPet(petId) {
     });
     renderUtilityRank();
     renderProfile();
+    if (body.pet?.purchased === true) {
+      achievementsPayload = null;
+      void loadAchievements({ showLoading: false });
+    }
     setPetShopStatus(
       body.pet?.purchased === true
         ? `${pet.name} is yours and equipped.`
@@ -1679,6 +1903,8 @@ async function refreshProfileSession() {
   renderUtilityRank();
   renderProfile();
   renderResultSaveState();
+  renderAchievements();
+  void loadAchievements({ showLoading: false });
   if (hasConfirmedProfile() && pendingResult && !pendingResult.submitted) {
     void submitPendingResult();
   }
@@ -1883,8 +2109,11 @@ async function submitPendingResult() {
     if (pendingResult === submittedResult) {
       if (error instanceof ProfileApiError && error.status === 401) {
         profileSession = normalizeProfileSession({ authenticated: false });
+        achievementsPayload = null;
         renderUtilityRank();
         renderResultSaveState();
+        renderAchievements();
+        void loadAchievements({ showLoading: false });
         void renderGoogleButtons();
       } else {
         setResultSaveStatus(error.message, true);
@@ -1974,6 +2203,8 @@ async function handleGoogleCredential(response) {
     renderUtilityRank();
     renderProfile();
     renderResultSaveState();
+    renderAchievements();
+    void loadAchievements({ showLoading: false });
     if (!hasConfirmedProfile()) {
       const returnView = dialogView === "profile"
         ? profileReturnView
@@ -2112,9 +2343,12 @@ async function logoutProfile() {
     const body = await profileClient.logout();
     globalThis.google?.accounts?.id?.disableAutoSelect?.();
     profileSession = normalizeProfileSession(body);
+    achievementsPayload = null;
     renderUtilityRank();
     renderProfile();
     renderResultSaveState();
+    renderAchievements();
+    void loadAchievements({ showLoading: false });
     void renderGoogleButtons();
   } catch (error) {
     elements.profileStatus.textContent = error.message;
@@ -2281,6 +2515,12 @@ for (const button of elements.petShopPreviews) {
 }
 for (const button of elements.petShopActions) {
   button.addEventListener("click", () => void selectPet(button.dataset.petAction));
+}
+elements.achievementsToggle.addEventListener("click", openAchievements);
+elements.achievementsBackButton.addEventListener("click", () => showMenuView(elements.achievementsToggle));
+elements.achievementsProfileButton.addEventListener("click", () => openProfile("achievements"));
+for (const card of elements.achievementCards) {
+  card.addEventListener("click", () => void claimAchievement(card.dataset.achievementId));
 }
 elements.settingsToggle.addEventListener("click", openSettings);
 elements.settingsBackButton.addEventListener("click", () => showMenuView(elements.settingsToggle));

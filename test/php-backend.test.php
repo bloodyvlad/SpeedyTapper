@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\AchievementCatalog;
+use SpeedyTapper\CoinEconomy;
 use SpeedyTapper\CoinProgression;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\LeaderboardWindow;
@@ -68,32 +70,15 @@ $normalProof = static function (string $runId, array $reactions = [100]) use ($p
     return $proofPayload($runId, 'normal', $events);
 };
 
-$spawnRange = static function (int $hits, int $elapsedMs, ?int $challengeStartHits): array {
-    if ($elapsedMs >= 50_000) {
-        $challengeHits = $challengeStartHits === null ? 0 : max(0, $hits - $challengeStartHits);
-        $tier = intdiv($challengeHits, 10);
-        return [max(250, 425 - $tier * 15), max(500, 825 - $tier * 25)];
-    }
-    if ($elapsedMs >= 40_000) return [525, 950];
-    if ($elapsedMs >= 30_000) return [475, 900];
-    if ($elapsedMs >= 20_000) return [500, 950];
-    if ($elapsedMs >= 10_000) return [550, 1_000];
-    return [550, 1_100];
-};
-
-$zenProof = static function (string $runId) use ($proofPayload, $spawnRange): array {
+$zenProof = static function (string $runId) use ($proofPayload): array {
     $events = [];
     $handledAt = 0;
     $hits = 0;
-    $challengeStartHits = null;
+    $targetDelayMs = 1_000.0;
 
     while (true) {
-        [$minimum, $maximum] = $spawnRange($hits, $handledAt, $challengeStartHits);
-        $targetAt = $handledAt + (int) round(($minimum + $maximum) / 2);
+        $targetAt = (int) round($handledAt + $targetDelayMs);
         if ($targetAt >= 180_000) break;
-        if ($targetAt >= 50_000 && $challengeStartHits === null) {
-            $challengeStartHits = $hits;
-        }
         $dimension = $targetAt >= 40_000 ? 4 : ($hits >= 4 ? 2 : 1);
         $cell = $hits % ($dimension ** 2);
         $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell];
@@ -102,6 +87,7 @@ $zenProof = static function (string $runId) use ($proofPayload, $spawnRange): ar
         $inputAt = $targetAt + $reactionMs;
         $handledAt = $inputAt + 2;
         $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell];
+        $targetDelayMs += 0.5 * ($reactionMs - $targetDelayMs);
         $hits++;
     }
 
@@ -129,6 +115,20 @@ $assert(
     'Pet catalog ids, names, prices, and order are stable.',
 );
 $throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
+$assert(count(AchievementCatalog::all()) === 6, 'The achievement catalog exposes six stable goals.');
+$assert(
+    AchievementCatalog::require(AchievementCatalog::BUY_A_PET)['rewardCoins'] === 10,
+    'Buying a pet unlocks the ten-coin achievement reward.',
+);
+$assert(
+    CoinEconomy::applyCredit(0, 4, 3) === ['coins' => 0, 'debt' => 1, 'debtPaid' => 3],
+    'New credits pay moderation debt before becoming spendable.',
+);
+$assert(
+    CoinEconomy::applyCredit(2, 0, 3) === ['coins' => 5, 'debt' => 0, 'debtPaid' => 0],
+    'Debt-free credits become spendable coins.',
+);
+$assert(CoinEconomy::fromNet(-4) === ['coins' => 0, 'debt' => 4], 'Negative entitlement becomes coin debt.');
 
 $singleHitPayload = $normalProof('4f27f9de-37de-4c31-8090-279a037bf76a');
 $singleHit = ScoreSubmission::fromArray($singleHitPayload);
@@ -219,6 +219,29 @@ $assert(
         && in_array('missing_decoy_transitions', $zen->riskFlags, true)
         && in_array('near_uniform_godlike_reactions', $zen->riskFlags, true),
     'A long proof that silently omits the independent decoy engine is held for review.',
+);
+
+$persistentZen = $proofPayload('08fc9d30-f3e1-4e6f-9cb8-b223f6df6ec5', 'zen', [
+    [RunProof::EVENT_TARGET, 1_000, 0],
+    [RunProof::EVENT_HIT, 1_100, 1_102, 0],
+    [RunProof::EVENT_TARGET, 1_652, 0],
+    [RunProof::EVENT_HIT, 1_752, 1_754, 0],
+    [RunProof::EVENT_TARGET, 2_079, 0],
+    [RunProof::EVENT_HIT, 2_179, 2_181, 0],
+    [RunProof::EVENT_TARGET, 2_394, 0],
+    [RunProof::EVENT_HIT, 2_494, 2_496, 0],
+    [RunProof::EVENT_TARGET, 2_652, 0],
+    [RunProof::EVENT_MISS, 3_082, 3_084, RunProof::MISS_WRONG, 1],
+    [RunProof::EVENT_HIT, 3_882, 3_884, 0],
+    [RunProof::EVENT_TARGET, 4_577, 0],
+    [RunProof::EVENT_FINISH, 180_000, 180_000],
+]);
+$persistentZenScore = ScoreSubmission::fromArray($persistentZen);
+$assert(
+    $persistentZenScore->hits === 5
+        && $persistentZenScore->misses === 1
+        && $persistentZenScore->goodCount === 1,
+    'PHP replay retains a Zen target through a wrong tap and accepts its later correct tap.',
 );
 
 $tickPayload = $proofPayload('46adf276-4ab7-4ae1-8f5d-ae0ddc3a7131', 'normal', [
@@ -416,13 +439,19 @@ foreach ([
     'player_pet_selection',
     'player_pet_selection_owned_foreign',
     'legacy_easter_egg',
+    'player_achievements',
+    'total_coins_collected',
+    'coin_debt',
+    'pet_purchase',
+    'achievement_reward',
+    'coin_debt_after',
 ] as $needle) {
     $assert(str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 $assert(str_contains($schema, "ENUM(''legacy'',''verified'',''review'',''quarantined'',''deleted'')"), 'Schema preserves auditable verification and moderation states.');
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
@@ -510,11 +539,49 @@ $assert(
     is_string($petShopService)
         && str_contains($petShopService, 'beginTransaction')
         && str_contains($petShopService, 'FOR UPDATE')
-        && str_contains($petShopService, 'coins >= :price')
+        && str_contains($petShopService, 'coins >= :minimum_balance')
         && str_contains($petShopService, 'INSERT INTO player_pets')
+        && str_contains($petShopService, 'unlockBuyPetInTransaction')
+        && str_contains($petShopService, 'pet_purchase')
         && str_contains($petShopService, 'ON DUPLICATE KEY UPDATE pet_id')
         && str_contains($petShopService, 'rollBack'),
     'Buy and Change share one atomic, guarded, retry-safe selection transaction.',
+);
+$assert(
+    preg_match(
+        '~INSERT INTO player_pets.*?unlockBuyPetInTransaction.*?player_pet_selection.*?insertPurchaseLedger.*?commit\(\)~s',
+        $petShopService,
+    ) === 1,
+    'Buy a pet unlocks only inside the successful debit, ownership, selection, ledger, and commit path.',
+);
+
+$achievementService = file_get_contents(dirname(__DIR__) . '/server/src/AchievementService.php');
+$assert(
+    is_string($achievementService)
+        && str_contains($achievementService, 'unlockBuyPetInTransaction')
+        && str_contains($achievementService, "verification_status = 'verified'")
+        && str_contains($achievementService, 'achievement_reward')
+        && str_contains($achievementService, 'CoinEconomy::applyCredit'),
+    'Achievement unlocks use verified runs and durable moderation-safe rewards.',
+);
+
+$achievementMigration = file_get_contents(dirname(__DIR__) . '/server/migrations/008_player_achievements.sql');
+$assert(
+    is_string($achievementMigration)
+        && str_contains($achievementMigration, "verification_status = 'verified'")
+        && str_contains($achievementMigration, "coin_status = 'eligible'")
+        && str_contains($achievementMigration, "'DO 1'"),
+    'Achievement migration backfills only verified eligible play and reruns with executable no-ops.',
+);
+
+$moderationService = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardModerationService.php');
+$assert(
+    is_string($moderationService)
+        && str_contains($moderationService, "event_type IN ('pet_purchase','achievement_reward')")
+        && str_contains($moderationService, 'CoinEconomy::fromNet')
+        && str_contains($moderationService, "=== 'zen' ? 0 : self::DODGE_POINTS")
+        && str_contains($moderationService, 'coin_debt_after'),
+    'Moderation preserves purchases and rewards while reconciling spendable coins or debt.',
 );
 
 $migrationStatements = MigrationRunner::splitStatements(

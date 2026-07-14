@@ -172,3 +172,13 @@ final result: local candidate `20260713-15` passed automated and desktop browser
 - Physical iPhone Safari and installed-PWA/offline relaunch testing remain required. Pancake's recording was supplied by the user, but independent redistribution clearance for its online source has not been established; confirm it before a public production release.
 
 final result: local candidate `20260713-16` passed automated and desktop browser-runtime QA; it is not deployed and still requires physical iPhone and Pancake-rights validation
+
+## Integrated Candidate 20260714-1 Automated QA
+
+- This entry records automated integration evidence only; it is not proof of the active production deployment or physical-iPhone behavior.
+- Anti-cheat run proofs, uniform Interactive Music cues, persistent adaptive three-minute Zen, six achievements, and the five-pet shop are combined in one release graph.
+- The **Buy a pet** achievement is unlocked by the committed server purchase transaction after debit and ownership creation, never by the browser button click. Failed and repeated owned-pet selections do not qualify.
+- Economy reconciliation retains pet debits and achievement rewards and represents spent revoked earnings as debt, preventing moderation from restoring purchased coins.
+- `npm run check` passed on the unified `20260714-1` graph with 151 JavaScript tests and 116 PHP assertions. Fresh MariaDB 11.4 checks also passed for migrations `001`–`009`, idempotent reruns, native-prepared atomic purchase/unlock, duplicate-safe achievement claims, legacy wallet preservation, and moderation debt reconciliation. A clean-commit check and Hostinger smoke test are still required.
+- Local browser smoke passed for the main menu, all six signed-out achievement cards, all five Pet Shop cards, compact 320×568 horizontal fit, Arcade start, timed life loss, Game Over, and navigation. The static development server intentionally had no profile API; authenticated Google and purchase UI remain production-smoke items.
+- Physical iPhone Safari/PWA touch, audio balance, Google sign-in, pet layout, and upgrade-cache validation remain required before this release is described as device-validated.

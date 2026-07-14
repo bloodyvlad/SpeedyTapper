@@ -500,3 +500,42 @@ Use five directional poses for the four animals plus their authored idle behavio
 Consequences: Purchases and run credits serialize on the player row, ownership is durable, retries cannot charge an owned pet again, and all runtime sprites/habitats enter the versioned offline shell. Asset provenance is retained in `assets/pets/SOURCES.md`; physical-iPhone Safari and installed-PWA checks remain required before the visuals are described as device-validated.
 
 Revisit when: Pets gain gameplay effects, refunds, gifts, randomized acquisition, real-money value, historical cosmetic snapshots, additional animation states, or distribution rights require replacing a supplied source.
+
+## D-038 — Make Zen targets persistent and reaction-adaptive
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: A fixed target deadline makes the three-minute no-lives mode feel like Arcade without its terminal consequence. Zen needs continuous flow while remaining deterministic enough for browser/PHP proof parity.
+
+Decision: Keep each correct-color Zen target visible until the player taps it correctly or the exact 180-second run deadline arrives. Wrong-color, decoy, and empty-board inputs remain mistakes and reset the boost, but they clear live decoys and retain the target. Zen has no target-response deadline. Begin its target-to-target quiet interval at 1,000 ms and, after each correct tap, move that interval halfway toward the rounded reaction time. Natural decoy expiry records a dodge but awards zero Zen points. Implement the identical transition rules in the JavaScript engine and PHP proof replay.
+
+Consequences: Zen measures sustained score and self-selected cadence rather than survival. A slower reaction also slows the following presentation, while fast correct play accelerates it. The mode still ends exactly at 180,000 logical milliseconds and submits a chronological proof; old issued attempts are invalidated by the new build and ruleset identifiers.
+
+Revisit when: Playtesting favors a minimum/maximum cadence clamp, Zen should retain multiplier progress through mistakes, or adaptive timing creates undesirable score incentives.
+
+## D-039 — Make achievements durable, verified, and transactionally connected to pets
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Six planned achievements include **Buy a pet**, which could not be completed safely before Pet Shop ownership existed. A browser click is not proof of purchase, and unverified legacy or held runs must not mint achievement rewards.
+
+Decision: Store per-player achievement unlock and claim state in MySQL. Unlock gameplay achievements only from protocol-verified, coin-eligible completed runs. Claims are CSRF-protected, idempotent, and append a positive `achievement_reward` coin-ledger event. Unlock **Buy a pet** inside the first-purchase database transaction after the player debit and ownership insert and before commit; insufficient funds, rollback, an already-owned pet, or a mere Buy click do not qualify. Refresh achievement presentation only after the committed purchase response.
+
+Consequences: Purchase ownership and its achievement cannot disagree after a successful transaction. Verified achievement unlocks and claimed rewards are durable player progression and are not automatically revoked when a contributing run is later moderated; this is an explicit product policy, while unverified legacy/review/quarantined runs never unlock them in the first place.
+
+Revisit when: Achievement rewards gain real-money value, moderation must revoke source-specific unlocks, or achievements need multiple contributing-run references.
+
+## D-040 — Reconcile spendable coins with an immutable debt-aware economy ledger
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Recomputing a wallet only from eligible play time would recreate coins already spent on pets and erase achievement rewards. Quarantining cheated earnings after they were spent also cannot be represented safely by clamping a recalculated balance to zero.
+
+Decision: Retain immutable play-credit events and add negative `pet_purchase` plus positive `achievement_reward` ledger events. Define net entitlement as eligible verified/retained play credit plus economy events. Store either a nonnegative spendable balance or a nonnegative `coin_debt`, never both; future run and achievement credits pay debt first. Moderation recomputes the full eligible timeline and appends a reconciliation event instead of deleting economic history.
+
+Consequences: Reversible score moderation no longer grants free pets, erases legitimate rewards, or leaves already-spent revoked coins as unearned purchasing power. Purchases remain serialized on the player row. The currency still has no real-money or redeemable value, and production migrations must preserve existing legitimate balances while introducing the exact ledger model.
+
+Revisit when: Refunds, gifts, chargebacks, real-money purchases, cross-profile transfers, or an external accounting system are introduced.

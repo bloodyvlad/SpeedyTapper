@@ -93,6 +93,17 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       return mutation("/api/pets/select", "POST", { petId });
     },
 
+    getAchievements() {
+      return request("/api/achievements");
+    },
+
+    claimAchievement(id) {
+      if (typeof id !== "string" || id.length === 0) {
+        throw new TypeError("An achievement ID is required.");
+      }
+      return mutation("/api/achievements/claim", "POST", { id });
+    },
+
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
     },
