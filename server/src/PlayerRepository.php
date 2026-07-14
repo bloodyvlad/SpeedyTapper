@@ -6,22 +6,40 @@ namespace SpeedyTapper;
 
 use PDO;
 use PDOException;
+use Throwable;
 
 final class PlayerRepository
 {
-    public function __construct(private readonly PDO $database)
-    {
+    public function __construct(
+        private readonly PDO $database,
+        private readonly PetShopService $pets,
+    ) {
     }
 
     public function find(string $playerId): ?array
     {
-        $statement = $this->database->prepare(
-            'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at '
-            . 'FROM players WHERE id = :id LIMIT 1'
-        );
-        $statement->execute(['id' => $playerId]);
-        $row = $statement->fetch();
-        return is_array($row) ? $this->publicProfile($row) : null;
+        $ownsTransaction = !$this->database->inTransaction();
+        if ($ownsTransaction) {
+            $this->database->beginTransaction();
+        }
+        try {
+            $statement = $this->database->prepare(
+                'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at '
+                . 'FROM players WHERE id = :id LIMIT 1'
+            );
+            $statement->execute(['id' => $playerId]);
+            $row = $statement->fetch();
+            $profile = is_array($row) ? $this->publicProfile($row) : null;
+            if ($ownsTransaction) {
+                $this->database->commit();
+            }
+            return $profile;
+        } catch (Throwable $error) {
+            if ($ownsTransaction && $this->database->inTransaction()) {
+                $this->database->rollBack();
+            }
+            throw $error;
+        }
     }
 
     public function findOrCreate(GoogleIdentity $identity): array
@@ -38,7 +56,8 @@ final class PlayerRepository
             $this->database->prepare(
                 'UPDATE players SET last_login_at = UTC_TIMESTAMP(3) WHERE id = :id'
             )->execute(['id' => $existing['id']]);
-            return $this->publicProfile($existing);
+            return $this->find((string) $existing['id'])
+                ?? throw new \RuntimeException('Existing profile could not be loaded.');
         }
 
         $id = Uuid::v4();
@@ -60,7 +79,8 @@ final class PlayerRepository
             if (!is_array($winner)) {
                 throw $error;
             }
-            return $this->publicProfile($winner);
+            return $this->find((string) $winner['id'])
+                ?? throw new \RuntimeException('Existing profile could not be loaded.');
         }
 
         return $this->find($id) ?? throw new \RuntimeException('Created profile could not be loaded.');
@@ -82,12 +102,15 @@ final class PlayerRepository
 
     private function publicProfile(array $row): array
     {
+        $petState = $this->pets->state((string) $row['id']);
         return [
             'id' => (string) $row['id'],
             'nickname' => (string) $row['nickname'],
             'nicknameConfirmed' => (bool) $row['nickname_confirmed'],
             'coins' => (int) $row['coins'],
             'totalPlayMs' => (int) $row['total_play_ms'],
+            'ownedPetIds' => $petState['ownedPetIds'],
+            'equippedPetId' => $petState['equippedPetId'],
             'createdAt' => self::isoDate((string) $row['created_at']),
             'updatedAt' => self::isoDate((string) $row['updated_at']),
         ];

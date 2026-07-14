@@ -82,6 +82,17 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
       return mutation("/api/profile", "PATCH", { nickname });
     },
 
+    getPets() {
+      return request("/api/pets");
+    },
+
+    selectPet(petId) {
+      if (typeof petId !== "string" || petId.length === 0) {
+        throw new TypeError("A pet id is required.");
+      }
+      return mutation("/api/pets/select", "POST", { petId });
+    },
+
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
     },

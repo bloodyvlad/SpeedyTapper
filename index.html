@@ -98,12 +98,19 @@
         </div>
         <section class="streak-meter" id="streak-meter" data-multiplier="1" aria-label="Fast-reaction streak: 0 of 5 toward 2 times score">
           <span
-            class="misha-pet misha-pet--game"
-            id="misha-game-pet"
+            class="pet-scene pet-scene--game"
+            id="game-pet-scene"
+            data-pet="none"
             data-facing="front"
+            data-pose="awake"
+            data-habitat="false"
             hidden
             aria-hidden="true"
-          ></span>
+          >
+            <span class="pet-habitat pet-habitat--back"></span>
+            <span class="pet-sprite"></span>
+            <span class="pet-habitat pet-habitat--front"></span>
+          </span>
           <div class="streak-meter__track" aria-hidden="true">
             <span class="streak-meter__fill" id="streak-meter-fill"></span>
             <span class="streak-meter__label">Speed streak</span>
@@ -163,21 +170,18 @@
           </nav>
         </header>
         <span
-          class="misha-menu-scene"
-          id="misha-menu-scene"
-          data-climber="true"
+          class="pet-scene pet-scene--menu"
+          id="menu-pet-scene"
+          data-pet="none"
+          data-facing="front"
+          data-pose="awake"
+          data-habitat="true"
           hidden
           aria-hidden="true"
         >
-          <span class="misha-climber misha-climber--back"></span>
-          <span
-            class="misha-pet misha-pet--menu"
-            id="misha-menu-pet"
-            data-facing="front"
-            data-pose="awake"
-            hidden
-          ></span>
-          <span class="misha-climber misha-climber--front"></span>
+          <span class="pet-habitat pet-habitat--back"></span>
+          <span class="pet-sprite"></span>
+          <span class="pet-habitat pet-habitat--front"></span>
         </span>
         <h1 id="dialog-title">Ready to react?</h1>
         <p class="dialog__lead" id="dialog-message">
@@ -245,6 +249,15 @@
             <div class="menu-spacer" aria-hidden="true"></div>
             <button
               class="secondary-button settings-toggle"
+              id="pet-shop-toggle"
+              type="button"
+              aria-controls="pet-shop-view"
+            >
+              <span>Pet Shop</span>
+              <span class="settings-toggle__value" id="pet-shop-current">No pet</span>
+            </button>
+            <button
+              class="secondary-button settings-toggle"
               id="settings-toggle"
               type="button"
               aria-controls="settings-view"
@@ -255,6 +268,73 @@
           </div>
           <button class="install-button" id="install-button" type="button" hidden>Install app</button>
           <p class="install-note">On iPhone: open in Safari, tap Share, then <strong>Add to Home Screen</strong>.</p>
+        </div>
+        <div class="overlay-view" id="pet-shop-view" hidden>
+          <button class="secondary-button view-back-button" id="pet-shop-back-button" type="button">← Back</button>
+          <section class="pet-shop-panel" aria-labelledby="pet-shop-heading">
+            <div class="section-heading pet-shop-heading">
+              <h2 id="pet-shop-heading">Pet Shop</h2>
+              <span class="pet-shop-balance" id="pet-shop-balance">0 coins</span>
+            </div>
+            <p class="form-status pet-shop-status" id="pet-shop-status" aria-live="polite"></p>
+            <div class="pet-shop-list" id="pet-shop-list">
+              <article class="pet-card" data-pet-card="foka">
+                <button class="pet-preview-button" type="button" data-pet-preview="foka" aria-label="Play Foka animation">
+                  <span class="pet-preview-scene" data-pet="foka" data-pose="preview" data-facing="front" data-habitat="true" aria-hidden="true">
+                    <span class="pet-habitat pet-habitat--back"></span><span class="pet-sprite"></span><span class="pet-habitat pet-habitat--front"></span>
+                  </span>
+                </button>
+                <div class="pet-card__copy"><strong>Foka</strong><small>Baby seal · Ice floe</small></div>
+                <span class="pet-card__price" aria-label="10 coins"><span aria-hidden="true">●</span> 10</span>
+                <button class="primary-button pet-card__action" type="button" data-pet-action="foka">Buy</button>
+                <span class="pet-card__equipped" data-pet-equipped="foka" hidden>Equipped</span>
+              </article>
+              <article class="pet-card" data-pet-card="kesha">
+                <button class="pet-preview-button" type="button" data-pet-preview="kesha" aria-label="Play Kesha animation">
+                  <span class="pet-preview-scene" data-pet="kesha" data-pose="preview" data-facing="front" data-habitat="true" aria-hidden="true">
+                    <span class="pet-habitat pet-habitat--back"></span><span class="pet-sprite"></span><span class="pet-habitat pet-habitat--front"></span>
+                  </span>
+                </button>
+                <div class="pet-card__copy"><strong>Kesha</strong><small>Green-yellow parrot · Perch</small></div>
+                <span class="pet-card__price" aria-label="20 coins"><span aria-hidden="true">●</span> 20</span>
+                <button class="primary-button pet-card__action" type="button" data-pet-action="kesha">Buy</button>
+                <span class="pet-card__equipped" data-pet-equipped="kesha" hidden>Equipped</span>
+              </article>
+              <article class="pet-card" data-pet-card="tauta">
+                <button class="pet-preview-button" type="button" data-pet-preview="tauta" aria-label="Play Tauta animation">
+                  <span class="pet-preview-scene" data-pet="tauta" data-pose="preview" data-facing="front" data-habitat="true" aria-hidden="true">
+                    <span class="pet-habitat pet-habitat--back"></span><span class="pet-sprite"></span><span class="pet-habitat pet-habitat--front"></span>
+                  </span>
+                </button>
+                <div class="pet-card__copy"><strong>Tauta</strong><small>Border collie · Cozy brown bed</small></div>
+                <span class="pet-card__price" aria-label="50 coins"><span aria-hidden="true">●</span> 50</span>
+                <button class="primary-button pet-card__action" type="button" data-pet-action="tauta">Buy</button>
+                <span class="pet-card__equipped" data-pet-equipped="tauta" hidden>Equipped</span>
+              </article>
+              <article class="pet-card" data-pet-card="misha">
+                <button class="pet-preview-button" type="button" data-pet-preview="misha" aria-label="Play Misha animation">
+                  <span class="pet-preview-scene" data-pet="misha" data-pose="preview" data-facing="front" data-habitat="true" aria-hidden="true">
+                    <span class="pet-habitat pet-habitat--back"></span><span class="pet-sprite"></span><span class="pet-habitat pet-habitat--front"></span>
+                  </span>
+                </button>
+                <div class="pet-card__copy"><strong>Misha</strong><small>Grey cat · Climber</small></div>
+                <span class="pet-card__price" aria-label="100 coins"><span aria-hidden="true">●</span> 100</span>
+                <button class="primary-button pet-card__action" type="button" data-pet-action="misha">Buy</button>
+                <span class="pet-card__equipped" data-pet-equipped="misha" hidden>Equipped</span>
+              </article>
+              <article class="pet-card" data-pet-card="pancake">
+                <button class="pet-preview-button" type="button" data-pet-preview="pancake" aria-label="Play Pancake animation">
+                  <span class="pet-preview-scene" data-pet="pancake" data-pose="preview" data-facing="right" data-habitat="true" aria-hidden="true">
+                    <span class="pet-habitat pet-habitat--back"></span><span class="pet-sprite"></span><span class="pet-habitat pet-habitat--front"></span>
+                  </span>
+                </button>
+                <div class="pet-card__copy"><strong>Pancake</strong><small>Dancing pancake · Glow line</small></div>
+                <span class="pet-card__price" aria-label="500 coins"><span aria-hidden="true">●</span> 500</span>
+                <button class="primary-button pet-card__action" type="button" data-pet-action="pancake">Buy</button>
+                <span class="pet-card__equipped" data-pet-equipped="pancake" hidden>Equipped</span>
+              </article>
+            </div>
+          </section>
         </div>
         <div class="overlay-view" id="settings-view" hidden>
           <button class="secondary-button view-back-button" id="settings-back-button" type="button">← Back</button>

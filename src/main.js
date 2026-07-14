@@ -15,7 +15,13 @@ import {
   resolveInteractiveMusicSection,
   resolveMusicStage
 } from "./music-controller.js?v=20260713-16";
-import { createMishaController } from "./misha-controller.js?v=20260713-16";
+import {
+  getPet,
+  isPetId,
+  normalizeOwnedPetIds,
+  PET_CATALOG
+} from "./pet-catalog.js?v=20260713-16";
+import { createPetController } from "./pet-controller.js?v=20260713-16";
 import { createSoundController } from "./sound-controller.js?v=20260713-16";
 import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260713-16";
 
@@ -69,9 +75,8 @@ const elements = {
   leaderboardView: document.querySelector("#leaderboard-view"),
   mainMenuButton: document.querySelector("#main-menu-button"),
   mainMenuContent: document.querySelector("#main-menu-content"),
-  mishaGamePet: document.querySelector("#misha-game-pet"),
-  mishaMenuPet: document.querySelector("#misha-menu-pet"),
-  mishaMenuScene: document.querySelector("#misha-menu-scene"),
+  gamePetScene: document.querySelector("#game-pet-scene"),
+  menuPetScene: document.querySelector("#menu-pet-scene"),
   modeLabel: document.querySelector("#mode-label"),
   modeName: document.querySelector("#mode-name"),
   musicToggle: document.querySelector("#music-toggle"),
@@ -94,6 +99,16 @@ const elements = {
   profileStatus: document.querySelector("#profile-status"),
   profileToggle: document.querySelector("#profile-toggle"),
   profileView: document.querySelector("#profile-view"),
+  petShopActions: [...document.querySelectorAll("[data-pet-action]")],
+  petShopBackButton: document.querySelector("#pet-shop-back-button"),
+  petShopBalance: document.querySelector("#pet-shop-balance"),
+  petShopCards: [...document.querySelectorAll("[data-pet-card]")],
+  petShopCurrent: document.querySelector("#pet-shop-current"),
+  petShopEquippedBadges: [...document.querySelectorAll("[data-pet-equipped]")],
+  petShopPreviews: [...document.querySelectorAll("[data-pet-preview]")],
+  petShopStatus: document.querySelector("#pet-shop-status"),
+  petShopToggle: document.querySelector("#pet-shop-toggle"),
+  petShopView: document.querySelector("#pet-shop-view"),
   responseProgress: document.querySelector("#response-progress"),
   responseProgressFill: document.querySelector("#response-progress-fill"),
   resultRestartButton: document.querySelector("#result-restart-button"),
@@ -130,10 +145,9 @@ const elements = {
 
 const engine = new GameEngine();
 const profileClient = createProfileClient();
-const misha = createMishaController({
-  menuScene: elements.mishaMenuScene,
-  menuPet: elements.mishaMenuPet,
-  gameplayPet: elements.mishaGamePet,
+const pets = createPetController({
+  menuScene: elements.menuPetScene,
+  gameplayScene: elements.gamePetScene,
   board: elements.board,
   dialog: elements.dialog,
   gameArea: elements.gameArea,
@@ -183,6 +197,9 @@ let dialogView = "menu";
 let profileReturnView = "menu";
 let profileMode = GAME_MODES.NORMAL;
 let profileRequestId = 0;
+let petShopMutationId = 0;
+let petShopPendingPetId = null;
+const petPreviewTimers = new Map();
 let profileSession = Object.freeze({
   authenticated: false,
   googleClientId: null,
@@ -237,12 +254,12 @@ function createRunId() {
 function setOverlayVisible(visible) {
   elements.overlay.hidden = !visible;
   elements.app.inert = visible;
-  misha.setGameplayVisible(!visible);
+  pets.setGameplayVisible(!visible);
 }
 
 function setDialogView(view) {
   dialogView = view;
-  misha.setMenuView(view);
+  pets.setMenuView(view);
 }
 
 function formatDuration(milliseconds, showTenths = false) {
@@ -841,7 +858,7 @@ function handleTileTap(event) {
   }
   const result = engine.tap(cellIndex, inputAt, handledAt);
   if (result.type === "ignored") return;
-  misha.turnToward(event.clientX);
+  pets.handleGameplayTap(event.clientX);
 
   sound.tileOff();
   window.clearTimeout(spawnTimer);
@@ -1029,6 +1046,7 @@ function resetResultUi() {
   elements.resultScoreValue.textContent = "0";
   elements.resultGoogleSignin.hidden = true;
   renderSpeedSummary(null);
+  closePetShop();
   closeSettings();
   closeLeaderboard();
   closeProfile();
@@ -1089,6 +1107,7 @@ function selectLeaderboardMode(mode) {
 }
 
 function showMenuView(focusTarget = null) {
+  closePetShop();
   closeSettings();
   closeLeaderboard();
   closeProfile();
@@ -1103,7 +1122,36 @@ function showMenuView(focusTarget = null) {
   focusTarget?.focus({ preventScroll: true });
 }
 
+function openPetShop() {
+  closeSettings();
+  closeLeaderboard();
+  closeProfile();
+  setDialogView("pet-shop");
+  elements.mainMenuContent.hidden = true;
+  elements.resultContent.hidden = true;
+  elements.petShopView.hidden = false;
+  elements.dialogUtility.hidden = true;
+  elements.dialogTitle.textContent = "Pet Shop";
+  elements.dialogMessage.textContent = "Tap a pet to preview its animation. Buy equips immediately; Change selects a pet you own.";
+  elements.dialog.scrollTop = 0;
+  elements.petShopToggle.setAttribute("aria-expanded", "true");
+  setPetShopStatus(
+    profileSession.authenticated
+      ? "Tap an icon to play its animation."
+      : "Sign in from Profile before buying pets."
+  );
+  renderPetShop();
+  void music.unlock();
+  elements.petShopBackButton.focus({ preventScroll: true });
+}
+
+function closePetShop() {
+  elements.petShopView.hidden = true;
+  elements.petShopToggle.setAttribute("aria-expanded", "false");
+}
+
 function openSettings() {
+  closePetShop();
   closeLeaderboard();
   closeProfile();
   setDialogView("settings");
@@ -1123,6 +1171,7 @@ function closeSettings() {
 }
 
 function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
+  closePetShop();
   closeSettings();
   closeLeaderboard();
   profileReturnView = returnView;
@@ -1159,6 +1208,7 @@ function returnFromProfile() {
 }
 
 function openLeaderboard(returnView = "menu") {
+  closePetShop();
   closeSettings();
   closeProfile();
   leaderboardReturnView = returnView;
@@ -1187,6 +1237,7 @@ function showResultView(focusTarget = null) {
   }
 
   closeSettings();
+  closePetShop();
   closeLeaderboard();
   closeProfile();
   setDialogView("result");
@@ -1248,6 +1299,17 @@ function renderLeaderboard(
     rank.className = "leaderboard-entry__rank";
     rank.textContent = String(entryRank);
 
+    const avatar = document.createElement("span");
+    avatar.className = "leaderboard-entry__avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    const avatarPetId = isPetId(entry.petId) ? entry.petId : null;
+    avatar.dataset.pet = avatarPetId ?? "none";
+    if (avatarPetId !== null) {
+      const sprite = document.createElement("span");
+      sprite.className = "pet-sprite";
+      avatar.append(sprite);
+    }
+
     const player = document.createElement("div");
     player.className = "leaderboard-entry__player";
     const nameLine = document.createElement("div");
@@ -1289,7 +1351,7 @@ function renderLeaderboard(
     score.className = "leaderboard-entry__score";
     score.textContent = entry.score.toLocaleString();
 
-    row.append(rank, player, score);
+    row.append(rank, avatar, player, score);
     fragment.append(row);
     previousRank = entryRank;
   }
@@ -1403,6 +1465,24 @@ function normalizeRank(value) {
   });
 }
 
+function normalizeProfile(value) {
+  if (!value || typeof value !== "object") return null;
+  const normalized = { ...value };
+  const hasOwnedPetIds = Object.hasOwn(value, "ownedPetIds");
+  const hasEquippedPetId = Object.hasOwn(value, "equippedPetId");
+  if (hasOwnedPetIds) {
+    normalized.ownedPetIds = normalizeOwnedPetIds(value.ownedPetIds);
+  }
+  if (hasEquippedPetId) {
+    const equippedPetId = isPetId(value.equippedPetId) ? value.equippedPetId : null;
+    normalized.equippedPetId = equippedPetId !== null
+      && (!hasOwnedPetIds || normalized.ownedPetIds.includes(equippedPetId))
+      ? equippedPetId
+      : null;
+  }
+  return Object.freeze(normalized);
+}
+
 function normalizeProfileSession(body = {}) {
   const authenticated = body.authenticated === undefined
     ? profileSession.authenticated
@@ -1426,20 +1506,21 @@ function normalizeProfileSession(body = {}) {
     });
   }
   const receivedCoinBalance = [
-    body.coinBalance,
-    body.coins,
+    body.profile?.coins,
     body.profile?.coinBalance,
-    body.profile?.coins
+    body.coinBalance,
+    body.coins
   ].find((value) => Number.isInteger(value) && value >= 0);
+  const profile = body.profile === undefined
+    ? authenticated ? profileSession.profile : null
+    : normalizeProfile(body.profile);
   return Object.freeze({
     authenticated,
     googleClientId:
       typeof body.googleClientId === "string" && body.googleClientId.length > 0
         ? body.googleClientId
         : profileSession.googleClientId,
-    profile: body.profile === undefined
-      ? authenticated ? profileSession.profile : null
-      : body.profile && typeof body.profile === "object" ? body.profile : null,
+    profile,
     ranks: Object.freeze(ranks),
     coinBalance: authenticated
       ? receivedCoinBalance ?? profileSession.coinBalance ?? 0
@@ -1465,10 +1546,131 @@ function renderUtilityRank() {
     `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`
   );
   elements.profileToggle.classList.toggle("is-authenticated", profileSession.authenticated);
-  misha.setProfileSession(profileSession);
+  pets.setProfileSession(profileSession);
+  renderPetShop();
+}
+
+function currentPetShopState() {
+  const equippedPetId = pets.getState().petId;
+  const ownedPetIds = new Set(normalizeOwnedPetIds(profileSession.profile?.ownedPetIds));
+  const hasPersistedPetState = profileSession.profile
+    && (Object.hasOwn(profileSession.profile, "ownedPetIds")
+      || Object.hasOwn(profileSession.profile, "equippedPetId"));
+  if (!hasPersistedPetState && equippedPetId !== null) ownedPetIds.add(equippedPetId);
+  return { equippedPetId, ownedPetIds };
+}
+
+function setPetShopStatus(message = "", isError = false) {
+  elements.petShopStatus.textContent = message;
+  elements.petShopStatus.classList.toggle("is-error", isError);
+}
+
+function renderPetShop() {
+  const { equippedPetId, ownedPetIds } = currentPetShopState();
+  const equippedPet = getPet(equippedPetId);
+  elements.petShopCurrent.textContent = equippedPet?.name ?? "No pet";
+  elements.petShopBalance.textContent = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
+
+  for (const pet of PET_CATALOG) {
+    const owned = ownedPetIds.has(pet.id);
+    const equipped = equippedPetId === pet.id;
+    const card = elements.petShopCards.find((item) => item.dataset.petCard === pet.id);
+    const action = elements.petShopActions.find((item) => item.dataset.petAction === pet.id);
+    const badge = elements.petShopEquippedBadges.find(
+      (item) => item.dataset.petEquipped === pet.id
+    );
+    card?.classList.toggle("is-equipped", equipped);
+    if (!action || !badge) continue;
+    action.textContent = owned ? "Change" : "Buy";
+    action.hidden = equipped;
+    badge.hidden = !equipped;
+    action.disabled = petShopPendingPetId !== null
+      || !profileSession.authenticated
+      || (!owned && profileSession.coinBalance < pet.priceCoins);
+    action.setAttribute(
+      "aria-label",
+      owned
+        ? `Change pet to ${pet.name}`
+        : `Buy ${pet.name} for ${pet.priceCoins} coins and equip immediately`
+    );
+  }
+}
+
+function playPetPreview(button) {
+  const scene = button.querySelector(".pet-preview-scene");
+  if (!scene) return;
+  const existingTimer = petPreviewTimers.get(scene);
+  if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+  if (scene.dataset.pet === "pancake") {
+    scene.dataset.facing = scene.dataset.facing === "left" ? "right" : "left";
+  }
+  scene.classList.remove("is-animating");
+  void scene.offsetWidth;
+  scene.classList.add("is-animating");
+  const timerId = window.setTimeout(() => {
+    scene.classList.remove("is-animating");
+    petPreviewTimers.delete(scene);
+  }, 1_500);
+  petPreviewTimers.set(scene, timerId);
+}
+
+function invalidatePetShopMutation() {
+  petShopMutationId += 1;
+  petShopPendingPetId = null;
+}
+
+async function selectPet(petId) {
+  const pet = getPet(petId);
+  if (!pet || petShopPendingPetId !== null) return;
+  if (!profileSession.authenticated) {
+    setPetShopStatus("Sign in from Profile before buying or changing pets.", true);
+    return;
+  }
+  const { ownedPetIds } = currentPetShopState();
+  if (!ownedPetIds.has(petId) && profileSession.coinBalance < pet.priceCoins) {
+    setPetShopStatus(`You need ${pet.priceCoins.toLocaleString()} coins to buy ${pet.name}.`, true);
+    return;
+  }
+
+  const mutationId = petShopMutationId + 1;
+  petShopMutationId = mutationId;
+  petShopPendingPetId = petId;
+  setPetShopStatus(ownedPetIds.has(petId) ? `Changing to ${pet.name}…` : `Buying ${pet.name}…`);
+  renderPetShop();
+  try {
+    const body = await profileClient.selectPet(petId);
+    if (mutationId !== petShopMutationId) return;
+    profileSession = normalizeProfileSession({
+      ...body,
+      authenticated: true,
+      googleClientId: profileSession.googleClientId
+    });
+    renderUtilityRank();
+    renderProfile();
+    setPetShopStatus(
+      body.pet?.purchased === true
+        ? `${pet.name} is yours and equipped.`
+        : `${pet.name} is equipped.`
+    );
+    elements.petShopPreviews
+      .find((button) => button.dataset.petPreview === petId)
+      ?.focus({ preventScroll: true });
+  } catch (error) {
+    if (mutationId !== petShopMutationId) return;
+    setPetShopStatus(
+      error instanceof ProfileApiError ? error.message : "The pet could not be selected right now.",
+      true
+    );
+  } finally {
+    if (mutationId === petShopMutationId) {
+      petShopPendingPetId = null;
+      renderPetShop();
+    }
+  }
 }
 
 async function refreshProfileSession() {
+  invalidatePetShopMutation();
   try {
     profileSession = normalizeProfileSession(await profileClient.getSession());
   } catch {
@@ -1862,7 +2064,7 @@ function renderProfileRank() {
 
 function renderProfile() {
   if (!elements.profileView) return;
-  misha.setProfileSession(profileSession);
+  pets.setProfileSession(profileSession);
   elements.profileSignedIn.hidden = !profileSession.authenticated;
   elements.profileSignedOut.hidden = profileSession.authenticated;
   if (!profileSession.authenticated) {
@@ -1902,6 +2104,7 @@ async function saveProfileNickname(event) {
 }
 
 async function logoutProfile() {
+  invalidatePetShopMutation();
   elements.profileLogout.disabled = true;
   elements.profileStatus.classList.remove("is-error");
   elements.profileStatus.textContent = "Logging out…";
@@ -2071,6 +2274,14 @@ elements.gameRestartButton.addEventListener("click", restartCurrentMode);
 elements.gameMenuButton.addEventListener("click", showMainMenu);
 elements.resultRestartButton.addEventListener("click", restartCurrentMode);
 elements.mainMenuButton.addEventListener("click", showMainMenu);
+elements.petShopToggle.addEventListener("click", openPetShop);
+elements.petShopBackButton.addEventListener("click", () => showMenuView(elements.petShopToggle));
+for (const button of elements.petShopPreviews) {
+  button.addEventListener("click", () => playPetPreview(button));
+}
+for (const button of elements.petShopActions) {
+  button.addEventListener("click", () => void selectPet(button.dataset.petAction));
+}
 elements.settingsToggle.addEventListener("click", openSettings);
 elements.settingsBackButton.addEventListener("click", () => showMenuView(elements.settingsToggle));
 for (const input of elements.themeInputs) {
@@ -2120,7 +2331,7 @@ document.addEventListener("visibilitychange", pauseForVisibilityChange);
 document.addEventListener("pointerdown", (event) => {
   if (musicEnabled) void music.unlock();
   const viewport = window.visualViewport;
-  misha.handleNonGameTap(event.clientX, {
+  pets.handleNonGameTap(event.clientX, {
     left: viewport?.offsetLeft ?? 0,
     width: viewport?.width ?? document.documentElement.clientWidth
   });

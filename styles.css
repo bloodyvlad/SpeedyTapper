@@ -170,69 +170,89 @@ button {
   gap: 8px;
 }
 
-.misha-pet {
+.pet-scene,
+.pet-preview-scene {
+  --pet-facing-frame: 0%;
+  position: relative;
   width: 64px;
   height: 64px;
-  background-image: url("./assets/pets/misha-sprite.png");
-  background-position: 0 0;
-  background-repeat: no-repeat;
-  background-size: 900% 100%;
-  image-rendering: crisp-edges;
-  image-rendering: pixelated;
   pointer-events: none;
-  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.54));
 }
 
-.misha-menu-scene[hidden],
-.misha-pet[hidden] {
+.pet-scene[hidden] {
   display: none;
 }
 
-.misha-menu-scene {
+.pet-scene--menu {
   position: absolute;
   z-index: 3;
   top: calc(clamp(22px, 6vw, 32px) + 50px);
   right: calc(clamp(22px, 6vw, 32px) - 10px);
-  width: 64px;
-  height: 64px;
-  pointer-events: none;
 }
 
-.misha-menu-scene[data-climber="true"] {
+.pet-scene--menu[data-habitat="true"] {
   height: 144px;
 }
 
-.misha-menu-scene[data-climber="false"] .misha-climber {
-  display: none;
-}
-
-.misha-pet--menu {
+.pet-sprite {
   position: absolute;
   z-index: 2;
   top: 0;
   right: 0;
+  width: 64px;
+  height: 64px;
+  background-position: var(--pet-facing-frame) 0;
+  background-repeat: no-repeat;
+  background-size: 1000% 100%;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.54));
+  transform-origin: center;
 }
 
-.misha-pet--menu[data-pose="awake"][data-facing="left"] {
-  animation: misha-turn-left 300ms steps(1, end) forwards;
+[data-pet="foka"] > .pet-sprite {
+  background-image: url("./assets/pets/foka-sprite.png");
 }
 
-.misha-pet--menu[data-pose="awake"][data-facing="right"] {
-  animation: misha-turn-right 300ms steps(1, end) forwards;
+[data-pet="kesha"] > .pet-sprite {
+  background-image: url("./assets/pets/kesha-sprite.png");
 }
 
-.misha-pet--menu[data-pose="sleeping"] {
-  animation: none;
-  background-position: 100% 0;
+[data-pet="tauta"] > .pet-sprite {
+  background-image: url("./assets/pets/tauta-sprite.png");
 }
 
-.misha-climber {
+[data-pet="misha"] > .pet-sprite {
+  background-image: url("./assets/pets/misha-sprite.png");
+}
+
+[data-pet="pancake"] > .pet-sprite {
+  background-image: url("./assets/pets/pancake-sprite.png");
+}
+
+[data-facing="half-left"] {
+  --pet-facing-frame: 22.222%;
+}
+
+[data-facing="left"] {
+  --pet-facing-frame: 33.333%;
+}
+
+[data-facing="half-right"] {
+  --pet-facing-frame: 66.667%;
+}
+
+[data-facing="right"] {
+  --pet-facing-frame: 77.778%;
+}
+
+.pet-habitat {
   position: absolute;
-  right: 0;
+  z-index: 1;
   top: 48px;
+  right: 0;
   width: 64px;
   height: 96px;
-  background-image: url("./assets/pets/misha-climber.png");
   background-position: 0 0;
   background-repeat: no-repeat;
   background-size: 200% 100%;
@@ -240,13 +260,104 @@ button {
   image-rendering: pixelated;
 }
 
-.misha-climber--back {
-  z-index: 1;
-}
-
-.misha-climber--front {
+.pet-habitat--front {
   z-index: 3;
   background-position: 100% 0;
+}
+
+[data-pet="foka"] > .pet-habitat {
+  background-image: url("./assets/pets/foka-ice-floe.png");
+}
+
+[data-pet="kesha"] > .pet-habitat {
+  background-image: url("./assets/pets/kesha-perch.png");
+}
+
+[data-pet="tauta"] > .pet-habitat {
+  background-image: url("./assets/pets/tauta-bed.png");
+}
+
+[data-pet="misha"] > .pet-habitat {
+  background-image: url("./assets/pets/misha-climber.png");
+}
+
+[data-habitat="false"] > .pet-habitat,
+[data-pet="kesha"][data-pose="sleeping"] > .pet-habitat,
+[data-pet="kesha"][data-pose="waking"] > .pet-habitat {
+  display: none;
+}
+
+[data-pet="kesha"][data-pose="settling"] > .pet-habitat {
+  animation: kesha-perch-settle 450ms steps(1, end) forwards;
+}
+
+[data-pose="turning"][data-facing="half-left"] > .pet-sprite {
+  animation: pet-turn-half-left 300ms steps(1, end) forwards;
+}
+
+[data-pose="turning"][data-facing="left"] > .pet-sprite {
+  animation: pet-turn-left 300ms steps(1, end) forwards;
+}
+
+[data-pose="turning"][data-facing="half-right"] > .pet-sprite {
+  animation: pet-turn-half-right 300ms steps(1, end) forwards;
+}
+
+[data-pose="turning"][data-facing="right"] > .pet-sprite {
+  animation: pet-turn-right 300ms steps(1, end) forwards;
+}
+
+[data-pose="settling"] > .pet-sprite {
+  animation: pet-settle 450ms steps(1, end) forwards;
+}
+
+[data-pose="sleeping"] > .pet-sprite,
+[data-pose="stopped"] > .pet-sprite {
+  animation: none;
+  background-position: 100% 0;
+}
+
+[data-pose="waking"] > .pet-sprite {
+  animation: pet-wake 450ms steps(1, end) forwards;
+}
+
+[data-pet="pancake"][data-facing="left"] > .pet-sprite {
+  transform: scaleX(-1);
+}
+
+[data-pet="pancake"][data-facing="right"] > .pet-sprite {
+  transform: scaleX(1);
+}
+
+[data-pet="pancake"][data-pose="dancing"] > .pet-sprite,
+.pet-preview-scene[data-pet="pancake"].is-animating > .pet-sprite {
+  animation: pancake-dance 720ms steps(1, end) infinite;
+}
+
+.pet-preview-scene[data-pet="pancake"]:not(.is-animating) > .pet-sprite {
+  background-position: 100% 0;
+}
+
+[data-pet="pancake"] > .pet-habitat--back {
+  display: block;
+  top: 59px;
+  right: 4px;
+  width: 56px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(107, 221, 255, 0.54);
+  box-shadow:
+    0 0 5px rgba(82, 224, 255, 0.82),
+    0 0 12px rgba(161, 91, 255, 0.46);
+}
+
+[data-pet="pancake"] > .pet-habitat--front {
+  display: none;
+}
+
+[data-pet="pancake"][data-pose="dancing"] > .pet-habitat--back,
+.pet-preview-scene[data-pet="pancake"].is-animating > .pet-habitat--back {
+  animation: pancake-line-glow 720ms steps(2, end) infinite;
 }
 
 .coin-balance {
@@ -579,24 +690,16 @@ button {
   backdrop-filter: blur(14px);
 }
 
-.streak-meter--with-misha {
+.streak-meter--with-pet {
   margin-top: 30px;
 }
 
-.misha-pet--game {
+.pet-scene--game {
   position: absolute;
   z-index: 2;
   bottom: calc(100% - 4px);
   left: 42%;
   transform: translateX(-50%);
-}
-
-.misha-pet--game[data-facing="left"] {
-  animation: misha-turn-left 300ms steps(1, end) forwards;
-}
-
-.misha-pet--game[data-facing="right"] {
-  animation: misha-turn-right 300ms steps(1, end) forwards;
 }
 
 .streak-meter[data-multiplier="2"] {
@@ -730,39 +833,215 @@ button {
   }
 }
 
-@keyframes misha-turn-left {
+@keyframes pet-turn-half-left {
+  0% {
+    background-position: 0 0;
+  }
+
+  50% {
+    background-position: 11.111% 0;
+  }
+
+  100% {
+    background-position: 22.222% 0;
+  }
+}
+
+@keyframes pet-turn-left {
   0% {
     background-position: 0 0;
   }
 
   34% {
-    background-position: 12.5% 0;
+    background-position: 11.111% 0;
   }
 
   67% {
-    background-position: 25% 0;
+    background-position: 22.222% 0;
   }
 
   100% {
-    background-position: 37.5% 0;
+    background-position: 33.333% 0;
   }
 }
 
-@keyframes misha-turn-right {
+@keyframes pet-turn-half-right {
   0% {
-    background-position: 50% 0;
+    background-position: 0 0;
   }
 
   34% {
-    background-position: 62.5% 0;
+    background-position: 44.444% 0;
   }
 
   67% {
-    background-position: 75% 0;
+    background-position: 55.556% 0;
   }
 
   100% {
-    background-position: 87.5% 0;
+    background-position: 66.667% 0;
+  }
+}
+
+@keyframes pet-turn-right {
+  0% {
+    background-position: 0 0;
+  }
+
+  25% {
+    background-position: 44.444% 0;
+  }
+
+  50% {
+    background-position: 55.556% 0;
+  }
+
+  75% {
+    background-position: 66.667% 0;
+  }
+
+  100% {
+    background-position: 77.778% 0;
+  }
+}
+
+@keyframes pet-settle {
+  0% {
+    background-position: var(--pet-facing-frame) 0;
+  }
+
+  58% {
+    background-position: 88.889% 0;
+  }
+
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+@keyframes pet-wake {
+  0% {
+    background-position: 100% 0;
+  }
+
+  42% {
+    background-position: 88.889% 0;
+  }
+
+  100% {
+    background-position: var(--pet-facing-frame) 0;
+  }
+}
+
+@keyframes kesha-perch-settle {
+  0%, 57% {
+    opacity: 1;
+  }
+
+  58%, 100% {
+    opacity: 0;
+  }
+}
+
+@keyframes kesha-perch-preview {
+  0%, 76% {
+    opacity: 1;
+  }
+
+  77%, 99% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes pet-preview {
+  0%, 100% {
+    background-position: 0 0;
+  }
+
+  12% {
+    background-position: 22.222% 0;
+  }
+
+  24% {
+    background-position: 33.333% 0;
+  }
+
+  38% {
+    background-position: 0 0;
+  }
+
+  52% {
+    background-position: 66.667% 0;
+  }
+
+  64% {
+    background-position: 77.778% 0;
+  }
+
+  77% {
+    background-position: 88.889% 0;
+  }
+
+  88% {
+    background-position: 100% 0;
+  }
+}
+
+@keyframes pancake-dance {
+  0% {
+    background-position: 0 0;
+  }
+
+  11.111% {
+    background-position: 11.111% 0;
+  }
+
+  22.222% {
+    background-position: 22.222% 0;
+  }
+
+  33.333% {
+    background-position: 33.333% 0;
+  }
+
+  44.444% {
+    background-position: 44.444% 0;
+  }
+
+  55.556% {
+    background-position: 55.556% 0;
+  }
+
+  66.667% {
+    background-position: 66.667% 0;
+  }
+
+  77.778% {
+    background-position: 77.778% 0;
+  }
+
+  88.889%, 100% {
+    background-position: 88.889% 0;
+  }
+}
+
+@keyframes pancake-line-glow {
+  0%, 100% {
+    opacity: 0.62;
+    box-shadow:
+      0 0 4px rgba(82, 224, 255, 0.7),
+      0 0 9px rgba(161, 91, 255, 0.38);
+  }
+
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 0 7px rgba(82, 224, 255, 0.96),
+      0 0 16px rgba(161, 91, 255, 0.68);
   }
 }
 
@@ -1078,8 +1357,8 @@ button {
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
 }
 
-.dialog--with-misha > h1,
-.dialog--with-misha > .dialog__lead {
+.dialog--with-pet > h1,
+.dialog--with-pet > .dialog__lead {
   padding-right: 76px;
 }
 
@@ -1562,6 +1841,184 @@ h1 {
   color: #aab2c9;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.pet-shop-panel {
+  min-width: 0;
+}
+
+.pet-shop-heading {
+  margin: 0 2px;
+}
+
+.pet-shop-balance {
+  color: #ffd84d;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(255, 216, 77, 0.28);
+}
+
+.pet-shop-status {
+  min-height: 1.25rem;
+  margin: 0 2px 6px;
+}
+
+.pet-shop-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pet-card {
+  min-width: 0;
+  min-height: 98px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(92, 238, 242, 0.04), rgba(177, 104, 255, 0.04)),
+    rgba(5, 7, 14, 0.54);
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  grid-template-rows: minmax(44px, auto) 44px;
+  gap: 4px 9px;
+  align-items: center;
+}
+
+.pet-card.is-equipped {
+  border-color: rgba(92, 238, 242, 0.42);
+  box-shadow: inset 0 0 22px rgba(72, 226, 234, 0.055);
+}
+
+.pet-preview-button {
+  grid-row: 1 / span 2;
+  width: 80px;
+  height: 80px;
+  overflow: hidden;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 13px;
+  outline: 0;
+  background:
+    radial-gradient(circle at 50% 85%, rgba(109, 96, 255, 0.16), transparent 62%),
+    rgba(7, 9, 18, 0.7);
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: grid;
+  place-items: center;
+}
+
+.pet-preview-button:focus-visible {
+  outline: 3px solid white;
+  outline-offset: 2px;
+}
+
+.pet-preview-button:active {
+  transform: translateY(1px);
+}
+
+.pet-preview-scene {
+  display: block;
+}
+
+.pet-preview-scene > .pet-habitat {
+  top: 40px;
+  height: 64px;
+}
+
+.pet-preview-scene[data-pet="pancake"] > .pet-habitat--back {
+  top: 59px;
+  height: 2px;
+}
+
+.pet-preview-scene.is-animating:not([data-pet="pancake"]) > .pet-sprite {
+  animation: pet-preview 1.45s steps(1, end) 1;
+}
+
+.pet-preview-scene[data-pet="kesha"].is-animating > .pet-habitat {
+  animation: kesha-perch-preview 1.45s steps(1, end) 1;
+}
+
+.pet-card__copy {
+  min-width: 0;
+  align-self: end;
+  display: grid;
+  gap: 2px;
+}
+
+.pet-card__copy strong {
+  overflow: hidden;
+  font-size: 0.98rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-card__copy small {
+  overflow: hidden;
+  color: #9ea6bd;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-card__price {
+  align-self: end;
+  color: #ffd84d;
+  font-size: 0.77rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.pet-card__price > span {
+  display: inline-block;
+  color: #ffb73b;
+  text-shadow: 0 0 8px rgba(255, 196, 59, 0.48);
+}
+
+.pet-card__action {
+  min-height: 44px;
+  padding: 0 18px;
+  grid-column: 2 / span 2;
+  font-size: 0.82rem;
+}
+
+.pet-card__action[hidden] {
+  display: none;
+}
+
+.pet-card__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.pet-card__equipped {
+  min-height: 44px;
+  grid-column: 2 / span 2;
+  border: 1px solid rgba(92, 238, 242, 0.3);
+  border-radius: 13px;
+  color: #79f7ed;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: grid;
+  place-items: center;
+}
+
+.pet-card__equipped[hidden] {
+  display: none;
+}
+
+:root[data-theme="disco"] .pet-card,
+:root[data-theme="disco"] .pet-preview-button {
+  border-color: rgba(188, 222, 226, 0.18);
+  background-color: rgba(5, 7, 9, 0.72);
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.026), rgba(0, 0, 0, 0.14)),
+    url("./assets/disco-concrete.png");
+  background-size: auto, 260px 260px;
 }
 
 .settings-panel {
@@ -2074,8 +2531,8 @@ h1 {
 
 .leaderboard-entry {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: 28px 36px minmax(0, 1fr) auto;
+  gap: 6px;
   align-items: center;
   min-height: 54px;
   padding: 8px 2px;
@@ -2096,6 +2553,38 @@ h1 {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   text-align: center;
+}
+
+.leaderboard-entry__avatar {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% 70%, rgba(126, 108, 255, 0.18), transparent 66%),
+    rgba(5, 7, 14, 0.6);
+  display: grid;
+  place-items: center;
+}
+
+.leaderboard-entry__avatar[data-pet="none"]::before {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(157, 165, 188, 0.42);
+  border-radius: 50%;
+  content: "";
+  box-shadow: 0 13px 0 -1px rgba(157, 165, 188, 0.26);
+  transform: translateY(-5px);
+}
+
+.leaderboard-entry__avatar > .pet-sprite {
+  position: static;
+  width: 32px;
+  height: 32px;
+  background-position: 0 0;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
 }
 
 .leaderboard-entry__player {
@@ -2246,40 +2735,23 @@ h1 {
     width: min(calc(100vw - 24px), calc(100dvh - 225px), 680px);
   }
 
-  .game--with-misha .board-shell,
-  .game--with-misha .streak-meter {
+  .game--with-pet .board-shell,
+  .game--with-pet .streak-meter {
     width: min(calc(100vw - 24px), calc(100dvh - 255px), 680px);
   }
 }
 
 @media (max-height: 650px), (max-width: 350px) {
-  .misha-pet {
-    width: 48px;
-    height: 48px;
+  .pet-scene--menu {
+    right: calc(clamp(22px, 6vw, 32px) - 4px);
   }
 
-  .misha-menu-scene {
-    width: 48px;
-    height: 48px;
-    right: calc(clamp(22px, 6vw, 32px) + 6px);
+  .dialog--with-pet > h1,
+  .dialog--with-pet > .dialog__lead {
+    padding-right: 76px;
   }
 
-  .misha-menu-scene[data-climber="true"] {
-    height: 108px;
-  }
-
-  .misha-climber {
-    top: 36px;
-    width: 48px;
-    height: 72px;
-  }
-
-  .dialog--with-misha > h1,
-  .dialog--with-misha > .dialog__lead {
-    padding-right: 60px;
-  }
-
-  .streak-meter--with-misha {
+  .streak-meter--with-pet {
     margin-top: 20px;
   }
 }
@@ -2346,6 +2818,15 @@ h1 {
     height: 38px;
   }
 
+  .pet-card {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    column-gap: 7px;
+  }
+
+  .pet-preview-button {
+    width: 72px;
+  }
+
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
@@ -2368,8 +2849,8 @@ h1 {
     width: min(calc(100dvh - 84px), calc(100vw - 290px), 680px);
   }
 
-  .game--with-misha .board-shell,
-  .game--with-misha .streak-meter {
+  .game--with-pet .board-shell,
+  .game--with-pet .streak-meter {
     width: min(calc(100dvh - 108px), calc(100vw - 290px), 680px);
   }
 }
@@ -2390,22 +2871,13 @@ h1 {
     transform: rotate(var(--speed-rating-tilt));
   }
 
-  .misha-pet--menu,
-  .misha-pet--game {
+  .pet-sprite,
+  .pet-habitat {
     animation: none !important;
   }
 
-  .misha-pet--menu[data-pose="awake"][data-facing="left"],
-  .misha-pet--game[data-facing="left"] {
-    background-position: 37.5% 0;
-  }
-
-  .misha-pet--menu[data-pose="awake"][data-facing="right"],
-  .misha-pet--game[data-facing="right"] {
-    background-position: 87.5% 0;
-  }
-
-  .misha-pet--menu[data-pose="sleeping"] {
+  [data-pose="sleeping"] > .pet-sprite,
+  [data-pose="stopped"] > .pet-sprite {
     background-position: 100% 0;
   }
 }

@@ -8,6 +8,7 @@ use SpeedyTapper\HttpRequest;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\Nickname;
+use SpeedyTapper\PetCatalog;
 use SpeedyTapper\RunProof;
 use SpeedyTapper\RunProofValidator;
 use SpeedyTapper\ScoreSubmission;
@@ -117,6 +118,17 @@ $assert(Nickname::normalize("  Speedy\n  Player  ") === 'Speedy Player', 'Nickna
 $throwsApi(static fn () => Nickname::normalize(str_repeat('x', 21)), 'Long nicknames are rejected.');
 $assert((bool) preg_match('/^Player [0-9]{4}$/', Nickname::anonymous()), 'New profiles receive a neutral nickname.');
 $assert((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', Uuid::v4()), 'UUIDs are RFC 4122 version 4.');
+$assert(
+    PetCatalog::all() === [
+        ['id' => 'foka', 'name' => 'Foka', 'priceCoins' => 10],
+        ['id' => 'kesha', 'name' => 'Kesha', 'priceCoins' => 20],
+        ['id' => 'tauta', 'name' => 'Tauta', 'priceCoins' => 50],
+        ['id' => 'misha', 'name' => 'Misha', 'priceCoins' => 100],
+        ['id' => 'pancake', 'name' => 'Pancake', 'priceCoins' => 500],
+    ],
+    'Pet catalog ids, names, prices, and order are stable.',
+);
+$throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
 
 $singleHitPayload = $normalProof('4f27f9de-37de-4c31-8090-279a037bf76a');
 $singleHit = ScoreSubmission::fromArray($singleHitPayload);
@@ -400,13 +412,17 @@ foreach ([
     'coin_ledger',
     'leaderboard_moderation_events',
     'completed_runs_leaderboard_entry_unique',
+    'player_pets',
+    'player_pet_selection',
+    'player_pet_selection_owned_foreign',
+    'legacy_easter_egg',
 ] as $needle) {
     $assert(str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 $assert(str_contains($schema, "ENUM(''legacy'',''verified'',''review'',''quarantined'',''deleted'')"), 'Schema preserves auditable verification and moderation states.');
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
@@ -454,6 +470,8 @@ $assert(
         && str_contains($leaderboardRepository, "verification_status IN ('legacy', 'verified')")
         && str_contains($leaderboardRepository, "['verified', 'review', 'quarantined']")
         && str_contains($leaderboardRepository, "\$parameters['id'] = \$score->runId")
+        && str_contains($leaderboardRepository, 'LEFT JOIN player_pet_selection')
+        && str_contains($leaderboardRepository, "'petId' =>")
         && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
     'Only ranked verification states are visible and accepted result rows remain immutable.',
 );
@@ -487,6 +505,18 @@ $assert(
     'Stale unranked attempt cleanup is bounded, explicit, and dry-run by default.',
 );
 
+$petShopService = file_get_contents(dirname(__DIR__) . '/server/src/PetShopService.php');
+$assert(
+    is_string($petShopService)
+        && str_contains($petShopService, 'beginTransaction')
+        && str_contains($petShopService, 'FOR UPDATE')
+        && str_contains($petShopService, 'coins >= :price')
+        && str_contains($petShopService, 'INSERT INTO player_pets')
+        && str_contains($petShopService, 'ON DUPLICATE KEY UPDATE pet_id')
+        && str_contains($petShopService, 'rollBack'),
+    'Buy and Change share one atomic, guarded, retry-safe selection transaction.',
+);
+
 $migrationStatements = MigrationRunner::splitStatements(
     "CREATE TABLE example (id INT);\nINSERT INTO example (id) VALUES (1);\n",
 );
@@ -494,6 +524,12 @@ $assert(count($migrationStatements) === 2, 'Migration SQL is split into executab
 
 $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
 $assert(str_contains($apiBootstrap, 'new RunAttemptService') && str_contains($apiBootstrap, 'new RunProofValidator'), 'The HTTP API wires issued attempts to server proof replay.');
+$assert(
+    str_contains($apiBootstrap, 'new PetShopService')
+        && str_contains($apiBootstrap, 'new PlayerRepository($database, $pets)')
+        && str_contains($apiBootstrap, 'pets: $pets'),
+    'The API injects one shared pet service into profile reads and pet mutations.',
+);
 
 $configSource = file_get_contents(dirname(__DIR__) . '/server/src/Config.php');
 $gitignore = file_get_contents(dirname(__DIR__) . '/.gitignore');

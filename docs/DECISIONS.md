@@ -485,3 +485,18 @@ Decision: Retain D-030's engine-driven backing-state mapping but remove its runt
 Consequences: The approved melody order remains sticky and immediate, but every occurrence now has identical wall-clock length, attack/release timing, and nominal energy regardless of game pace. Interactive backing becomes about 6.6 dB more prominent relative to the old tap-gain relationship before accounting for the newly equalized cue assets. Legacy music, backing composition, tempo/richness progression, Sound FX, and their masters remain unchanged. Automated duration, energy, transition, and headroom checks do not replace physical-iPhone Safari and installed-PWA listening.
 
 Revisit when: Physical-device listening supports a different backing/tap ratio, the fixed register becomes masked in richer states, a limiter allows more headroom, or a future native-pitch bank deliberately restores register progression without time compression.
+
+## D-037 — Make pets durable spendable cosmetics
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: The Misha preview validated a companion in the menu and reaction layout. The accepted follow-up needs five selectable pets, permanent ownership, server-side coin spending, richer directional poses, shop previews, and current-pet leaderboard portraits.
+
+Decision: Add Pet Shop above Settings with the stable catalog `foka/10`, `kesha/20`, `tauta/50`, `misha/100`, and `pancake/500`. Store catalog rows, profile ownership, and one equipped choice in MySQL. Use one CSRF-protected same-origin operation for both actions: an unowned pet atomically locks the player, checks and debits its exact price, records ownership, and equips immediately; an owned pet changes selection without another charge. Existing confirmed `misha_boy` profiles receive one free Misha entitlement only through the migration. Leaderboard reads expose the profile's current selection rather than snapshotting a pet into each historical result. Keep every companion cosmetic.
+
+Use five directional poses for the four animals plus their authored idle behavior. Pancake retains its supplied orientation and mirrors only for left-facing taps. Main-menu homes appear only in menu/shop contexts; gameplay keeps the selected pet above the Speed streak meter with pointer-transparent rendering and reduced-motion support. This supersedes D-033's nickname-only entitlement and no-shop rule and D-034's Misha-only presentation where they conflict.
+
+Consequences: Purchases and run credits serialize on the player row, ownership is durable, retries cannot charge an owned pet again, and all runtime sprites/habitats enter the versioned offline shell. Asset provenance is retained in `assets/pets/SOURCES.md`; physical-iPhone Safari and installed-PWA checks remain required before the visuals are described as device-validated.
+
+Revisit when: Pets gain gameplay effects, refunds, gifts, randomized acquisition, real-money value, historical cosmetic snapshots, additional animation states, or distribution rights require replacing a supplied source.

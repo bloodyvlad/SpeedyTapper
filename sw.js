@@ -20,7 +20,8 @@ const APP_SHELL = [
   `./src/early-bootstrap.js?v=${BUILD_ID}`,
   `./src/game-engine.js?v=${BUILD_ID}`,
   `./src/input-timing.js?v=${BUILD_ID}`,
-  `./src/misha-controller.js?v=${BUILD_ID}`,
+  `./src/pet-catalog.js?v=${BUILD_ID}`,
+  `./src/pet-controller.js?v=${BUILD_ID}`,
   `./src/music-controller.js?v=${BUILD_ID}`,
   `./src/main.js?v=${BUILD_ID}`,
   `./src/profile-client.js?v=${BUILD_ID}`,
@@ -33,7 +34,14 @@ const APP_SHELL = [
   "./assets/disco-concrete.png",
   "./assets/disco-tile-overlay.png",
   "./assets/pets/misha-climber.png",
-  "./assets/pets/misha-sprite.png"
+  "./assets/pets/misha-sprite.png",
+  "./assets/pets/foka-ice-floe.png",
+  "./assets/pets/foka-sprite.png",
+  "./assets/pets/kesha-perch.png",
+  "./assets/pets/kesha-sprite.png",
+  "./assets/pets/tauta-bed.png",
+  "./assets/pets/tauta-sprite.png",
+  "./assets/pets/pancake-sprite.png"
 ];
 
 self.addEventListener("install", (event) => {

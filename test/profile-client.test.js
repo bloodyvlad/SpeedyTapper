@@ -111,6 +111,32 @@ test("profile context requests are mode-specific", async () => {
   assert.equal(calls[0][0], "/api/profile?mode=zen");
 });
 
+test("pet catalog reads and buy-or-change mutations use the dedicated same-origin routes", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return args[0] === "/api/session"
+        ? response({ csrfToken: "csrf-token-with-more-than-thirty-two-characters" })
+        : response({ pets: [] });
+    }
+  });
+
+  await client.getPets();
+  await client.selectPet("misha");
+  assert.equal(calls[0][0], "/api/pets");
+  assert.equal(calls[1][0], "/api/session");
+  assert.equal(calls[2][0], "/api/pets/select");
+  assert.equal(calls[2][1].method, "POST");
+  assert.equal(calls[2][1].credentials, "same-origin");
+  assert.equal(
+    calls[2][1].headers["X-SpeedyTapper-CSRF"],
+    "csrf-token-with-more-than-thirty-two-characters"
+  );
+  assert.deepEqual(JSON.parse(calls[2][1].body), { petId: "misha" });
+  assert.throws(() => client.selectPet(""), TypeError);
+});
+
 test("API failures retain server error codes for login and ranking UX", async () => {
   const client = createProfileClient({
     fetchImpl: async () => response(
