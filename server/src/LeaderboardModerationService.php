@@ -238,7 +238,7 @@ final class LeaderboardModerationService
                 throw new ApiException(409, 'The result changed since it was loaded. Refresh and review it again.');
             }
             if ($actorPlayerId !== null) {
-                $this->assertAdminActorAndTarget($actorPlayerId, $targetPlayerId);
+                $this->assertAdminActor($actorPlayerId);
             }
             $toStatus = match ($action) {
                 'approve' => $this->reviewStatus($fromStatus, 'verified'),
@@ -388,7 +388,7 @@ final class LeaderboardModerationService
         try {
             $targetPlayerId = $this->lockEntryPlayer($entryId);
             $entry = $this->lockEntry($entryId);
-            $this->assertAdminActorAndTarget($actorPlayerId, $targetPlayerId);
+            $this->assertAdminActor($actorPlayerId);
             if (!hash_equals($confirmPlayerId, $targetPlayerId)) {
                 throw new ApiException(409, 'The selected player changed. Refresh and review the result again.');
             }
@@ -707,7 +707,9 @@ final class LeaderboardModerationService
             $clauses[] = 'l.mode = :mode';
             $parameters['mode'] = $mode;
         }
-        if ($status !== null) {
+        if ($status === null) {
+            $clauses[] = "l.verification_status <> 'deleted'";
+        } else {
             if (!in_array($status, self::ALL_STATUSES, true)) {
                 throw new InvalidArgumentException('Verification status is invalid.');
             }
@@ -793,7 +795,7 @@ final class LeaderboardModerationService
         return $playerId;
     }
 
-    private function assertAdminActorAndTarget(string $actorPlayerId, string $targetPlayerId): void
+    private function assertAdminActor(string $actorPlayerId): void
     {
         $actorPlayerId = strtolower(trim($actorPlayerId));
         if (!Uuid::isValidV4($actorPlayerId)) {
@@ -806,17 +808,6 @@ final class LeaderboardModerationService
         $actor->execute(['player_id' => $actorPlayerId]);
         if ($actor->fetchColumn() === false) {
             throw new ApiException(403, 'Leaderboard administrator access is required.');
-        }
-        if (hash_equals($actorPlayerId, $targetPlayerId)) {
-            throw new ApiException(403, 'Administrators cannot moderate their own results.');
-        }
-        $target = $this->database->prepare(
-            "SELECT 1 FROM player_roles WHERE player_id = :player_id "
-            . "AND role = 'leaderboard_admin' LIMIT 1"
-        );
-        $target->execute(['player_id' => $targetPlayerId]);
-        if ($target->fetchColumn() !== false) {
-            throw new ApiException(403, 'Administrator results cannot be moderated here.');
         }
     }
 

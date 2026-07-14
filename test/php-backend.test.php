@@ -7,6 +7,7 @@ use SpeedyTapper\AchievementCatalog;
 use SpeedyTapper\CoinEconomy;
 use SpeedyTapper\CoinProgression;
 use SpeedyTapper\HttpRequest;
+use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\Nickname;
@@ -542,6 +543,22 @@ $assert(
 
 $moderationService = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardModerationService.php');
 $moderationCli = file_get_contents(dirname(__DIR__) . '/server/bin/leaderboard-admin.php');
+$moderationReflection = new ReflectionClass(LeaderboardModerationService::class);
+$moderationWithoutDatabase = $moderationReflection->newInstanceWithoutConstructor();
+$filterWhere = $moderationReflection->getMethod('filterWhere');
+$defaultStatusParameters = [];
+$defaultStatusArguments = [null, null, null, &$defaultStatusParameters];
+$defaultStatusWhere = $filterWhere->invokeArgs($moderationWithoutDatabase, $defaultStatusArguments);
+$deletedStatusParameters = [];
+$deletedStatusArguments = [null, null, 'deleted', &$deletedStatusParameters];
+$deletedStatusWhere = $filterWhere->invokeArgs($moderationWithoutDatabase, $deletedStatusArguments);
+$assert(
+    $defaultStatusWhere === "WHERE l.verification_status <> 'deleted'"
+        && $defaultStatusParameters === []
+        && $deletedStatusWhere === 'WHERE l.verification_status = :verification_status'
+        && $deletedStatusParameters === ['verification_status' => 'deleted'],
+    'Admin lists hide deleted results by default and expose them only through the explicit deleted filter.',
+);
 $assert(
     is_string($moderationService)
         && str_contains($moderationService, 'quarantine')
@@ -561,10 +578,10 @@ $assert(
 );
 $assert(
     is_string($moderationService)
-        && str_contains($moderationService, 'assertAdminActorAndTarget')
+        && str_contains($moderationService, 'assertAdminActor')
         && str_contains($moderationService, 'hash_equals($confirmPlayerId, $targetPlayerId)')
-        && str_contains($moderationService, 'Administrators cannot moderate their own results')
-        && str_contains($moderationService, 'Administrator results cannot be moderated here')
+        && !str_contains($moderationService, 'Administrators cannot moderate their own results')
+        && !str_contains($moderationService, 'Administrator results cannot be moderated here')
         && str_contains($moderationService, "currentStatus !== 'quarantined'")
         && str_contains($moderationService, 'deleteAndReset')
         && str_contains($moderationService, 'account_reward_resets')
@@ -575,7 +592,7 @@ $assert(
         && str_contains($moderationService, "'admin_reward_reset'")
         && str_contains($moderationService, "'delete_reset'")
         && str_contains($moderationService, 'achievementsPreserved'),
-    'Admin deletion is role-safe, two-stage, audited, and moves forfeited rewards into a fresh economy generation.',
+    'Any role-authorized administrator can moderate an exact target through the two-stage audited reward-reset workflow.',
 );
 $purgeCli = file_get_contents(dirname(__DIR__) . '/server/bin/purge-run-attempts.php');
 $assert(
