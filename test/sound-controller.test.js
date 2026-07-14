@@ -409,7 +409,7 @@ test("life loss plays immediately from memory and smoothly retires the prior lif
   assert.equal(sound.lifeLost(), true);
   const first = context.bufferSources[0];
   assert.equal(first.buffer.id, LIFE_LOSS_URL);
-  assert.equal(first.connections[0].gain.value, 0.55);
+  assert.equal(first.connections[0].gain.value, 0.375);
   assert.deepEqual(first.startCalls, [
     { duration: undefined, offset: 0, time: context.currentTime }
   ]);
@@ -690,7 +690,7 @@ test("Sound FX volume scales the output route without changing cue mix or doing 
   assert.equal(sound.playCorrectTap(1), true);
   assert.equal(context.bufferSources[0].connections[0].gain.value, 0.375);
   assert.equal(sound.lifeLost(), true);
-  assert.equal(context.bufferSources[1].connections[0].gain.value, 0.55);
+  assert.equal(context.bufferSources[1].connections[0].gain.value, 0.375);
   assert.equal(sound.setVolume(2), 1);
   assert.equal(sound.setVolume(-1), 0);
 });

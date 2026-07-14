@@ -12,7 +12,7 @@ namespace SpeedyTapper;
  */
 final readonly class RunProof
 {
-    public const BUILD_ID = '20260714-8';
+    public const BUILD_ID = '20260714-9';
     public const RULESET = 'reaction-proof-v2';
     public const PROOF_VERSION = 1;
     public const MAX_EVENTS = 10_000;

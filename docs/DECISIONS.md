@@ -694,3 +694,18 @@ Move the Classic/Disco selector from Settings into a dedicated **Themes** view. 
 Consequences: The approved source and runtime audio assets, hashes, loop seam, and provenance remain unchanged. Players can correct phone-speaker or headphone balance per device without confusing a volume preference with an opt-out. Two additional local-storage values are introduced, defaulting to 100%, and slider changes use short ramps to avoid discontinuities. The Settings view is focused on accessibility and audio, while Themes becomes a first-class customization destination. Automated controller and static UI tests do not establish subjective volume, small-screen comfort, or installed-PWA behavior; physical iPhone Safari and installed-PWA review remain required before this candidate is called device-validated.
 
 Revisit when: Physical-device listening calls for different base gains or logarithmic slider mapping, more themes require browsing or ownership state, the menu gains more first-class destinations, or accessibility testing prefers a non-symbol achievement badge.
+
+## D-052 — Separate melodic menu and clean gameplay music variants
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: The main menu benefits from more musical identity, while reaction-critical gameplay needs the Power Grid tones to remain immediate, tap-triggered feedback rather than a competing pre-recorded melody. The Pet Shop and Themes controls also inherited an unintended large internal gap from the generic Settings row cascade, and the first glowing mode palette remained darker than intended.
+
+Decision: Keep the approved 12-second Daylight Circuit backing unchanged as the gameplay runtime. Add a deterministic menu variant that overlays all sixteen approved Power Grid notes at the track's sixteen 80 BPM beat positions, with restrained gain and subtle alternating pan. Music owns and predecodes both variants only while Music is enabled: menu views select the melodic mix after a trusted gesture, Arcade and Zen select the clean mix, and Results/Game Over remain silent. Correct taps continue to own the only in-game notes through Sound FX. Match the life-loss cue's base gain to the tap-tone base gain and retain the strict Sound FX opt-out lifecycle.
+
+Constrain the Pet Shop and Themes controls to a compact 48 px minimum touch height with a two-pixel caption/value gap. Lighten Arcade toward pink-red and Zen toward a summer-leaf green while preserving readable text and their distinct glow identities. This supersedes D-051 only for life-loss gain, menu silence, feature-control spacing, and exact mode colors.
+
+Consequences: Menu and gameplay share one musical identity without embedding predictive tones into the reaction loop. Switching scenes replaces one bounded looping source with another under the existing fade/output graph; both optional runtimes remain outside the install-time app shell and service-worker cache. Disabling Music still creates, fetches, decodes, caches, and plays neither variant, while disabling Sound FX suppresses both tap tones and life-loss feedback. The retained menu master and deterministic generator expand the release artifact only by the runtime AAC. Physical iPhone listening remains required before calling latency, balance, and scene transitions device-validated.
+
+Revisit when: Phase-continuous scene switching becomes important, the menu melody should be sparser, physical-device listening calls for a different embedded-note gain, or a future music system justifies more than two fixed variants.

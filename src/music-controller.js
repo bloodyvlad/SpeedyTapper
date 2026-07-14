@@ -1,4 +1,7 @@
-const BACKGROUND_MUSIC_URL = "./assets/audio/background-daylight-circuit.m4a";
+const BACKGROUND_MUSIC_URLS = Object.freeze({
+  menu: "./assets/audio/background-daylight-circuit-menu.m4a",
+  run: "./assets/audio/background-daylight-circuit.m4a"
+});
 
 const BACKGROUND_GAIN = 0.42;
 const LOOP_DURATION_SECONDS = 12;
@@ -22,14 +25,15 @@ export function createMusicController({
   fetchImpl = globalThis.fetch?.bind(globalThis)
 } = {}) {
   let enabled = false;
-  let desiredPlaying = false;
+  let desiredScene = null;
   let generation = 0;
   let context = null;
   let contextStateHandler = null;
   let masterGain = null;
   let volumeGain = null;
   let volume = 1;
-  let buffer = null;
+  let buffers = { menu: null, run: null };
+  let loadAttempted = false;
   let preparation = null;
   let loadController = null;
   let voice = null;
@@ -115,9 +119,10 @@ export function createMusicController({
   }
 
   function startLoop() {
+    const buffer = desiredScene ? buffers[desiredScene] : null;
     if (
       !enabled ||
-      !desiredPlaying ||
+      !desiredScene ||
       !buffer ||
       !context ||
       context.state !== "running" ||
@@ -125,7 +130,15 @@ export function createMusicController({
     ) {
       return false;
     }
-    if (voice && !voice.cleaned && !voice.closing) return true;
+    if (
+      voice &&
+      !voice.cleaned &&
+      !voice.closing &&
+      voice.scene === desiredScene
+    ) {
+      return true;
+    }
+    silenceMasterImmediately();
     stopVoiceImmediately();
 
     const source = context.createBufferSource();
@@ -135,7 +148,12 @@ export function createMusicController({
     source.loopEnd = Math.min(LOOP_DURATION_SECONDS, buffer.duration);
     source.connect(masterGain);
 
-    const nextVoice = { cleaned: false, closing: false, source };
+    const nextVoice = {
+      cleaned: false,
+      closing: false,
+      scene: desiredScene,
+      source
+    };
     voice = nextVoice;
     source.onended = () => cleanupVoice(nextVoice);
 
@@ -154,16 +172,17 @@ export function createMusicController({
   }
 
   async function fetchAndDecode(
+    url,
     signal,
     preparationGeneration,
     preparationContext
   ) {
-    const response = await fetchImpl(BACKGROUND_MUSIC_URL, {
+    const response = await fetchImpl(url, {
       cache: "no-store",
       signal
     });
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
-    if (!response?.ok) throw new Error(`Unable to load ${BACKGROUND_MUSIC_URL}`);
+    if (!response?.ok) throw new Error(`Unable to load ${url}`);
 
     const encodedAudio = await response.arrayBuffer();
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
@@ -181,23 +200,33 @@ export function createMusicController({
   function prepareAudio(preparationGeneration, preparationContext) {
     if (
       preparation ||
-      buffer ||
+      loadAttempted ||
       !isCurrent(preparationGeneration, preparationContext) ||
       typeof fetchImpl !== "function"
     ) {
       return;
     }
 
+    loadAttempted = true;
     loadController = new AbortController();
     const activeController = loadController;
-    const work = fetchAndDecode(
-      activeController.signal,
-      preparationGeneration,
-      preparationContext
+    const entries = Object.entries(BACKGROUND_MUSIC_URLS);
+    const work = Promise.allSettled(
+      entries.map(([scene, url]) =>
+        fetchAndDecode(
+          url,
+          activeController.signal,
+          preparationGeneration,
+          preparationContext
+        ).then((decodedAudio) => ({ decodedAudio, scene }))
+      )
     )
-      .then((decodedAudio) => {
-        if (!decodedAudio || !isCurrent(preparationGeneration, preparationContext)) return;
-        buffer = decodedAudio;
+      .then((results) => {
+        if (!isCurrent(preparationGeneration, preparationContext)) return;
+        for (const result of results) {
+          if (result.status !== "fulfilled" || !result.value.decodedAudio) continue;
+          buffers[result.value.scene] = result.value.decodedAudio;
+        }
         startLoop();
       })
       .catch(() => {})
@@ -243,7 +272,8 @@ export function createMusicController({
     loadController?.abort();
     loadController = null;
     preparation = null;
-    buffer = null;
+    buffers = { menu: null, run: null };
+    loadAttempted = false;
     stopVoiceImmediately();
     disconnectNode(masterGain);
     masterGain = null;
@@ -272,7 +302,7 @@ export function createMusicController({
     const unlockGeneration = generation;
 
     if (activeContext.state === "running") {
-      return Promise.resolve(desiredPlaying ? startLoop() : true);
+      return Promise.resolve(desiredScene ? startLoop() : true);
     }
     try {
       return Promise.resolve(activeContext.resume())
@@ -280,7 +310,7 @@ export function createMusicController({
           if (!isCurrent(unlockGeneration, activeContext) || activeContext.state !== "running") {
             return false;
           }
-          if (desiredPlaying) startLoop();
+          if (desiredScene) startLoop();
           return true;
         })
         .catch(() => false);
@@ -301,7 +331,6 @@ export function createMusicController({
       if (enabled === nextEnabled) return;
       enabled = nextEnabled;
       generation += 1;
-      desiredPlaying = false;
       if (!enabled) {
         releaseAudio();
         return;
@@ -313,20 +342,29 @@ export function createMusicController({
       return resumeFromGesture();
     },
 
-    startRun() {
+    startMenu({ resume = true } = {}) {
+      desiredScene = "menu";
       if (!enabled) return Promise.resolve(false);
-      desiredPlaying = true;
-      stopVoiceImmediately();
+      if (resume) return resumeFromGesture();
+      const activeContext = ensureContext();
+      if (!activeContext || activeContext.state !== "running") {
+        return Promise.resolve(Boolean(activeContext));
+      }
+      return Promise.resolve(startLoop());
+    },
+
+    startRun() {
+      desiredScene = "run";
+      if (!enabled) return Promise.resolve(false);
       return resumeFromGesture();
     },
 
     stopRun() {
-      desiredPlaying = false;
+      desiredScene = null;
       fadeAndStopVoice();
     },
 
     suspend() {
-      desiredPlaying = false;
       silenceMasterImmediately();
       stopVoiceImmediately();
       if (!enabled || !context || context.state !== "running") return;

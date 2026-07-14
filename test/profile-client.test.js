@@ -66,7 +66,7 @@ test("verified run submissions contain proof rather than authoritative score agg
     mode: "normal",
     proofVersion: 1,
     ruleset: "reaction-proof-v2",
-    buildId: "20260714-8",
+    buildId: "20260714-9",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -90,11 +90,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("normal", "20260714-8");
+  await client.startRun("normal", "20260714-9");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260714-8" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260714-9" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 

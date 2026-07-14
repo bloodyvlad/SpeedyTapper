@@ -4,7 +4,8 @@ import test from "node:test";
 
 import { createMusicController } from "../src/music-controller.js";
 
-const BACKGROUND_URL = "./assets/audio/background-daylight-circuit.m4a";
+const MENU_BACKGROUND_URL = "./assets/audio/background-daylight-circuit-menu.m4a";
+const RUN_BACKGROUND_URL = "./assets/audio/background-daylight-circuit.m4a";
 
 class FakeAudioParam {
   constructor(value = 0) {
@@ -180,10 +181,11 @@ async function flushAsyncWork(turns = 12) {
   for (let turn = 0; turn < turns; turn += 1) await Promise.resolve();
 }
 
-test("the music controller is one fixed original background loop with no Interactive system", async () => {
+test("the music controller uses fixed menu and run variants with no Interactive system", async () => {
   const source = await readFile(new URL("../src/music-controller.js", import.meta.url), "utf8");
 
   assert.match(source, /background-daylight-circuit\.m4a/);
+  assert.match(source, /background-daylight-circuit-menu\.m4a/);
   assert.match(source, /latencyHint:\s*"playback"/);
   assert.match(source, /BACKGROUND_GAIN = 0\.42/);
   assert.match(source, /LOOP_DURATION_SECONDS = 12/);
@@ -200,6 +202,7 @@ test("disabled Music performs no context, fetch, decode, or playback work", asyn
 
   music.setEnabled(false);
   await music.unlock();
+  await music.startMenu();
   await music.startRun();
   music.stopRun();
   music.suspend();
@@ -225,11 +228,16 @@ test("enabling prepares the background silently without resuming playback", asyn
   assert.equal(context.options.latencyHint, "playback");
   assert.equal(context.resumeCalls, 0);
   assert.equal(context.bufferSources.length, 0);
-  assert.equal(context.decodeCalls.length, 1);
-  assert.equal(fetchRecorder.calls.length, 1);
-  assert.equal(fetchRecorder.calls[0].url, BACKGROUND_URL);
-  assert.equal(fetchRecorder.calls[0].options.cache, "no-store");
-  assert.ok(fetchRecorder.calls[0].options.signal);
+  assert.equal(context.decodeCalls.length, 2);
+  assert.equal(fetchRecorder.calls.length, 2);
+  assert.deepEqual(
+    fetchRecorder.calls.map(({ url }) => url).toSorted(),
+    [MENU_BACKGROUND_URL, RUN_BACKGROUND_URL].toSorted()
+  );
+  for (const call of fetchRecorder.calls) {
+    assert.equal(call.options.cache, "no-store");
+    assert.ok(call.options.signal);
+  }
 });
 
 test("a trusted run gesture starts one sample-aligned loop with a gentle fade", async () => {
@@ -248,7 +256,7 @@ test("a trusted run gesture starts one sample-aligned loop with a gentle fade", 
   assert.equal(context.resumeCalls, 1);
   assert.equal(context.bufferSources.length, 1);
   const source = context.bufferSources[0];
-  assert.equal(source.buffer.id, BACKGROUND_URL);
+  assert.equal(source.buffer.id, RUN_BACKGROUND_URL);
   assert.equal(source.loop, true);
   assert.equal(source.loopStart, 0);
   assert.equal(source.loopEnd, 12);
@@ -274,16 +282,38 @@ test("a run that starts before decoding begins the bed once it is ready", async 
   const context = FakeAudioContext.instances[0];
   assert.equal(context.bufferSources.length, 0);
 
-  fetchRecorder.calls[0].resolve({
-    ok: true,
-    async arrayBuffer() {
-      return { url: BACKGROUND_URL };
-    }
-  });
+  for (const call of fetchRecorder.calls) {
+    call.resolve({
+      ok: true,
+      async arrayBuffer() {
+        return { url: call.url };
+      }
+    });
+  }
   await flushAsyncWork();
 
   assert.equal(context.bufferSources.length, 1);
   assert.deepEqual(context.bufferSources[0].startCalls, [5]);
+});
+
+test("menu and gameplay select their matching fixed variants", async () => {
+  resetFakes();
+  const fetchRecorder = createImmediateFetch();
+  const music = createMusicController({
+    AudioContextClass: FakeAudioContext,
+    fetchImpl: fetchRecorder.fetchImpl
+  });
+
+  music.setEnabled(true);
+  await flushAsyncWork();
+  assert.equal(await music.startMenu(), true);
+  const context = FakeAudioContext.instances[0];
+  assert.equal(context.bufferSources[0].buffer.id, MENU_BACKGROUND_URL);
+
+  assert.equal(await music.startRun(), true);
+  assert.equal(context.bufferSources.length, 2);
+  assert.equal(context.bufferSources[1].buffer.id, RUN_BACKGROUND_URL);
+  assert.ok(context.bufferSources[0].disconnectCalls > 0);
 });
 
 test("results fade the gameplay bed and a restart replaces it cleanly", async () => {

@@ -57,7 +57,7 @@ const htaccessSource = await readFile(new URL("../.htaccess", import.meta.url), 
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-8");
+  assert.equal(buildId, "20260714-9");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -113,6 +113,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.deepEqual(repositoryAudioEntries.toSorted(), [
     "SOURCES.md",
     "background-daylight-circuit.m4a",
+    "background-daylight-circuit-menu.m4a",
     "background-masters",
     "oops.wav",
     "tap-tones.wav"
@@ -199,8 +200,8 @@ test("Arcade is the player-facing name for the compatible normal mode", () => {
   assert.match(configSource, /NORMAL: "normal"/);
   assert.doesNotMatch(configSource, /NORMAL: "arcade"/);
   assert.match(stylesSource, /\.mode-button > span\s*\{[^}]+font-size:\s*1\.2rem/s);
-  assert.match(stylesSource, /\.primary-button\.mode-button--arcade\s*\{[^}]+rgba\(255,\s*49,\s*88,\s*0\.44\)/s);
-  assert.match(stylesSource, /\.secondary-button\.mode-button--zen\s*\{[^}]+rgba\(91,\s*236,\s*161,\s*0\.27\)/s);
+  assert.match(stylesSource, /\.primary-button\.mode-button--arcade\s*\{[^}]+#f45198[^}]+rgba\(255,\s*73,\s*155,\s*0\.58\)/s);
+  assert.match(stylesSource, /\.secondary-button\.mode-button--zen\s*\{[^}]+#93dc63[^}]+rgba\(145,\s*236,\s*102,\s*0\.42\)/s);
   assert.match(stylesSource, /\.mode-button small\s*\{[^}]+margin-top:\s*5px/s);
 });
 
@@ -261,12 +262,12 @@ test("Sound FX defaults on, preserves opt-out, and owns tap plus life-loss cues"
   assert.match(mainSource, /addEventListener\("pagehide"/);
   assert.doesNotMatch(soundSource, /webkitAudioContext|HTMLAudioElement|AudioClass|globalThis\.Audio(?!Context)/);
   assert.match(soundSource, /function lifeLost\(\)/);
-  assert.match(mainSource, /if \(result\.lifeLost\) sound\.lifeLost\(\)/);
+  assert.match(mainSource, /if \(result\.lifeLost && soundFxEnabled\) sound\.lifeLost\(\)/);
   assert.doesNotMatch(soundSource, /hum|tileOn|tileOff/i);
   assert.doesNotMatch(`${mainSource}\n${soundSource}`, /new Audio\s*\(|document\.createElement\(["']audio["']\)/);
 });
 
-test("Music defaults on, stays independent, and plays only around active runs", () => {
+test("Music defaults on and selects melodic menu and clean gameplay variants", () => {
   const settingsPanel = indexHtml.match(
     /<fieldset class="settings-panel" id="settings-panel">[\s\S]*?<\/fieldset>/
   )?.[0] ?? "";
@@ -302,9 +303,10 @@ test("Music defaults on, stays independent, and plays only around active runs", 
   );
   assert.match(
     mainSource,
-    /function showMainMenu[\s\S]*?music\.stopRun\(\)/,
-    "Returning to the menu must fade the background bed."
+    /function showMainMenu[\s\S]*?music\.startMenu\(\)/,
+    "Returning to the menu must select the melodic menu variant."
   );
+  assert.match(mainSource, /music\.startMenu\(\{ resume: false \}\)/);
   assert.match(mainSource, /musicToggle\.addEventListener\("change"[\s\S]*?music\.unlock\(\)/);
   assert.match(mainSource, /music\.suspend\(\)/);
   assert.doesNotMatch(`${indexHtml}\n${mainSource}\n${musicSource}`, /Interactive Music|interactiveMusic/i);
@@ -449,6 +451,7 @@ test("Sound FX owns tap and life-loss cues while simple Music stays independent"
   assert.doesNotMatch(`${settingsPanel}\n${mainSource}\n${musicSource}`, /interactive-music|interactiveMusic/i);
   assert.match(mainSource, /speedytapper\.music\.v1/);
   assert.match(musicSource, /background-daylight-circuit\.m4a/);
+  assert.match(musicSource, /background-daylight-circuit-menu\.m4a/);
   assert.doesNotMatch(soundSource, /backing|soundtrack|ambient|hum/i);
   assert.match(
     mainSource,
@@ -574,6 +577,7 @@ test("Pet Shop balance and achievement rewards use explicit coin presentation", 
   assert.match(stylesSource, /\.pet-card\.is-owned \.pet-card__price\s*\{[^}]+filter:\s*grayscale\(1\)/s);
   assert.match(indexHtml, /class="menu-feature-actions">[\s\S]*id="pet-shop-toggle"[\s\S]*id="themes-toggle"/);
   assert.match(stylesSource, /\.menu-feature-button\s*\{[^}]+width:\s*45%;[^}]+flex:\s*0 0 45%;/s);
+  assert.match(stylesSource, /\.settings-toggle\.menu-feature-button\s*\{[^}]+min-height:\s*48px;[^}]+gap:\s*2px;/s);
   assert.match(indexHtml, /class="achievement-reward-coin"/);
   assert.match(mainSource, /function renderAchievementReward\(/);
   assert.match(mainSource, /value\.textContent = `\+\$\{rewardCoins\}`/);

@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-8";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-8";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-9";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-9";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,24 +7,24 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-8";
+} from "./input-timing.js?v=20260714-9";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-8";
-import { createPetController } from "./pet-controller.js?v=20260714-8";
-import { createSoundController } from "./sound-controller.js?v=20260714-8";
-import { createMusicController } from "./music-controller.js?v=20260714-8";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-8";
+} from "./pet-catalog.js?v=20260714-9";
+import { createPetController } from "./pet-controller.js?v=20260714-9";
+import { createSoundController } from "./sound-controller.js?v=20260714-9";
+import { createMusicController } from "./music-controller.js?v=20260714-9";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-9";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-8";
+const APP_BUILD_ID = "20260714-9";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -956,7 +956,7 @@ function handleTileTap(event) {
 
 function handleMiss(result, currentSession, scheduleNextTarget = true) {
   if (result.lifeLost) cancelDecoyCadence();
-  if (result.lifeLost) sound.lifeLost();
+  if (result.lifeLost && soundFxEnabled) sound.lifeLost();
   const reasonLabel = {
     empty: "Empty square",
     late: "Too slow",
@@ -1127,7 +1127,7 @@ function showMainMenu() {
   setRunStartControlsDisabled(false);
   abandonCurrentRun();
   clearTimers();
-  music.stopRun();
+  void music.startMenu();
   sessionId += 1;
   engine.reset();
   currentRunId = null;
@@ -1377,6 +1377,7 @@ function selectLeaderboardMode(mode) {
 }
 
 function showMenuView(focusTarget = null) {
+  void music.startMenu();
   closePetShop();
   closeThemes();
   closeSettings();
@@ -2911,6 +2912,7 @@ function stopRunForPageExit() {
   elements.dialogTitle.textContent = "Run paused";
   elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped. Choose a mode to restart.";
   setOverlayVisible(true);
+  void music.startMenu({ resume: false });
 }
 
 function pauseForVisibilityChange() {
@@ -3028,6 +3030,14 @@ for (const tab of elements.profileModeTabs) {
 document.addEventListener("visibilitychange", pauseForVisibilityChange);
 document.addEventListener("pointerdown", (event) => {
   if (soundFxEnabled) void sound.unlock();
+  const eventTarget = event.target;
+  const startsRun = eventTarget instanceof Node && (
+    elements.normalButton.contains(eventTarget) ||
+    elements.zenButton.contains(eventTarget) ||
+    elements.resultRestartButton.contains(eventTarget) ||
+    elements.gameRestartButton.contains(eventTarget)
+  );
+  if (musicEnabled && !startsRun) void music.unlock();
   pets.handleNonGameTap(event.clientX, event.clientY);
 }, { capture: true });
 window.addEventListener("pagehide", () => {
@@ -3039,6 +3049,7 @@ window.addEventListener("pagehide", () => {
 initializeDisplaySettings();
 engine.reset();
 resetResultUi();
+void music.startMenu({ resume: false });
 render();
 void refreshProfileSession().then(() => {
   if (!profileSession.authenticated && dialogView === "profile") void renderGoogleButtons();

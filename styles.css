@@ -1994,28 +1994,29 @@ h1 {
 }
 
 .primary-button.mode-button--arcade {
-  border: 1px solid rgba(255, 101, 122, 0.82);
+  border: 1px solid rgba(255, 158, 202, 0.92);
   background:
-    radial-gradient(circle at 50% 0, rgba(255, 154, 166, 0.32), transparent 62%),
-    linear-gradient(145deg, #ac1738, #681128);
+    radial-gradient(circle at 50% 0, rgba(255, 226, 238, 0.45), transparent 62%),
+    linear-gradient(145deg, #f45198, #c92d70);
   box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.17),
-    0 0 16px rgba(255, 49, 88, 0.44),
-    0 8px 24px rgba(88, 4, 25, 0.34);
+    inset 0 1px rgba(255, 255, 255, 0.28),
+    0 0 20px rgba(255, 73, 155, 0.58),
+    0 8px 24px rgba(121, 15, 62, 0.32);
   color: #fff7f8;
   text-shadow: 0 1px 2px rgba(60, 0, 12, 0.5);
 }
 
 .secondary-button.mode-button--zen {
-  border-color: rgba(122, 245, 184, 0.64);
+  border-color: rgba(201, 255, 164, 0.9);
   background:
-    radial-gradient(circle at 50% 0, rgba(182, 255, 218, 0.2), transparent 64%),
-    linear-gradient(145deg, rgba(35, 119, 78, 0.86), rgba(20, 64, 48, 0.94));
+    radial-gradient(circle at 50% 0, rgba(239, 255, 211, 0.44), transparent 64%),
+    linear-gradient(145deg, #93dc63, #3d9b58);
   box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.12),
-    0 0 16px rgba(91, 236, 161, 0.27),
-    0 8px 24px rgba(5, 49, 31, 0.28);
-  color: #effff7;
+    inset 0 1px rgba(255, 255, 255, 0.25),
+    0 0 20px rgba(145, 236, 102, 0.42),
+    0 8px 24px rgba(22, 91, 43, 0.28);
+  color: #0b2d17;
+  text-shadow: 0 1px rgba(255, 255, 255, 0.24);
 }
 
 .mode-button small {
@@ -2028,12 +2029,12 @@ h1 {
 }
 
 .mode-button--zen small {
-  color: #bdebd2;
+  color: rgba(9, 55, 26, 0.84);
 }
 
 .mode-button--zen:hover small,
 .mode-button--zen:focus-visible small {
-  color: #d6daea;
+  color: #173e23;
 }
 
 .settings-toggle {
@@ -2043,6 +2044,18 @@ h1 {
   justify-content: space-between;
   gap: 16px;
   text-align: left;
+}
+
+.settings-toggle.menu-feature-button {
+  min-height: 48px;
+  padding: 5px 8px;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1.05;
+}
+
+.settings-toggle.menu-feature-button .settings-toggle__value {
+  line-height: 1.05;
 }
 
 .settings-toggle[aria-expanded="true"] {
