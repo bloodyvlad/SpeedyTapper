@@ -1,9 +1,11 @@
 const TONE_BANK_URL = "./assets/audio/tap-tones.wav";
+const LIFE_LOSS_URL = "./assets/audio/oops.wav";
 
 const TONE_SLOT_COUNT = 16;
 const TONE_SLOT_SECONDS = 0.5;
 const REQUIRED_BANK_DURATION_SECONDS = TONE_SLOT_COUNT * TONE_SLOT_SECONDS;
 const TONE_GAIN = 0.5;
+const LIFE_LOSS_GAIN = 0.55;
 const MAX_TONE_VOICES = 2;
 const VOICE_RELEASE_SECONDS = 0.012;
 const VOICE_STOP_PADDING_SECONDS = 0.002;
@@ -28,6 +30,8 @@ export function createSoundController({
   let masterGain = null;
   let masterGateOpen = false;
   let toneBuffer = null;
+  let lifeLossBuffer = null;
+  let lifeLossVoice = null;
   let preparation = null;
   let loadController = null;
   const voices = new Set();
@@ -54,6 +58,7 @@ export function createSoundController({
     if (!voice || voice.cleaned) return;
     voice.cleaned = true;
     voices.delete(voice);
+    if (lifeLossVoice === voice) lifeLossVoice = null;
     voice.source.onended = null;
     disconnectNode(voice.source);
     disconnectNode(voice.gain);
@@ -81,7 +86,7 @@ export function createSoundController({
     const time = activeContext.currentTime;
     const fadeEndTime = time + VOICE_RELEASE_SECONDS;
     voice.gain.gain.cancelScheduledValues(time);
-    voice.gain.gain.setValueAtTime(TONE_GAIN, time);
+    voice.gain.gain.setValueAtTime(voice.level, time);
     voice.gain.gain.linearRampToValueAtTime(0, fadeEndTime);
     try {
       voice.source.stop(fadeEndTime + VOICE_STOP_PADDING_SECONDS);
@@ -98,16 +103,18 @@ export function createSoundController({
   }
 
   async function fetchAndDecode(
+    url,
+    minimumDuration,
     signal,
     preparationGeneration,
     preparationContext
   ) {
-    const response = await fetchImpl(TONE_BANK_URL, {
+    const response = await fetchImpl(url, {
       cache: "no-store",
       signal
     });
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
-    if (!response?.ok) throw new Error(`Unable to load ${TONE_BANK_URL}`);
+    if (!response?.ok) throw new Error(`Unable to load ${url}`);
 
     const encodedAudio = await response.arrayBuffer();
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
@@ -116,9 +123,9 @@ export function createSoundController({
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
     if (
       !Number.isFinite(decodedAudio?.duration) ||
-      decodedAudio.duration < REQUIRED_BANK_DURATION_SECONDS
+      decodedAudio.duration < minimumDuration
     ) {
-      throw new Error("The tap-tone bank does not contain all 16 slots.");
+      throw new Error(`The audio asset at ${url} is malformed or incomplete.`);
     }
     return decodedAudio;
   }
@@ -126,7 +133,7 @@ export function createSoundController({
   function prepareAudio(preparationGeneration, preparationContext) {
     if (
       preparation ||
-      toneBuffer ||
+      (toneBuffer && lifeLossBuffer) ||
       !isCurrent(preparationGeneration, preparationContext) ||
       typeof fetchImpl !== "function"
     ) {
@@ -135,17 +142,40 @@ export function createSoundController({
 
     loadController = new AbortController();
     const activeController = loadController;
-    const work = fetchAndDecode(
-      activeController.signal,
-      preparationGeneration,
-      preparationContext
-    )
-      .then((decodedAudio) => {
-        if (decodedAudio && isCurrent(preparationGeneration, preparationContext)) {
+    const pendingAssets = [];
+    if (!toneBuffer) {
+      pendingAssets.push({
+        assign(decodedAudio) {
           toneBuffer = decodedAudio;
+        },
+        minimumDuration: REQUIRED_BANK_DURATION_SECONDS,
+        url: TONE_BANK_URL
+      });
+    }
+    if (!lifeLossBuffer) {
+      pendingAssets.push({
+        assign(decodedAudio) {
+          lifeLossBuffer = decodedAudio;
+        },
+        minimumDuration: Number.EPSILON,
+        url: LIFE_LOSS_URL
+      });
+    }
+
+    const work = Promise.allSettled(
+      pendingAssets.map(async ({ assign, minimumDuration, url }) => {
+        const decodedAudio = await fetchAndDecode(
+          url,
+          minimumDuration,
+          activeController.signal,
+          preparationGeneration,
+          preparationContext
+        );
+        if (decodedAudio && isCurrent(preparationGeneration, preparationContext)) {
+          assign(decodedAudio);
         }
       })
-      .catch(() => {})
+    )
       .finally(() => {
         if (preparation === work) preparation = null;
         if (loadController === activeController) loadController = null;
@@ -219,6 +249,8 @@ export function createSoundController({
     loadController = null;
     preparation = null;
     toneBuffer = null;
+    lifeLossBuffer = null;
+    lifeLossVoice = null;
     stopAllVoices();
 
     disconnectNode(masterGain);
@@ -311,7 +343,9 @@ export function createSoundController({
 
     const safeHitNumber = Number.isInteger(hitNumber) && hitNumber > 0 ? hitNumber : 1;
     const slotIndex = (safeHitNumber - 1) % TONE_SLOT_COUNT;
-    const activeVoices = [...voices].filter((voice) => !voice.retiring && !voice.cleaned);
+    const activeVoices = [...voices].filter(
+      (voice) => voice.kind === "tone" && !voice.retiring && !voice.cleaned
+    );
     while (activeVoices.length >= MAX_TONE_VOICES) {
       fadeAndStopVoice(activeVoices.shift());
     }
@@ -323,7 +357,14 @@ export function createSoundController({
     source.connect(gain);
     gain.connect(masterGain);
 
-    const voice = { cleaned: false, gain, retiring: false, source };
+    const voice = {
+      cleaned: false,
+      gain,
+      kind: "tone",
+      level: TONE_GAIN,
+      retiring: false,
+      source
+    };
     voices.add(voice);
     source.onended = () => cleanupVoice(voice);
     try {
@@ -332,6 +373,47 @@ export function createSoundController({
         slotIndex * TONE_SLOT_SECONDS,
         TONE_SLOT_SECONDS
       );
+      return true;
+    } catch {
+      cleanupVoice(voice);
+      return false;
+    }
+  }
+
+  function lifeLost() {
+    if (
+      !enabled ||
+      !desiredRunning ||
+      context?.state !== "running" ||
+      !masterGateOpen ||
+      !masterGain ||
+      !lifeLossBuffer
+    ) {
+      return false;
+    }
+
+    if (lifeLossVoice) fadeAndStopVoice(lifeLossVoice);
+
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    gain.gain.value = LIFE_LOSS_GAIN;
+    source.buffer = lifeLossBuffer;
+    source.connect(gain);
+    gain.connect(masterGain);
+
+    const voice = {
+      cleaned: false,
+      gain,
+      kind: "life-loss",
+      level: LIFE_LOSS_GAIN,
+      retiring: false,
+      source
+    };
+    lifeLossVoice = voice;
+    voices.add(voice);
+    source.onended = () => cleanupVoice(voice);
+    try {
+      source.start(context.currentTime);
       return true;
     } catch {
       cleanupVoice(voice);
@@ -388,6 +470,7 @@ export function createSoundController({
       }
     },
 
+    lifeLost,
     playCorrectTap
   };
 }
