@@ -19,7 +19,7 @@ npm run check:php
 
 Run `php server/bin/purge-run-attempts.php --apply` from a daily Hostinger cron job. It deletes only bounded batches of unranked stale attempt metadata (7-day abandoned/expired retention and 30-day rejected retention); dry-run is the default, and completed/ranked/reviewed runs are never eligible.
 
-The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; and `010` keeps the selected pet while persisting whether it is shown. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; `010` keeps the selected pet while persisting whether it is shown; and `011` adds database roles, paginated web moderation, immutable account reward-reset audits, and economy generations. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 ## API contract
 
@@ -137,6 +137,17 @@ Authentication and a confirmed nickname are required for selection. The public r
 
 Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can never award a result.
 
+### Leaderboard administrator API
+
+Every route below requires a current Google-authenticated profile whose internal UUID has the database role `leaderboard_admin`. The profile and session payload expose only the derived `isAdmin` boolean; the browser cannot grant the role. Migration `011` bootstraps the initial administrator only when the exact production result IDs `d4e98497-9212-475e-8664-283171ce3910` and `82ee646d-28d9-43f8-9e38-e4e234a02db1` still belong to the same player. No score, nickname, rank, email, or client flag is consulted after that migration.
+
+- `GET /api/admin/leaderboard?view=all|scan&mode=all|normal|zen&status=all|legacy|verified|review|quarantined|deleted&offset=0&limit=100` returns one bounded page. `hasMore` drives explicit pagination; a scan page additionally returns its scanned and flagged counts.
+- `GET /api/admin/leaderboard/entries/{entryUuid}` returns the exact result, conservative scan flags, linked run metadata, and moderation history while withholding browser/session and proof hash material.
+- `POST /api/admin/leaderboard/entries/{entryUuid}/quarantine` accepts `{ "reason": "...", "expectedStatus": "verified", "confirm": true }` and performs one exact-result quarantine.
+- `POST /api/admin/leaderboard/entries/{entryUuid}/delete-reset` accepts `{ "reason": "...", "expectedStatus": "quarantined", "confirm": true, "confirmPlayerId": "exact-player-uuid-from-the-selected-row" }`. It refuses any result that was not reviewed and quarantined first, or if the selected row and confirmed account no longer match.
+
+Both mutations require same-origin CSRF protection and a Google login verified within the preceding 15 minutes. The server refuses self-moderation and moderation of any other administrator. Delete-and-reset is one transaction: it logically deletes the result, revokes its strictly linked run when present, abandons any outstanding issued attempt, removes all selected/owned pets, zeroes wallet/debt/remainder/current collected and play totals, advances the account economy generation, and appends both moderation and reward-reset audit records. Achievements remain. Old proofs, completed runs, moderation events, and coin-ledger rows remain immutable, but only the current generation contributes to later reconciliation or historical achievement eligibility. Repeating the same delete-reset UUID returns its recorded reset without forfeiting future rewards again.
+
 ## Security and limitations
 
 - The session cookie, same-origin mutation guard, and per-session CSRF token prevent common cross-site mutations, while Google verifies account ownership.
@@ -145,5 +156,6 @@ Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can nev
 - Requests are capped at 256 KiB and 10,000 proof events. An authenticated per-session finish limit is consumed before proof JSON is parsed, while persisted per-minute and daily player limits run before replay or proof persistence. Rejected proofs retain hashes and compact audit metadata rather than attacker-controlled event JSON. The bounded maintenance command removes stale unranked attempts. Shared-hosting or edge-level IP throttling remains recommended for broader availability protection.
 - This is protocol verification, not proof of human input. A sufficiently modified browser, scripted client, or computer-vision bot can still create plausible real-time play. High-risk distributions can be held for manual review; never describe the board as bot-proof.
 - Existing aggregate rows are `legacy` because they cannot be retrospectively verified. `server/bin/leaderboard-admin.php` can list all records or filter suspected/non-ranked states and supports exact-ID `approve`, `reject`, `quarantine`, `restore`, and logical `delete`; mutations are dry-run by default. Quarantine is reversible. Coin reconciliation recomputes eligible play plus pet spending and achievement rewards; if revoked earnings were already spent, `coin_debt` absorbs later credits before the spendable balance increases.
+- Browser administration is deliberately narrower than the maintenance CLI: it exposes bounded reads, quarantine, and the explicit quarantined-result delete-and-reset sanction. It never exposes arbitrary actor text, generic approval/restore/reconcile operations, or account-role editing.
 - PHP's default file-session store is appropriate for this single shared-hosting deployment. A multi-node deployment would need shared session storage or signed/revocable session tokens.
 - Configure the Google OAuth Web client with the final HTTPS origin before sign-in can be production-tested.

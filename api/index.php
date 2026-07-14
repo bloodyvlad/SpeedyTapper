@@ -11,6 +11,7 @@ use SpeedyTapper\GoogleClientIdentityVerifier;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
+use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\PetShopService;
 use SpeedyTapper\PlayerRepository;
@@ -52,6 +53,7 @@ try {
             new RunProofValidator(),
             $achievements,
         ),
+        moderation: new LeaderboardModerationService($database),
         session: new SessionStore($request->isSecure()),
         google: new GoogleClientIdentityVerifier($config->googleClientId),
     );

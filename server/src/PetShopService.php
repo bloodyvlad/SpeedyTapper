@@ -158,6 +158,7 @@ final class PetShopService
             if ($purchased) {
                 $this->insertPurchaseLedger(
                     $playerId,
+                    (int) $player['economy_generation'],
                     $pet['id'],
                     $pricePaid,
                     $coinBalance,
@@ -185,11 +186,12 @@ final class PetShopService
         }
     }
 
-    /** @return array{coins: int, coin_debt: int, total_play_ms: int} */
+    /** @return array{coins: int, coin_debt: int, total_play_ms: int, economy_generation: int} */
     private function lockPlayer(string $playerId): array
     {
         $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_play_ms FROM players WHERE id = :player_id FOR UPDATE'
+            'SELECT coins, coin_debt, total_play_ms, economy_generation '
+            . 'FROM players WHERE id = :player_id FOR UPDATE'
         );
         $statement->execute(['player_id' => $playerId]);
         $player = $statement->fetch();
@@ -201,6 +203,7 @@ final class PetShopService
 
     private function insertPurchaseLedger(
         string $playerId,
+        int $economyGeneration,
         string $petId,
         int $pricePaid,
         int $coinBalance,
@@ -209,16 +212,17 @@ final class PetShopService
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO coin_ledger '
-            . '(event_id, event_key, player_id, event_type, play_ms_delta, coin_delta, '
+            . '(event_id, event_key, player_id, economy_generation, event_type, play_ms_delta, coin_delta, '
             . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
-            . 'VALUES (:event_id, :event_key, :player_id, \'pet_purchase\', 0, :coin_delta, '
+            . 'VALUES (:event_id, :event_key, :player_id, :economy_generation, \'pet_purchase\', 0, :coin_delta, '
             . ':coin_balance_after, :coin_debt_after, :total_play_ms_after, \'eligible\', '
             . '\'pet-shop\', :reason)'
         );
         $statement->execute([
             'event_id' => Uuid::v4(),
-            'event_key' => 'pet:' . $playerId . ':' . $petId,
+            'event_key' => 'pet:' . $playerId . ':' . $petId . ':g' . $economyGeneration,
             'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
             'coin_delta' => -$pricePaid,
             'coin_balance_after' => $coinBalance,
             'coin_debt_after' => $coinDebt,

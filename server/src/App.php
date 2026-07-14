@@ -14,6 +14,7 @@ final class App
         private readonly RunAttemptService $attempts,
         private readonly AchievementService $achievements,
         private readonly RunSubmissionService $runs,
+        private readonly LeaderboardModerationService $moderation,
         private readonly SessionStore $session,
         private readonly GoogleIdentityVerifier $google,
     ) {
@@ -191,6 +192,102 @@ final class App
             throw new ApiException(410, 'Aggregate score submission is retired. Refresh before playing again.');
         }
 
+        if ($request->path === '/api/admin/leaderboard' && $request->method === 'GET') {
+            $this->requireAdmin();
+            [$offset, $limit] = $this->adminPagination($request);
+            $mode = $this->adminModeFromQuery($request);
+            $status = $this->adminStatusFromQuery($request);
+            $view = $request->query['view'] ?? 'all';
+            if (!is_string($view) || ($view !== 'all' && $view !== 'scan')) {
+                throw new ApiException(400, 'Admin view must be all or scan.');
+            }
+            if ($view === 'scan') {
+                $payload = $this->adminOperation(fn (): array => $this->moderation->scan(
+                    $this->config->seasonId,
+                    $mode,
+                    $status,
+                    $limit,
+                    $offset,
+                ));
+                JsonResponse::send(200, ['view' => 'scan', ...$payload]);
+            }
+            $rows = $this->adminOperation(fn (): array => $this->moderation->listEntries(
+                $this->config->seasonId,
+                $mode,
+                $status,
+                $limit + 1,
+                $offset,
+            ));
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) {
+                array_pop($rows);
+            }
+            JsonResponse::send(200, [
+                'view' => 'all',
+                'entries' => $rows,
+                'offset' => $offset,
+                'limit' => $limit,
+                'hasMore' => $hasMore,
+            ]);
+        }
+
+        if (
+            $request->method === 'GET'
+            && preg_match(
+                '#^/api/admin/leaderboard/entries/([0-9a-fA-F-]{36})$#D',
+                $request->path,
+                $matches,
+            ) === 1
+        ) {
+            $this->requireAdmin();
+            $detail = $this->adminOperation(
+                fn (): array => $this->moderation->showForAdmin($matches[1]),
+            );
+            JsonResponse::send(200, $detail);
+        }
+
+        if (
+            $request->method === 'POST'
+            && preg_match(
+                '#^/api/admin/leaderboard/entries/([0-9a-fA-F-]{36})/(quarantine|delete-reset)$#D',
+                $request->path,
+                $matches,
+            ) === 1
+        ) {
+            $this->guardMutation($request);
+            $admin = $this->requireAdmin(true);
+            $body = $request->json();
+            if (($body['confirm'] ?? null) !== true) {
+                throw new ApiException(400, 'Explicit confirmation is required.');
+            }
+            $reason = $body['reason'] ?? null;
+            $expectedStatus = $body['expectedStatus'] ?? null;
+            if (!is_string($reason) || !is_string($expectedStatus)) {
+                throw new ApiException(400, 'Reason and expected status are required.');
+            }
+            $entryId = $matches[1];
+            if ($matches[2] === 'quarantine') {
+                $result = $this->adminOperation(fn (): array => $this->moderation->transition(
+                    $entryId,
+                    'quarantine',
+                    'admin:' . $admin['id'],
+                    $reason,
+                    true,
+                    $expectedStatus,
+                    $admin['id'],
+                ));
+                JsonResponse::send(200, $result);
+            }
+            $result = $this->adminOperation(fn (): array => $this->moderation->deleteAndReset(
+                $entryId,
+                $admin['id'],
+                $reason,
+                $expectedStatus,
+                $body['confirmPlayerId'] ?? null,
+            ));
+            JsonResponse::send(200, $result);
+        }
+
         throw new ApiException(404, 'API route not found.');
     }
 
@@ -230,6 +327,77 @@ final class App
             throw new ApiException(401, 'Sign in with Google to continue.');
         }
         return $profile;
+    }
+
+    private function requireAdmin(bool $requireRecentGoogleAuthentication = false): array
+    {
+        $profile = $this->requirePlayer();
+        if (($profile['isAdmin'] ?? false) !== true) {
+            throw new ApiException(403, 'Leaderboard administrator access is required.');
+        }
+        if ($requireRecentGoogleAuthentication) {
+            $this->session->requireRecentGoogleAuthentication();
+        }
+        return $profile;
+    }
+
+    /** @return array{int, int} */
+    private function adminPagination(HttpRequest $request): array
+    {
+        $offset = $this->boundedQueryInteger($request->query['offset'] ?? '0', 'offset', 0, 10_000_000);
+        $limit = $this->boundedQueryInteger($request->query['limit'] ?? '100', 'limit', 1, 100);
+        return [$offset, $limit];
+    }
+
+    private function boundedQueryInteger(mixed $value, string $name, int $minimum, int $maximum): int
+    {
+        if (!is_string($value) && !is_int($value)) {
+            throw new ApiException(400, ucfirst($name) . ' is invalid.');
+        }
+        $normalized = (string) $value;
+        if (preg_match('/^(0|[1-9][0-9]*)$/D', $normalized) !== 1) {
+            throw new ApiException(400, ucfirst($name) . ' is invalid.');
+        }
+        $number = (int) $normalized;
+        if ($number < $minimum || $number > $maximum) {
+            throw new ApiException(400, ucfirst($name) . ' is outside the allowed range.');
+        }
+        return $number;
+    }
+
+    private function adminModeFromQuery(HttpRequest $request): ?string
+    {
+        $mode = $request->query['mode'] ?? 'all';
+        if ($mode === 'all') return null;
+        if ($mode !== 'normal' && $mode !== 'zen') {
+            throw new ApiException(400, 'Mode must be all, normal, or zen.');
+        }
+        return $mode;
+    }
+
+    private function adminStatusFromQuery(HttpRequest $request): ?string
+    {
+        $status = $request->query['status'] ?? 'all';
+        if ($status === 'all') return null;
+        if (!is_string($status) || !in_array(
+            $status,
+            ['legacy', 'verified', 'review', 'quarantined', 'deleted'],
+            true,
+        )) {
+            throw new ApiException(400, 'Verification status is invalid.');
+        }
+        return $status;
+    }
+
+    private function adminOperation(callable $operation): mixed
+    {
+        try {
+            return $operation();
+        } catch (ApiException $error) {
+            throw $error;
+        } catch (\InvalidArgumentException $error) {
+            throw new ApiException(400, $error->getMessage());
+        }
     }
 
     private function modeFromQuery(HttpRequest $request): string

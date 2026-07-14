@@ -158,6 +158,7 @@ final class RunSubmissionService
 
             $this->insertCompletedRun(
                 $playerId,
+                (int) $player['economy_generation'],
                 $score,
                 $serverElapsedMs,
                 $improved,
@@ -176,6 +177,7 @@ final class RunSubmissionService
             $this->insertProof($proof, 'verified', null);
             $this->insertCoinLedger(
                 $playerId,
+                (int) $player['economy_generation'],
                 $score,
                 $verificationStatus === 'verified' ? $creditedPlayMs : 0,
                 $progression->coinsEarned,
@@ -218,7 +220,8 @@ final class RunSubmissionService
     private function lockPlayer(string $playerId): array
     {
         $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms '
+            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms, '
+            . 'economy_generation '
             . 'FROM players WHERE id = :player_id FOR UPDATE'
         );
         $statement->execute(['player_id' => $playerId]);
@@ -297,6 +300,7 @@ final class RunSubmissionService
 
     private function insertCompletedRun(
         string $playerId,
+        int $economyGeneration,
         ScoreSubmission $score,
         int $serverElapsedMs,
         bool $improved,
@@ -307,14 +311,14 @@ final class RunSubmissionService
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO completed_runs '
-            . '(run_id, leaderboard_entry_id, player_id, payload_hash, mode, score, duration_ms, '
+            . '(run_id, leaderboard_entry_id, player_id, economy_generation, payload_hash, mode, score, duration_ms, '
             . 'reaction_base_points, multiplier_bonus_points, max_multiplier, multiplier_1_hits, '
             . 'multiplier_2_hits, multiplier_3_hits, multiplier_4_hits, multiplier_5_hits, '
             . 'multiplier_1_base_points, multiplier_2_base_points, multiplier_3_base_points, '
             . 'multiplier_4_base_points, multiplier_5_base_points, coins_awarded, leaderboard_improved, '
             . 'verification_status, coin_status, ruleset_id, proof_version, verified_at, server_elapsed_ms, '
             . 'credited_play_ms, miss_count, risk_score, risk_reasons) VALUES '
-            . '(:run_id, :leaderboard_entry_id, :player_id, :payload_hash, :mode, :score, :duration_ms, '
+            . '(:run_id, :leaderboard_entry_id, :player_id, :economy_generation, :payload_hash, :mode, :score, :duration_ms, '
             . ':reaction_base_points, :multiplier_bonus_points, :max_multiplier, :multiplier_1_hits, '
             . ':multiplier_2_hits, :multiplier_3_hits, :multiplier_4_hits, :multiplier_5_hits, '
             . ':multiplier_1_base_points, :multiplier_2_base_points, :multiplier_3_base_points, '
@@ -326,6 +330,7 @@ final class RunSubmissionService
             'run_id' => $score->runId,
             'leaderboard_entry_id' => $score->runId,
             'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
             'mode' => $score->mode,
             'score' => $score->score,
             'duration_ms' => $score->survivalMs,
@@ -414,6 +419,7 @@ final class RunSubmissionService
 
     private function insertCoinLedger(
         string $playerId,
+        int $economyGeneration,
         ScoreSubmission $score,
         int $creditedPlayMs,
         int $coinsEarned,
@@ -426,11 +432,11 @@ final class RunSubmissionService
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO coin_ledger '
-            . '(event_id, event_key, player_id, run_id, event_type, play_ms_delta, coin_delta, '
+            . '(event_id, event_key, player_id, economy_generation, run_id, event_type, play_ms_delta, coin_delta, '
             . 'remainder_before_ms, remainder_after_ms, coin_balance_after, coin_debt_after, '
             . 'total_play_ms_after, '
             . 'coin_status, actor, reason) VALUES '
-            . '(:event_id, :event_key, :player_id, :run_id, \'run_credit\', :play_ms_delta, :coin_delta, '
+            . '(:event_id, :event_key, :player_id, :economy_generation, :run_id, \'run_credit\', :play_ms_delta, :coin_delta, '
             . ':remainder_before_ms, :remainder_after_ms, :coin_balance_after, :coin_debt_after, '
             . ':total_play_ms_after, '
             . ':coin_status, \'verification-server\', :reason)'
@@ -439,6 +445,7 @@ final class RunSubmissionService
             'event_id' => Uuid::v4(),
             'event_key' => 'run:' . $score->runId,
             'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
             'run_id' => $score->runId,
             'play_ms_delta' => $creditedPlayMs,
             'coin_delta' => $coinsEarned,
@@ -505,7 +512,7 @@ final class RunSubmissionService
     private function findCompletedRun(string $runId): array|false
     {
         $statement = $this->database->prepare(
-            'SELECT player_id, payload_hash, coins_awarded, leaderboard_improved, verification_status '
+            'SELECT player_id, economy_generation, payload_hash, coins_awarded, leaderboard_improved, verification_status '
             . 'FROM completed_runs WHERE run_id = :run_id FOR UPDATE'
         );
         $statement->execute(['run_id' => $runId]);
@@ -530,7 +537,9 @@ final class RunSubmissionService
             'improved' => (bool) $existing['leaderboard_improved'],
             'duplicate' => true,
             'verificationStatus' => (string) $existing['verification_status'],
-            'coinsEarned' => (int) $existing['coins_awarded'],
+            'coinsEarned' => (int) $existing['economy_generation'] === (int) $player['economy_generation']
+                ? (int) $existing['coins_awarded']
+                : 0,
             'coinBalance' => (int) $player['coins'],
             'totalPlayMs' => (int) $player['total_play_ms'],
             'verifiedResult' => null,

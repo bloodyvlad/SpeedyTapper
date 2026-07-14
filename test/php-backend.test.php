@@ -409,6 +409,14 @@ for ($attempt = 0; $attempt < 20; $attempt++) {
     $rateSession->requireRunFinishCapacity();
 }
 $rateSession->login($ratePlayerId);
+$rateSession->requireRecentGoogleAuthentication();
+$assert(true, 'A freshly verified Google login satisfies sensitive admin authentication.');
+$_SESSION['speedytapper_google_authenticated_at'] = time() - 901;
+$throwsApi(
+    static fn () => $rateSession->requireRecentGoogleAuthentication(),
+    'A stale browser session must reauthenticate with Google before destructive moderation.',
+);
+$rateSession->login($ratePlayerId);
 $throwsApi(
     static fn () => $rateSession->requireRunFinishCapacity(),
     'Malformed finish requests are capped before proof parsing and re-login cannot reset that session limit.',
@@ -446,15 +454,40 @@ foreach ([
     'pet_purchase',
     'achievement_reward',
     'coin_debt_after',
+    'player_roles',
+    'leaderboard_admin',
+    'economy_generation',
+    'account_reward_resets',
+    'admin_reward_reset',
+    'delete_reset',
 ] as $needle) {
     $assert(str_contains($schema, $needle), 'Schema contains ' . $needle . '.');
 }
 $assert(str_contains($schema, "ENUM(''legacy'',''verified'',''review'',''quarantined'',''deleted'')"), 'Schema preserves auditable verification and moderation states.');
+$assert(
+    str_contains($schema, "arcade.id = 'd4e98497-9212-475e-8664-283171ce3910'")
+        && str_contains($schema, "zen.id = '82ee646d-28d9-43f8-9e38-e4e234a02db1'")
+        && str_contains($schema, 'zen.player_id = arcade.player_id')
+        && str_contains($schema, "arcade.mode = 'normal'")
+        && str_contains($schema, 'arcade.score = 77825')
+        && str_contains($schema, "zen.mode = 'zen'")
+        && str_contains($schema, "verification_status IN ('legacy', 'verified')"),
+    'Administrator bootstrap requires the exact production result pair to share one player.',
+);
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
 foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
+$assert(
+    str_contains($app, '/api/admin/leaderboard')
+        && str_contains($app, '/entries/([0-9a-fA-F-]{36})/(quarantine|delete-reset)')
+        && str_contains($app, 'requireAdmin(true)')
+        && str_contains($app, 'requireRecentGoogleAuthentication')
+        && str_contains($app, "(\$body['confirm'] ?? null) !== true")
+        && str_contains($app, "\$body['confirmPlayerId'] ?? null"),
+    'Admin reads are role-gated and exact-result mutations require target confirmation plus recent Google auth.',
+);
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
 $assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
 $assert(
@@ -526,7 +559,24 @@ $assert(
         && str_contains($moderationCli, '--entry='),
     'Exact-ID moderation is reversible, audited, and dry-run by default.',
 );
-
+$assert(
+    is_string($moderationService)
+        && str_contains($moderationService, 'assertAdminActorAndTarget')
+        && str_contains($moderationService, 'hash_equals($confirmPlayerId, $targetPlayerId)')
+        && str_contains($moderationService, 'Administrators cannot moderate their own results')
+        && str_contains($moderationService, 'Administrator results cannot be moderated here')
+        && str_contains($moderationService, "currentStatus !== 'quarantined'")
+        && str_contains($moderationService, 'deleteAndReset')
+        && str_contains($moderationService, 'account_reward_resets')
+        && str_contains($moderationService, 'economy_generation = :economy_generation')
+        && str_contains($moderationService, 'DELETE FROM player_pets')
+        && str_contains($moderationService, "rejection_code = 'admin-reward-reset'")
+        && str_contains($moderationService, 'total_coins_collected = 0')
+        && str_contains($moderationService, "'admin_reward_reset'")
+        && str_contains($moderationService, "'delete_reset'")
+        && str_contains($moderationService, 'achievementsPreserved'),
+    'Admin deletion is role-safe, two-stage, audited, and moves forfeited rewards into a fresh economy generation.',
+);
 $purgeCli = file_get_contents(dirname(__DIR__) . '/server/bin/purge-run-attempts.php');
 $assert(
     is_string($purgeCli)
@@ -568,6 +618,17 @@ $assert(
         && str_contains($achievementService, 'CoinEconomy::applyCredit'),
     'Achievement unlocks use verified runs and durable moderation-safe rewards.',
 );
+$assert(
+    str_contains($achievementService, 'run.economy_generation = :economy_generation')
+        && str_contains($achievementService, "':g' . \$economyGeneration"),
+    'Historical achievements remain durable while new reward eligibility and ledger keys use the active economy generation.',
+);
+$assert(
+    str_contains($schema, 'event_key VARCHAR(128)')
+        && str_contains($petShopService, "':g' . \$economyGeneration")
+        && str_contains($achievementService, "':g' . \$economyGeneration"),
+    'Generation-qualified repurchase and reward keys fit the expanded immutable ledger key.',
+);
 
 $achievementMigration = file_get_contents(dirname(__DIR__) . '/server/migrations/008_player_achievements.sql');
 $assert(
@@ -586,6 +647,19 @@ $assert(
         && str_contains($moderationService, "=== 'zen' ? 0 : self::DODGE_POINTS")
         && str_contains($moderationService, 'coin_debt_after'),
     'Moderation preserves purchases and rewards while reconciling spendable coins or debt.',
+);
+$assert(
+    is_string($runService)
+        && str_contains($runService, '(run_id, leaderboard_entry_id, player_id, economy_generation')
+        && str_contains($runService, 'player_id, economy_generation, run_id, event_type'),
+    'New completed runs and run credits are tagged with the locked player economy generation.',
+);
+$playerRepository = file_get_contents(dirname(__DIR__) . '/server/src/PlayerRepository.php');
+$assert(
+    is_string($playerRepository)
+        && str_contains($playerRepository, "role.role = 'leaderboard_admin'")
+        && str_contains($playerRepository, "'isAdmin' =>"),
+    'Profile admin capability is derived from the database role and exposed only as a boolean.',
 );
 
 $migrationStatements = MigrationRunner::splitStatements(

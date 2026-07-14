@@ -9,6 +9,7 @@ final class SessionStore
     private const PLAYER_KEY = 'speedytapper_player_id';
     private const CSRF_KEY = 'speedytapper_csrf_token';
     private const RUN_BINDING_KEY = 'speedytapper_run_binding';
+    private const GOOGLE_AUTHENTICATED_AT_KEY = 'speedytapper_google_authenticated_at';
     private const FINISH_RATE_KEY = 'speedytapper_finish_requests';
     private const FINISH_RATE_LIMIT = 20;
     private const FINISH_RATE_WINDOW_SECONDS = 60;
@@ -56,6 +57,7 @@ final class SessionStore
             self::PLAYER_KEY => $playerId,
             self::CSRF_KEY => self::base64Url(random_bytes(32)),
             self::RUN_BINDING_KEY => self::base64Url(random_bytes(32)),
+            self::GOOGLE_AUTHENTICATED_AT_KEY => time(),
             self::FINISH_RATE_KEY => is_array($finishRequests) ? $finishRequests : [],
         ];
     }
@@ -131,6 +133,26 @@ final class SessionStore
         }
         $requests[] = $now;
         $_SESSION[self::FINISH_RATE_KEY] = $requests;
+    }
+
+    public function requireRecentGoogleAuthentication(int $maximumAgeSeconds = 900): void
+    {
+        if ($maximumAgeSeconds < 60 || $maximumAgeSeconds > 3600) {
+            throw new \InvalidArgumentException('Recent-authentication window is invalid.');
+        }
+        $this->start();
+        $authenticatedAt = $_SESSION[self::GOOGLE_AUTHENTICATED_AT_KEY] ?? null;
+        $now = time();
+        if (
+            !is_int($authenticatedAt)
+            || $authenticatedAt > $now
+            || $authenticatedAt < $now - $maximumAgeSeconds
+        ) {
+            throw new ApiException(
+                403,
+                'Sign in with Google again before changing leaderboard records.',
+            );
+        }
     }
 
     private function runBinding(): string

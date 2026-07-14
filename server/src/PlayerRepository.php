@@ -24,7 +24,9 @@ final class PlayerRepository
         }
         try {
             $statement = $this->database->prepare(
-                'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at '
+                'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at, '
+                . 'EXISTS(SELECT 1 FROM player_roles role WHERE role.player_id = players.id '
+                . "AND role.role = 'leaderboard_admin') AS is_admin "
                 . 'FROM players WHERE id = :id LIMIT 1'
             );
             $statement->execute(['id' => $playerId]);
@@ -113,6 +115,7 @@ final class PlayerRepository
             'selectedPetId' => $petState['selectedPetId'],
             'petVisible' => $petState['petVisible'],
             'equippedPetId' => $petState['equippedPetId'],
+            'isAdmin' => (bool) ($row['is_admin'] ?? false),
             'createdAt' => self::isoDate((string) $row['created_at']),
             'updatedAt' => self::isoDate((string) $row['updated_at']),
         ];

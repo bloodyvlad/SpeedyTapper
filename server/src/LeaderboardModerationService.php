@@ -34,10 +34,12 @@ final class LeaderboardModerationService
         ?string $mode = null,
         ?string $status = null,
         int $limit = 50,
+        int $offset = 0,
     ): array {
         $parameters = [];
         $where = $this->filterWhere($seasonId, $mode, $status, $parameters);
         $limit = $this->validateLimit($limit);
+        $offset = $this->validateOffset($offset);
         $statement = $this->database->prepare(
             'SELECT l.id, l.season_id, l.player_id, p.nickname, l.mode, l.score, '
             . 'l.duration_ms, l.correct_taps, l.dodge_count, l.fastest_reaction_ms, '
@@ -48,7 +50,7 @@ final class LeaderboardModerationService
             . 'INNER JOIN players p ON p.id = l.player_id '
             . 'LEFT JOIN completed_runs c ON c.leaderboard_entry_id = l.id '
             . $where
-            . ' ORDER BY l.achieved_at DESC, l.id DESC LIMIT ' . $limit
+            . ' ORDER BY l.achieved_at DESC, l.id DESC LIMIT ' . $limit . ' OFFSET ' . $offset
         );
         $statement->execute($parameters);
         return array_map([$this, 'normalizeListRow'], $statement->fetchAll());
@@ -65,10 +67,13 @@ final class LeaderboardModerationService
         ?string $mode = null,
         ?string $status = null,
         int $limit = 200,
+        int $offset = 0,
     ): array {
         $parameters = [];
         $where = $this->filterWhere($seasonId, $mode, $status, $parameters);
         $limit = $this->validateLimit($limit);
+        $offset = $this->validateOffset($offset);
+        $fetchLimit = $limit + 1;
         $statement = $this->database->prepare(
             'SELECT l.*, p.nickname, c.run_id, c.mode AS run_mode, c.score AS run_score, '
             . 'c.duration_ms AS run_duration_ms, c.reaction_base_points, '
@@ -78,10 +83,15 @@ final class LeaderboardModerationService
             . 'INNER JOIN players p ON p.id = l.player_id '
             . 'LEFT JOIN completed_runs c ON c.leaderboard_entry_id = l.id '
             . $where
-            . ' ORDER BY l.score DESC, l.achieved_at ASC, l.id ASC LIMIT ' . $limit
+            . ' ORDER BY l.score DESC, l.achieved_at ASC, l.id ASC LIMIT ' . $fetchLimit
+            . ' OFFSET ' . $offset
         );
         $statement->execute($parameters);
         $rows = $statement->fetchAll();
+        $hasMore = count($rows) > $limit;
+        if ($hasMore) {
+            array_pop($rows);
+        }
         $flagged = [];
         foreach ($rows as $row) {
             $flags = $this->auditFlags($row);
@@ -98,7 +108,31 @@ final class LeaderboardModerationService
             'scanned' => count($rows),
             'flagged' => count($flagged),
             'entries' => $flagged,
+            'offset' => $offset,
+            'limit' => $limit,
+            'hasMore' => $hasMore,
         ];
+    }
+
+    /** @return array<string, mixed> */
+    public function showForAdmin(string $entryId): array
+    {
+        $detail = $this->show($entryId);
+        if (is_array($detail['entry'] ?? null) && is_string($detail['entry']['player_id'] ?? null)) {
+            $detail['entry']['playerId'] = $detail['entry']['player_id'];
+        }
+        foreach (['completedRun', 'runAttempt'] as $section) {
+            if (!is_array($detail[$section] ?? null)) {
+                continue;
+            }
+            foreach (['payload_hash_hex', 'proof_hash_hex', 'session_binding_hash_hex'] as $field) {
+                unset($detail[$section][$field]);
+            }
+        }
+        if (is_array($detail['runProof'] ?? null)) {
+            unset($detail['runProof']['payload_hash_hex'], $detail['runProof']['trace_hash_hex']);
+        }
+        return $detail;
     }
 
     /** @return array<string, mixed> */
@@ -113,7 +147,7 @@ final class LeaderboardModerationService
         $statement->execute(['entry_id' => $entryId]);
         $entry = $statement->fetch();
         if (!is_array($entry)) {
-            throw new RuntimeException('Leaderboard entry was not found.');
+            throw new ApiException(404, 'Leaderboard entry was not found.');
         }
 
         $run = $this->linkedCompletedRun($entryId, false);
@@ -186,6 +220,8 @@ final class LeaderboardModerationService
         string $actor,
         string $reason,
         bool $apply = false,
+        ?string $expectedStatus = null,
+        ?string $actorPlayerId = null,
     ): array {
         $entryId = $this->validateEntryId($entryId);
         if (!in_array($action, self::MODERATION_ACTIONS, true)) {
@@ -195,9 +231,15 @@ final class LeaderboardModerationService
 
         $this->database->beginTransaction();
         try {
-            $this->lockEntryPlayer($entryId);
+            $targetPlayerId = $this->lockEntryPlayer($entryId);
             $entry = $this->lockEntry($entryId);
             $fromStatus = (string) $entry['verification_status'];
+            if ($expectedStatus !== null && !hash_equals($expectedStatus, $fromStatus)) {
+                throw new ApiException(409, 'The result changed since it was loaded. Refresh and review it again.');
+            }
+            if ($actorPlayerId !== null) {
+                $this->assertAdminActorAndTarget($actorPlayerId, $targetPlayerId);
+            }
             $toStatus = match ($action) {
                 'approve' => $this->reviewStatus($fromStatus, 'verified'),
                 'reject' => $this->reviewStatus($fromStatus, 'quarantined'),
@@ -206,7 +248,7 @@ final class LeaderboardModerationService
                 'restore' => $this->restoreStatus($entryId, $fromStatus),
             };
             if ($action === 'quarantine' && $fromStatus === 'deleted') {
-                throw new RuntimeException('A deleted result must be restored before it can be quarantined.');
+                throw new ApiException(409, 'A deleted result must be restored before it can be quarantined.');
             }
 
             $run = $this->linkedCompletedRun($entryId, true);
@@ -316,6 +358,244 @@ final class LeaderboardModerationService
                 $this->database->rollBack();
             }
             return $result;
+        } catch (Throwable $error) {
+            if ($this->database->inTransaction()) {
+                $this->database->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    /** @return array<string, mixed> */
+    public function deleteAndReset(
+        string $entryId,
+        string $actorPlayerId,
+        string $reason,
+        string $expectedStatus = 'quarantined',
+        mixed $confirmPlayerId = null,
+    ): array {
+        $entryId = $this->validateEntryId($entryId);
+        [, $reason] = $this->validateAuditText('admin:' . $actorPlayerId, $reason);
+        if (!hash_equals('quarantined', $expectedStatus)) {
+            throw new ApiException(409, 'A result must be reviewed and quarantined before deletion.');
+        }
+        if (!is_string($confirmPlayerId) || !Uuid::isValidV4(strtolower(trim($confirmPlayerId)))) {
+            throw new ApiException(400, 'Confirm the exact affected player before resetting rewards.');
+        }
+        $confirmPlayerId = strtolower(trim($confirmPlayerId));
+
+        $this->database->beginTransaction();
+        try {
+            $targetPlayerId = $this->lockEntryPlayer($entryId);
+            $entry = $this->lockEntry($entryId);
+            $this->assertAdminActorAndTarget($actorPlayerId, $targetPlayerId);
+            if (!hash_equals($confirmPlayerId, $targetPlayerId)) {
+                throw new ApiException(409, 'The selected player changed. Refresh and review the result again.');
+            }
+
+            $existingReset = $this->rewardResetForEntry($entryId, true);
+            if (is_array($existingReset)) {
+                $this->database->commit();
+                return [
+                    'applied' => false,
+                    'duplicate' => true,
+                    ...$this->normalizeRewardReset($existingReset),
+                ];
+            }
+
+            $fromStatus = (string) $entry['verification_status'];
+            if (!hash_equals($expectedStatus, $fromStatus)) {
+                throw new ApiException(409, 'The result changed since it was loaded. Refresh and review it again.');
+            }
+
+            $run = $this->linkedCompletedRun($entryId, true);
+            if (is_array($run) && !hash_equals($targetPlayerId, (string) $run['player_id'])) {
+                throw new RuntimeException('Linked completed run belongs to another player.');
+            }
+            $fromCoinStatus = is_array($run) ? (string) $run['coin_status'] : null;
+            $runId = is_array($run) ? (string) $run['run_id'] : null;
+
+            $playerStatement = $this->database->prepare(
+                'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, '
+                . 'total_play_ms, economy_generation FROM players '
+                . 'WHERE id = :player_id FOR UPDATE'
+            );
+            $playerStatement->execute(['player_id' => $targetPlayerId]);
+            $player = $playerStatement->fetch();
+            if (!is_array($player)) {
+                throw new RuntimeException('Player was not found for reward reset.');
+            }
+            $fromGeneration = (int) $player['economy_generation'];
+            if ($fromGeneration >= 4_294_967_295) {
+                throw new RuntimeException('Player economy generation cannot be advanced.');
+            }
+            $toGeneration = $fromGeneration + 1;
+
+            $petStatement = $this->database->prepare(
+                'SELECT pet_id FROM player_pets WHERE player_id = :player_id '
+                . 'ORDER BY acquired_at, pet_id FOR UPDATE'
+            );
+            $petStatement->execute(['player_id' => $targetPlayerId]);
+            $petIds = array_values(array_map('strval', $petStatement->fetchAll(PDO::FETCH_COLUMN)));
+
+            $selectionDelete = $this->database->prepare(
+                'DELETE FROM player_pet_selection WHERE player_id = :player_id'
+            );
+            $selectionDelete->execute(['player_id' => $targetPlayerId]);
+            $selectionsRemoved = $selectionDelete->rowCount();
+            $petDelete = $this->database->prepare(
+                'DELETE FROM player_pets WHERE player_id = :player_id'
+            );
+            $petDelete->execute(['player_id' => $targetPlayerId]);
+            $petsRemoved = $petDelete->rowCount();
+
+            $abandonAttempts = $this->database->prepare(
+                "UPDATE run_attempts SET status = 'abandoned', rejection_code = 'admin-reward-reset', "
+                . 'updated_at = UTC_TIMESTAMP(3) WHERE player_id = :player_id '
+                . "AND status = 'issued'"
+            );
+            $abandonAttempts->execute(['player_id' => $targetPlayerId]);
+            $attemptsAbandoned = $abandonAttempts->rowCount();
+
+            $actor = 'admin:' . strtolower(trim($actorPlayerId));
+            $updateEntry = $this->database->prepare(
+                "UPDATE leaderboard_entries SET verification_status = 'deleted', "
+                . 'moderated_at = UTC_TIMESTAMP(3), moderated_by = :actor, '
+                . 'moderation_reason = :reason WHERE id = :entry_id'
+            );
+            $updateEntry->execute([
+                'actor' => $actor,
+                'reason' => $reason,
+                'entry_id' => $entryId,
+            ]);
+            if (is_array($run)) {
+                $updateRun = $this->database->prepare(
+                    "UPDATE completed_runs SET verification_status = 'deleted', coin_status = 'revoked', "
+                    . 'moderated_at = UTC_TIMESTAMP(3), moderated_by = :actor, '
+                    . 'moderation_reason = :reason WHERE run_id = :run_id'
+                );
+                $updateRun->execute([
+                    'actor' => $actor,
+                    'reason' => $reason,
+                    'run_id' => $runId,
+                ]);
+            }
+
+            $coinsRemoved = (int) $player['coins'];
+            $debtCleared = (int) $player['coin_debt'];
+            $remainderRemoved = (int) $player['coin_time_remainder_ms'];
+            $totalPlayRemoved = (int) $player['total_play_ms'];
+            $totalCollectedRemoved = (int) $player['total_coins_collected'];
+            $resetId = Uuid::v4();
+
+            $resetLedger = $this->database->prepare(
+                'INSERT INTO coin_ledger '
+                . '(event_id, event_key, player_id, economy_generation, run_id, event_type, '
+                . 'play_ms_delta, coin_delta, remainder_before_ms, remainder_after_ms, '
+                . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
+                . 'VALUES (:event_id, :event_key, :player_id, :economy_generation, :run_id, '
+                . "'admin_reward_reset', :play_ms_delta, :coin_delta, :remainder_before_ms, 0, "
+                . "0, 0, 0, 'revoked', :actor, :reason)"
+            );
+            $resetLedger->execute([
+                'event_id' => Uuid::v4(),
+                'event_key' => 'admin-reset:' . $resetId,
+                'player_id' => $targetPlayerId,
+                'economy_generation' => $fromGeneration,
+                'run_id' => $runId,
+                'play_ms_delta' => -$totalPlayRemoved,
+                'coin_delta' => -CoinEconomy::net($coinsRemoved, $debtCleared),
+                'remainder_before_ms' => $remainderRemoved,
+                'actor' => $actor,
+                'reason' => $reason,
+            ]);
+
+            $updatePlayer = $this->database->prepare(
+                'UPDATE players SET coins = 0, coin_debt = 0, total_coins_collected = 0, '
+                . 'coin_time_remainder_ms = 0, total_play_ms = 0, '
+                . 'economy_generation = :economy_generation, updated_at = UTC_TIMESTAMP(3) '
+                . 'WHERE id = :player_id'
+            );
+            $updatePlayer->execute([
+                'economy_generation' => $toGeneration,
+                'player_id' => $targetPlayerId,
+            ]);
+
+            $petIdsJson = json_encode($petIds, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $insertReset = $this->database->prepare(
+                'INSERT INTO account_reward_resets '
+                . '(reset_id, trigger_entry_id, player_id, actor_player_id, from_generation, '
+                . 'to_generation, coins_removed, debt_cleared, remainder_removed_ms, '
+                . 'total_play_removed_ms, total_collected_removed, pets_removed, pet_ids_json, reason) '
+                . 'VALUES (:reset_id, :trigger_entry_id, :player_id, :actor_player_id, '
+                . ':from_generation, :to_generation, :coins_removed, :debt_cleared, '
+                . ':remainder_removed_ms, :total_play_removed_ms, :total_collected_removed, '
+                . ':pets_removed, :pet_ids_json, :reason)'
+            );
+            $insertReset->execute([
+                'reset_id' => $resetId,
+                'trigger_entry_id' => $entryId,
+                'player_id' => $targetPlayerId,
+                'actor_player_id' => $actorPlayerId,
+                'from_generation' => $fromGeneration,
+                'to_generation' => $toGeneration,
+                'coins_removed' => $coinsRemoved,
+                'debt_cleared' => $debtCleared,
+                'remainder_removed_ms' => $remainderRemoved,
+                'total_play_removed_ms' => $totalPlayRemoved,
+                'total_collected_removed' => $totalCollectedRemoved,
+                'pets_removed' => $petsRemoved,
+                'pet_ids_json' => $petIdsJson,
+                'reason' => $reason,
+            ]);
+
+            $details = [
+                'rewardResetId' => $resetId,
+                'fromGeneration' => $fromGeneration,
+                'toGeneration' => $toGeneration,
+                'coinsRemoved' => $coinsRemoved,
+                'debtCleared' => $debtCleared,
+                'remainderRemovedMs' => $remainderRemoved,
+                'totalPlayRemovedMs' => $totalPlayRemoved,
+                'totalCollectedRemoved' => $totalCollectedRemoved,
+                'petsRemoved' => $petsRemoved,
+                'petIds' => $petIds,
+                'selectionsRemoved' => $selectionsRemoved,
+                'attemptsAbandoned' => $attemptsAbandoned,
+                'achievementsPreserved' => true,
+                'linkedRunRevoked' => is_array($run),
+            ];
+            $eventId = Uuid::v4();
+            $insertEvent = $this->database->prepare(
+                'INSERT INTO leaderboard_moderation_events '
+                . '(event_id, leaderboard_entry_id, completed_run_id, player_id, action, '
+                . 'from_status, to_status, from_coin_status, to_coin_status, actor, reason, details_json) '
+                . "VALUES (:event_id, :entry_id, :run_id, :player_id, 'delete_reset', "
+                . ":from_status, 'deleted', :from_coin_status, :to_coin_status, :actor, :reason, :details_json)"
+            );
+            $insertEvent->execute([
+                'event_id' => $eventId,
+                'entry_id' => $entryId,
+                'run_id' => $runId,
+                'player_id' => $targetPlayerId,
+                'from_status' => $fromStatus,
+                'from_coin_status' => $fromCoinStatus,
+                'to_coin_status' => is_array($run) ? 'revoked' : null,
+                'actor' => $actor,
+                'reason' => $reason,
+                'details_json' => json_encode($details, JSON_THROW_ON_ERROR),
+            ]);
+
+            $this->database->commit();
+            return [
+                'applied' => true,
+                'duplicate' => false,
+                'entryId' => $entryId,
+                'playerId' => $targetPlayerId,
+                'runId' => $runId,
+                'status' => 'deleted',
+                ...$details,
+            ];
         } catch (Throwable $error) {
             if ($this->database->inTransaction()) {
                 $this->database->rollBack();
@@ -445,6 +725,14 @@ final class LeaderboardModerationService
         return $limit;
     }
 
+    private function validateOffset(int $offset): int
+    {
+        if ($offset < 0 || $offset > 10_000_000) {
+            throw new InvalidArgumentException('Offset must be between 0 and 10000000.');
+        }
+        return $offset;
+    }
+
     private function validateEntryId(string $entryId): string
     {
         $normalized = strtolower(trim($entryId));
@@ -478,12 +766,12 @@ final class LeaderboardModerationService
         $statement->execute(['entry_id' => $entryId]);
         $entry = $statement->fetch();
         if (!is_array($entry)) {
-            throw new RuntimeException('Leaderboard entry was not found.');
+            throw new ApiException(404, 'Leaderboard entry was not found.');
         }
         return $entry;
     }
 
-    private function lockEntryPlayer(string $entryId): void
+    private function lockEntryPlayer(string $entryId): string
     {
         // Discover the immutable owner, then take the same player-first lock
         // order used by score submission before locking the entry itself.
@@ -493,7 +781,7 @@ final class LeaderboardModerationService
         $owner->execute(['entry_id' => $entryId]);
         $playerId = $owner->fetchColumn();
         if (!is_string($playerId)) {
-            throw new RuntimeException('Leaderboard entry was not found.');
+            throw new ApiException(404, 'Leaderboard entry was not found.');
         }
         $player = $this->database->prepare(
             'SELECT id FROM players WHERE id = :player_id FOR UPDATE'
@@ -501,6 +789,34 @@ final class LeaderboardModerationService
         $player->execute(['player_id' => $playerId]);
         if ($player->fetchColumn() === false) {
             throw new RuntimeException('Player was not found for moderation.');
+        }
+        return $playerId;
+    }
+
+    private function assertAdminActorAndTarget(string $actorPlayerId, string $targetPlayerId): void
+    {
+        $actorPlayerId = strtolower(trim($actorPlayerId));
+        if (!Uuid::isValidV4($actorPlayerId)) {
+            throw new ApiException(403, 'Administrator session is invalid.');
+        }
+        $actor = $this->database->prepare(
+            "SELECT 1 FROM player_roles WHERE player_id = :player_id "
+            . "AND role = 'leaderboard_admin' LIMIT 1"
+        );
+        $actor->execute(['player_id' => $actorPlayerId]);
+        if ($actor->fetchColumn() === false) {
+            throw new ApiException(403, 'Leaderboard administrator access is required.');
+        }
+        if (hash_equals($actorPlayerId, $targetPlayerId)) {
+            throw new ApiException(403, 'Administrators cannot moderate their own results.');
+        }
+        $target = $this->database->prepare(
+            "SELECT 1 FROM player_roles WHERE player_id = :player_id "
+            . "AND role = 'leaderboard_admin' LIMIT 1"
+        );
+        $target->execute(['player_id' => $targetPlayerId]);
+        if ($target->fetchColumn() !== false) {
+            throw new ApiException(403, 'Administrator results cannot be moderated here.');
         }
     }
 
@@ -516,10 +832,47 @@ final class LeaderboardModerationService
         return is_array($run) ? $run : null;
     }
 
+    /** @return array<string, mixed>|null */
+    private function rewardResetForEntry(string $entryId, bool $forUpdate): ?array
+    {
+        $statement = $this->database->prepare(
+            'SELECT * FROM account_reward_resets WHERE trigger_entry_id = :entry_id LIMIT 1'
+            . ($forUpdate ? ' FOR UPDATE' : '')
+        );
+        $statement->execute(['entry_id' => $entryId]);
+        $reset = $statement->fetch();
+        return is_array($reset) ? $reset : null;
+    }
+
+    /** @param array<string, mixed> $reset */
+    private function normalizeRewardReset(array $reset): array
+    {
+        $petIds = [];
+        if (is_string($reset['pet_ids_json'] ?? null)) {
+            $decoded = json_decode($reset['pet_ids_json'], true);
+            $petIds = is_array($decoded) ? array_values(array_map('strval', $decoded)) : [];
+        }
+        return [
+            'rewardResetId' => (string) $reset['reset_id'],
+            'entryId' => (string) $reset['trigger_entry_id'],
+            'playerId' => (string) $reset['player_id'],
+            'fromGeneration' => (int) $reset['from_generation'],
+            'toGeneration' => (int) $reset['to_generation'],
+            'coinsRemoved' => (int) $reset['coins_removed'],
+            'debtCleared' => (int) $reset['debt_cleared'],
+            'remainderRemovedMs' => (int) $reset['remainder_removed_ms'],
+            'totalPlayRemovedMs' => (int) $reset['total_play_removed_ms'],
+            'totalCollectedRemoved' => (int) $reset['total_collected_removed'],
+            'petsRemoved' => (int) $reset['pets_removed'],
+            'petIds' => $petIds,
+            'status' => 'deleted',
+        ];
+    }
+
     private function restoreStatus(string $entryId, string $currentStatus): string
     {
         if ($currentStatus !== 'quarantined' && $currentStatus !== 'deleted') {
-            throw new RuntimeException('Only quarantined or logically deleted results can be restored.');
+            throw new ApiException(409, 'Only quarantined or logically deleted results can be restored.');
         }
         $statement = $this->database->prepare(
             "SELECT from_status FROM leaderboard_moderation_events "
@@ -538,7 +891,7 @@ final class LeaderboardModerationService
             || $status === $currentStatus
             || $status === 'deleted'
         ) {
-            throw new RuntimeException('No audited pre-moderation state is available for restore.');
+            throw new ApiException(409, 'No audited pre-moderation state is available for restore.');
         }
         return $status;
     }
@@ -546,7 +899,7 @@ final class LeaderboardModerationService
     private function reviewStatus(string $currentStatus, string $targetStatus): string
     {
         if ($currentStatus !== 'review') {
-            throw new RuntimeException('Only a result held for review can be approved or rejected.');
+            throw new ApiException(409, 'Only a result held for review can be approved or rejected.');
         }
         return $targetStatus;
     }
@@ -554,7 +907,7 @@ final class LeaderboardModerationService
     private function deleteStatus(string $currentStatus): string
     {
         if ($currentStatus !== 'quarantined') {
-            throw new RuntimeException('A result must be quarantined before logical deletion.');
+            throw new ApiException(409, 'A result must be quarantined before logical deletion.');
         }
         return 'deleted';
     }
@@ -581,7 +934,8 @@ final class LeaderboardModerationService
         string $reason,
     ): array {
         $playerStatement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms FROM players '
+            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms, '
+            . 'economy_generation FROM players '
             . 'WHERE id = :player_id FOR UPDATE'
         );
         $playerStatement->execute(['player_id' => $playerId]);
@@ -589,6 +943,7 @@ final class LeaderboardModerationService
         if (!is_array($player)) {
             throw new RuntimeException('Player was not found for coin reconciliation.');
         }
+        $economyGeneration = (int) $player['economy_generation'];
 
         $eligible = $this->database->prepare(
             "SELECT COALESCE(SUM(CASE "
@@ -599,9 +954,13 @@ final class LeaderboardModerationService
             . 'THEN COALESCE(credited_play_ms, LEAST(duration_ms, COALESCE(server_elapsed_ms, duration_ms))) '
             . 'ELSE 0 END), 0) AS verified_play_ms '
             . 'FROM completed_runs '
-            . "WHERE player_id = :player_id AND coin_status IN ('legacy','eligible')"
+            . "WHERE player_id = :player_id AND economy_generation = :economy_generation "
+            . "AND coin_status IN ('legacy','eligible')"
         );
-        $eligible->execute(['player_id' => $playerId]);
+        $eligible->execute([
+            'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
+        ]);
         $playTime = $eligible->fetch() ?: [];
         $totalPlayMs = (int) ($playTime['eligible_play_ms'] ?? 0);
         $verifiedPlayMs = (int) ($playTime['verified_play_ms'] ?? 0);
@@ -610,9 +969,13 @@ final class LeaderboardModerationService
             "SELECT COALESCE(SUM(coin_delta), 0) AS economy_delta, "
             . "COALESCE(SUM(CASE WHEN event_type = 'achievement_reward' THEN coin_delta ELSE 0 END), 0) "
             . 'AS achievement_coins FROM coin_ledger '
-            . "WHERE player_id = :player_id AND event_type IN ('pet_purchase','achievement_reward')"
+            . "WHERE player_id = :player_id AND economy_generation = :economy_generation "
+            . "AND event_type IN ('pet_purchase','achievement_reward')"
         );
-        $economyStatement->execute(['player_id' => $playerId]);
+        $economyStatement->execute([
+            'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
+        ]);
         $economy = $economyStatement->fetch() ?: [];
         $economyDelta = (int) ($economy['economy_delta'] ?? 0);
         $achievementCoins = (int) ($economy['achievement_coins'] ?? 0);
@@ -644,11 +1007,11 @@ final class LeaderboardModerationService
         $eventKeyPrefix = $eventType === 'manual_reconcile' ? 'reconcile:' : 'moderation:';
         $ledger = $this->database->prepare(
             'INSERT INTO coin_ledger '
-            . '(event_id, event_key, player_id, run_id, event_type, play_ms_delta, coin_delta, '
+            . '(event_id, event_key, player_id, economy_generation, run_id, event_type, play_ms_delta, coin_delta, '
             . 'remainder_before_ms, remainder_after_ms, coin_balance_after, coin_debt_after, '
             . 'total_play_ms_after, '
             . 'coin_status, actor, reason) VALUES '
-            . '(:event_id, :event_key, :player_id, :run_id, :event_type, :play_ms_delta, '
+            . '(:event_id, :event_key, :player_id, :economy_generation, :run_id, :event_type, :play_ms_delta, '
             . ':coin_delta, :remainder_before_ms, :remainder_after_ms, :coin_balance_after, '
             . ':coin_debt_after, :total_play_ms_after, :coin_status, :actor, :reason)'
         );
@@ -656,6 +1019,7 @@ final class LeaderboardModerationService
             'event_id' => Uuid::v4(),
             'event_key' => $eventKeyPrefix . $eventId,
             'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
             'run_id' => $runId,
             'event_type' => $eventType,
             'play_ms_delta' => $totalPlayMs - $oldTotalPlayMs,
@@ -798,7 +1162,11 @@ final class LeaderboardModerationService
     /** @param array<string, mixed> $row */
     private function normalizeListRow(array $row): array
     {
-        return $this->normalizeNumericFields($row);
+        $row = $this->normalizeNumericFields($row);
+        if (is_string($row['player_id'] ?? null)) {
+            $row['playerId'] = $row['player_id'];
+        }
+        return $row;
     }
 
     /** @param array<string, mixed> $row */

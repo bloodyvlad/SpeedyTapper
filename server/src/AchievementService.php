@@ -25,7 +25,11 @@ final class AchievementService
         $this->database->beginTransaction();
         try {
             $player = $this->lockPlayer($playerId);
-            $this->syncHistoricalEligibility($playerId, (int) $player['total_coins_collected']);
+            $this->syncHistoricalEligibility(
+                $playerId,
+                (int) $player['total_coins_collected'],
+                (int) $player['economy_generation'],
+            );
             $payload = $this->formatPayload(
                 $playerId,
                 $this->achievementRows($playerId),
@@ -87,6 +91,7 @@ final class AchievementService
             $this->syncHistoricalEligibility(
                 $playerId,
                 (int) $player['total_coins_collected'],
+                (int) $player['economy_generation'],
             );
             $achievement = $this->lockAchievement($playerId, $definition['id']);
             if ($achievement === null) {
@@ -138,6 +143,7 @@ final class AchievementService
 
             $this->insertRewardLedger(
                 $playerId,
+                (int) $player['economy_generation'],
                 $definition['id'],
                 $rewardCoins,
                 $coinBalance,
@@ -191,7 +197,11 @@ final class AchievementService
         ];
     }
 
-    private function syncHistoricalEligibility(string $playerId, int $totalCoinsCollected): void
+    private function syncHistoricalEligibility(
+        string $playerId,
+        int $totalCoinsCollected,
+        int $economyGeneration,
+    ): void
     {
         $runs = $this->database->prepare(
             'SELECT '
@@ -199,9 +209,13 @@ final class AchievementService
             . "COALESCE(MAX(mode = 'zen' AND duration_ms = 180000), 0) AS completed_zen, "
             . 'COALESCE(MAX(score > 100000), 0) AS scored_over_100k '
             . "FROM completed_runs WHERE player_id = :player_id "
+            . "AND economy_generation = :economy_generation "
             . "AND verification_status = 'verified' AND coin_status = 'eligible'"
         );
-        $runs->execute(['player_id' => $playerId]);
+        $runs->execute([
+            'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
+        ]);
         $runEligibility = $runs->fetch() ?: [];
 
         if ((bool) ($runEligibility['completed_arcade'] ?? false)) {
@@ -215,11 +229,16 @@ final class AchievementService
         }
 
         $godlike = $this->database->prepare(
-            'SELECT 1 FROM leaderboard_entries '
-            . "WHERE player_id = :player_id AND verification_status = 'verified' "
-            . 'AND godlike_count > 0 LIMIT 1'
+            'SELECT 1 FROM leaderboard_entries entry '
+            . 'INNER JOIN completed_runs run ON run.leaderboard_entry_id = entry.id '
+            . "WHERE entry.player_id = :player_id AND entry.verification_status = 'verified' "
+            . "AND run.economy_generation = :economy_generation "
+            . 'AND entry.godlike_count > 0 LIMIT 1'
         );
-        $godlike->execute(['player_id' => $playerId]);
+        $godlike->execute([
+            'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
+        ]);
         if ($godlike->fetchColumn() !== false) {
             $this->unlock($playerId, AchievementCatalog::GODLIKE_SPEED);
         }
@@ -272,7 +291,7 @@ final class AchievementService
     private function lockPlayer(string $playerId): array
     {
         $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_coins_collected, total_play_ms '
+            'SELECT coins, coin_debt, total_coins_collected, total_play_ms, economy_generation '
             . 'FROM players WHERE id = :player_id FOR UPDATE'
         );
         $statement->execute(['player_id' => $playerId]);
@@ -285,6 +304,7 @@ final class AchievementService
 
     private function insertRewardLedger(
         string $playerId,
+        int $economyGeneration,
         string $achievementId,
         int $rewardCoins,
         int $coinBalance,
@@ -293,16 +313,17 @@ final class AchievementService
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO coin_ledger '
-            . '(event_id, event_key, player_id, event_type, play_ms_delta, coin_delta, '
+            . '(event_id, event_key, player_id, economy_generation, event_type, play_ms_delta, coin_delta, '
             . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
-            . 'VALUES (:event_id, :event_key, :player_id, \'achievement_reward\', 0, :coin_delta, '
+            . 'VALUES (:event_id, :event_key, :player_id, :economy_generation, \'achievement_reward\', 0, :coin_delta, '
             . ':coin_balance_after, :coin_debt_after, :total_play_ms_after, \'eligible\', '
             . '\'achievement-service\', :reason)'
         );
         $statement->execute([
             'event_id' => Uuid::v4(),
-            'event_key' => 'achievement:' . $playerId . ':' . $achievementId,
+            'event_key' => 'achievement:' . $playerId . ':' . $achievementId . ':g' . $economyGeneration,
             'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
             'coin_delta' => $rewardCoins,
             'coin_balance_after' => $coinBalance,
             'coin_debt_after' => $coinDebt,
