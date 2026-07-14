@@ -390,10 +390,10 @@ button {
 
 .coin-balance {
   position: relative;
-  width: auto;
-  min-width: 76px;
+  width: 44px;
+  min-width: 44px;
   height: 44px;
-  padding: 0 9px;
+  padding: 0;
   border: 1px solid rgba(255, 216, 77, 0.3);
   border-radius: 12px;
   background:
@@ -406,7 +406,6 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   font-variant-numeric: tabular-nums;
   font-family: inherit;
   cursor: pointer;
@@ -431,23 +430,47 @@ button {
   color: #9ca3b8;
 }
 
-.coin-balance svg {
-  width: 18px;
-  height: 18px;
+.coin-balance .pixel-coin {
+  width: 22px;
+  height: 22px;
   flex: 0 0 auto;
-  fill: rgba(255, 216, 77, 0.22);
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  overflow: visible;
+  filter: drop-shadow(0 2px 0 rgba(83, 48, 0, 0.72)) drop-shadow(0 0 5px rgba(255, 216, 77, 0.34));
+  image-rendering: pixelated;
+}
+
+.pixel-coin__edge {
+  fill: #8d5100;
+}
+
+.pixel-coin__face {
+  fill: #ffc629;
+}
+
+.pixel-coin__shine {
+  fill: #fff09a;
+}
+
+.pixel-coin__shade {
+  fill: #e18b00;
 }
 
 .coin-balance strong {
+  position: absolute;
+  right: -5px;
+  bottom: -6px;
   overflow: hidden;
-  min-width: 0;
-  max-width: 10ch;
-  color: #ffe46f;
-  font-size: 0.65rem;
+  min-width: 21px;
+  max-width: 6ch;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid #111426;
+  border-radius: 999px;
+  background: #ffd84d;
+  color: #291e00;
+  display: grid;
+  place-items: center;
+  font-size: 0.56rem;
   font-weight: 950;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1893,7 +1916,28 @@ h1 {
 
 .mode-actions button {
   min-width: 0;
+  min-height: 56px;
   font-size: 0.9rem;
+}
+
+.mode-button {
+  display: grid;
+  place-content: center;
+  gap: 2px;
+  line-height: 1.05;
+}
+
+.mode-button small {
+  color: #aeb5ca;
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.mode-button--zen:hover small,
+.mode-button--zen:focus-visible small {
+  color: #d6daea;
 }
 
 .settings-toggle {
@@ -3367,22 +3411,6 @@ h1 {
 
   .dialog-utility__actions {
     gap: 6px;
-  }
-
-  .coin-balance {
-    min-width: 64px;
-    padding-right: 6px;
-    padding-left: 6px;
-    gap: 3px;
-  }
-
-  .coin-balance svg {
-    width: 14px;
-    height: 14px;
-  }
-
-  .coin-balance strong {
-    font-size: 0.58rem;
   }
 
   .settings-toggle {

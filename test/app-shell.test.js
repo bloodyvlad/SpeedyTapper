@@ -53,7 +53,7 @@ const [
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-4");
+  assert.equal(buildId, "20260714-5");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -172,12 +172,11 @@ test("the Pet Shop ships five animated companions with separate menu and gamepla
 
 test("Arcade is the player-facing name for the compatible normal mode", () => {
   assert.match(indexHtml, /id="mode-name">Arcade</);
-  assert.match(indexHtml, /id="normal-button"[^>]*>Arcade</);
+  assert.match(indexHtml, /id="normal-button"[^>]*>\s*<span>Arcade<\/span>/);
   assert.match(indexHtml, /data-profile-mode="normal"[^>]*>Arcade</);
   assert.match(indexHtml, /data-leaderboard-mode="normal"[^>]*>Arcade</);
-  assert.match(mainSource, /Restart \$\{isZen \? "Zen" : "Arcade"\} mode/);
-  assert.match(mainSource, /const modeName = isZen \? "Zen" : "Arcade"/);
-  assert.match(mainSource, /Compare every ranked Arcade and Zen result\./);
+  assert.match(mainSource, /Restart Arcade mode/);
+  assert.match(mainSource, /The best score for Arcade mode is/);
   assert.match(configSource, /NORMAL: "normal"/);
   assert.doesNotMatch(configSource, /NORMAL: "arcade"/);
 });
@@ -286,7 +285,16 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   assert.match(indexHtml, /id="leaderboard-rank" hidden/);
   assert.match(indexHtml, /id="coin-balance"[^>]+aria-label="Coins unavailable while signed out"/s);
   assert.match(indexHtml, /id="coin-balance"[^>]+aria-disabled="true"/s);
-  assert.match(indexHtml, /id="coin-count">0 coins<\/strong>/);
+  assert.match(indexHtml, /id="coin-count">0<\/strong>/);
+  assert.match(indexHtml, /class="pixel-coin"[^>]+shape-rendering="crispEdges"/);
+  assert.match(
+    stylesSource,
+    /\.coin-balance\s*\{[^}]+width:\s*44px;[^}]+min-width:\s*44px;[^}]+height:\s*44px;[^}]+padding:\s*0;/s
+  );
+  assert.match(
+    stylesSource,
+    /\.coin-balance strong\s*\{[^}]+position:\s*absolute;[^}]+right:\s*-5px;[^}]+bottom:\s*-6px;/s
+  );
   assert.ok(
     indexHtml.indexOf('id="coin-balance"') < indexHtml.indexOf('id="leaderboard-toggle"'),
     "The coin balance must sit immediately left of the leaderboard shortcut."
@@ -444,9 +452,7 @@ test("reaction timing is anchored to presentation and original pointer contact",
   assert.match(mainSource, /wasCoveredByDeadlineResolution/);
   assert.match(mainSource, /deadlineCommit = scheduleAfterPaint\(presentationScheduler/);
   assert.match(mainSource, /roundId !== activeRoundId/);
-  assert.match(mainSource, /reachedDeadline\(inputAt, runDeadlineAt\)[\s\S]*finishZenRun\(sessionId, inputAt\)/);
-  assert.match(mainSource, /scheduleZenEnd\(currentSession, runDeadlineAt\)/);
-  assert.match(mainSource, /runEndCommit = scheduleAfterPaint\(presentationScheduler/);
+  assert.doesNotMatch(mainSource, /runDeadlineAt|finishZenRun|scheduleZenEnd|runEndCommit/);
   assert.match(mainSource, /window\.addEventListener\("pagehide",[\s\S]*stopRunForPageExit\(\)/);
   assert.match(
     mainSource,
@@ -465,7 +471,10 @@ test("Google-only profiles replace local names and submit completed runs automat
   assert.match(mainSource, /profileClient\.loginWithGoogleCredential\(credential\)/);
   assert.match(mainSource, /profileClient\.updateNickname\(nickname\)/);
   assert.match(mainSource, /profileClient\.logout\(\)/);
-  assert.match(mainSource, /if \(hasConfirmedProfile\(\)\) \{[\s\S]*profileClient\.startRun\(mode, APP_BUILD_ID\)/);
+  assert.match(
+    mainSource,
+    /if \(mode === GAME_MODES\.NORMAL && hasConfirmedProfile\(\)\) \{[\s\S]*profileClient\.startRun\(mode, APP_BUILD_ID\)/
+  );
   assert.match(mainSource, /profileClient\.submitResult\(\{/);
   assert.match(mainSource, /\.\.\.submittedResult\.proof/);
   assert.doesNotMatch(mainSource, /profileClient\.submitResult\(\{[\s\S]{0,500}score:/);
@@ -497,6 +506,7 @@ test("signed-out economy features explain login benefits and administration stay
   assert.match(indexHtml, /id="leaderboard-admin-view" hidden/);
   assert.match(indexHtml, /data-admin-view="all"/);
   assert.match(indexHtml, /data-admin-view="scan"/);
+  assert.match(indexHtml, /id="leaderboard-admin-status-filter">[\s\S]*?<option value="all">All except deleted<\/option>/);
   assert.match(indexHtml, /id="leaderboard-admin-delete-reset"[^>]*>Delete result &amp; reset rewards</);
   assert.match(indexHtml, /removes every pet and all current coins from that account/);
   assert.match(mainSource, /isAdmin: value\.isAdmin === true/);
@@ -607,7 +617,7 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
     /id="result-content"[^>]*hidden[\s\S]*id="result-restart-button"[^>]*type="button"[\s\S]*id="main-menu-button"/
   );
   assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="leaderboard-toggle"[\s\S]*id="profile-toggle"/);
-  assert.match(indexHtml, /id="coin-balance"[\s\S]*<ellipse cx="12" cy="6" rx="6\.5" ry="2\.5"/);
+  assert.match(indexHtml, /id="coin-balance"[\s\S]*class="pixel-coin"[\s\S]*id="coin-count">0</);
 
   assert.match(mainSource, /gameRestartButton:\s*document\.querySelector\("#game-restart-button"\)/);
   assert.match(mainSource, /gameMenuButton:\s*document\.querySelector\("#game-menu-button"\)/);
@@ -643,21 +653,33 @@ test("in-game and result controls provide restart and menu shortcuts", () => {
   );
 });
 
-test("three-minute Zen, independent decoys, and speed feedback are wired into the shell", () => {
-  assert.match(configSource, /zenDurationMs:\s*180_000/);
+test("endless unranked Zen has no decoys, deadline, proof submission, or coins", () => {
+  assert.match(configSource, /durationMs:\s*null/);
+  assert.match(configSource, /decoysEnabled:\s*false/);
+  assert.match(configSource, /ranked:\s*false/);
+  assert.match(configSource, /awardsCoins:\s*false/);
   assert.match(configSource, /maximumLifetimeMs:\s*750/);
   assert.match(configSource, /lifetimeRangeMs:\s*Object\.freeze\(\[450, 750\]\)/);
   assert.match(configSource, /rareDecoys:\s*Object\.freeze\(\[600, 3_400\]\)/);
   assert.match(engineSource, /recentlyExpiredDecoyIndexes/);
-  assert.match(indexHtml, /id="zen-button"[^>]*>3-min Zen</);
+  assert.match(indexHtml, /id="zen-button"[^>]+aria-label="Zen mode\. No coins awarded\."[^>]*>[\s\S]*?<span>Zen<\/span>[\s\S]*?<small>No coins awarded<\/small>/);
   assert.match(mainSource, /elements\.statusValue\.textContent = "∞"/);
+  assert.match(mainSource, /elements\.modeName\.textContent = formatDuration\(snapshot\.elapsedMs\)/);
+  assert.match(mainSource, /snapshot\.mode === GAME_MODES\.ZEN \? null : topScores\[snapshot\.mode\]/);
+  assert.match(mainSource, /mode === GAME_MODES\.NORMAL && hasConfirmedProfile\(\)/);
+  assert.match(mainSource, /currentRunId = mode === GAME_MODES\.NORMAL/);
+  assert.match(mainSource, /if \(mode === GAME_MODES\.NORMAL\) scheduleDecoySpawn\(currentSession\)/);
+  assert.match(mainSource, /function scheduleDecoySpawn[\s\S]*engine\.mode === GAME_MODES\.ZEN \|\|/);
+  assert.match(mainSource, /function scheduleDecoyExpiry[\s\S]*engine\.mode === GAME_MODES\.ZEN \|\|/);
+  assert.doesNotMatch(mainSource, /finishZenRun|scheduleZenEnd|runDeadlineAt|zenDurationMs/);
+  assert.match(engineSource, /getRemainingMs\(\) \{\s*return null;/);
+  assert.match(engineSource, /finishTimedRun\(now\) \{\s*return Object\.freeze\(\{ type: "ignored", reason: "not-timed"/);
+  assert.match(engineSource, /this\.#runProofEnabled = mode === GAME_MODES\.NORMAL/);
+  assert.match(engineSource, /getNextDecoyDelayMs\(now\)[\s\S]*this\.mode === GAME_MODES\.ZEN[\s\S]*return null/);
+  assert.match(engineSource, /activateDecoy\(now\)[\s\S]*this\.mode === GAME_MODES\.ZEN[\s\S]*reason: "decoys-disabled"/);
   assert.match(mainSource, /engine\.getNextDecoyDelayMs\(now\(\)\)/);
   assert.match(mainSource, /engine\.activateDecoy\(visibleAt\)/);
   assert.match(mainSource, /engine\.expireDecoys\(expiredAt\)/);
-  assert.match(mainSource, /reachedDeadline\(expiredAt, runDeadlineAt\)/);
-  assert.match(mainSource, /reachedDeadline\(visibleAt, runDeadlineAt\)/);
-  assert.match(mainSource, /scheduleDecoySpawn\(currentSession\)/);
-  assert.match(mainSource, /scheduleDecoyExpiry\(currentSession\)/);
   assert.match(mainSource, /function cancelDecoyCadence\(\)[\s\S]*decoyCadenceId \+= 1/);
   assert.match(
     mainSource,
@@ -667,7 +689,6 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(configSource, /cadenceAdaptation:\s*0\.5/);
   assert.match(engineSource, /this\.zenTargetDelayMs \+= adaptation \* \(reactionMs - this\.zenTargetDelayMs\)/);
   assert.match(engineSource, /reason:\s*"target-does-not-expire"/);
-  assert.match(engineSource, /this\.mode === GAME_MODES\.ZEN[\s\S]*\? 0[\s\S]*expired\.length \* this\.config\.dodgePoints/);
   assert.match(engineSource, /targetRetained:\s*true/);
   assert.match(engineSource, /this\.mode !== GAME_MODES\.ZEN &&[\s\S]*reactionProgress/);
   assert.match(
@@ -688,7 +709,7 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(indexHtml, /id="speed-summary-bar"/);
   assert.match(indexHtml, /id="streak-meter" data-multiplier="1"/);
   assert.match(indexHtml, /class="streak-meter__multiplier" id="score-multiplier">x1</);
-  assert.doesNotMatch(indexHtml, /streak-meter-count|0 \/ 5/);
+  assert.doesNotMatch(indexHtml, /streak-meter-count/);
   assert.match(configSource, /stepsPerMultiplier:\s*5/);
   assert.match(configSource, /godlike:\s*2/);
   assert.match(configSource, /perfect:\s*1/);
@@ -730,12 +751,11 @@ test("three-minute Zen, independent decoys, and speed feedback are wired into th
   assert.match(mainSource, /function showResultView\([\s\S]*renderResultSaveState\(\);[\s\S]*renderGoogleButtons\(\)/);
 });
 
-test("six durable achievements expose claimable green checks and claimed grey states", () => {
+test("five durable ranked achievements expose claimable green checks and claimed grey states", () => {
   const achievementIds = [...indexHtml.matchAll(/data-achievement-id="([^"]+)"/g)].map(
     ([, id]) => id
   );
   assert.deepEqual(achievementIds, [
-    "complete_zen",
     "complete_arcade",
     "godlike_speed",
     "collect_5_coins",
@@ -745,9 +765,9 @@ test("six durable achievements expose claimable green checks and claimed grey st
   assert.match(indexHtml, /id="achievements-toggle"[^>]+aria-controls="achievements-view"/s);
   assert.match(indexHtml, /id="achievements-view" hidden/);
   assert.match(indexHtml, /id="achievements-back-button"[^>]*>← Back</);
-  assert.match(indexHtml, /id="achievements-progress">0 of 6 claimed</);
-  assert.equal((indexHtml.match(/achievement-card--locked/g) ?? []).length, 6);
-  assert.match(indexHtml, /Complete Zen mode/);
+  assert.match(indexHtml, /id="achievements-progress">0 of 5 claimed</);
+  assert.equal((indexHtml.match(/achievement-card--locked/g) ?? []).length, 5);
+  assert.doesNotMatch(indexHtml, /Complete Zen mode|complete_zen|three-minute Zen/);
   assert.match(indexHtml, /Complete Arcade mode/);
   assert.match(indexHtml, /Show Godlike speed/);
   assert.match(indexHtml, /Collect 5 coins/);

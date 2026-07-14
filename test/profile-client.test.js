@@ -66,7 +66,7 @@ test("verified run submissions contain proof rather than authoritative score agg
     mode: "normal",
     proofVersion: 1,
     ruleset: "reaction-proof-v2",
-    buildId: "20260714-4",
+    buildId: "20260714-5",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -90,11 +90,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("zen", "20260714-4");
+  await client.startRun("normal", "20260714-5");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "zen", buildId: "20260714-4" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260714-5" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
@@ -155,7 +155,7 @@ test("achievement reads and claims stay same-origin, CSRF-protected, and send on
   });
 
   await client.getAchievements();
-  await client.claimAchievement("complete_zen");
+  await client.claimAchievement("complete_arcade");
 
   assert.equal(calls[0][0], "/api/achievements");
   assert.equal(calls[1][0], "/api/session");
@@ -166,7 +166,7 @@ test("achievement reads and claims stay same-origin, CSRF-protected, and send on
     calls[2][1].headers["X-SpeedyTapper-CSRF"],
     "csrf-token-with-more-than-thirty-two-characters"
   );
-  assert.deepEqual(JSON.parse(calls[2][1].body), { id: "complete_zen" });
+  assert.deepEqual(JSON.parse(calls[2][1].body), { id: "complete_arcade" });
 });
 
 test("achievement claims require a stable achievement ID", () => {

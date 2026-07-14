@@ -1,36 +1,35 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-4";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-4";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-5";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-5";
 import {
   predatesPresentation,
   reactionDeadline,
-  reachedDeadline,
   remainingUntilDeadline,
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-4";
+} from "./input-timing.js?v=20260714-5";
 import {
   createMusicController,
   MUSIC_STAGES,
   resolveInteractiveMusicSection,
   resolveMusicStage
-} from "./music-controller.js?v=20260714-4";
+} from "./music-controller.js?v=20260714-5";
 import {
   getPet,
   isPetId,
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-4";
-import { createPetController } from "./pet-controller.js?v=20260714-4";
-import { createSoundController } from "./sound-controller.js?v=20260714-4";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-4";
+} from "./pet-catalog.js?v=20260714-5";
+import { createPetController } from "./pet-controller.js?v=20260714-5";
+import { createSoundController } from "./sound-controller.js?v=20260714-5";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-5";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-4";
+const APP_BUILD_ID = "20260714-5";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -201,7 +200,6 @@ let spawnTimer = null;
 let decoySpawnTimer = null;
 let decoyExpiryTimer = null;
 let deadlineTimer = null;
-let runEndTimer = null;
 let clockTimer = null;
 let feedbackTimer = null;
 let completionTimer = null;
@@ -210,7 +208,6 @@ let runStartFrame = null;
 let roundActivationFrame = null;
 let decoyActivationFrame = null;
 let decoyCadenceId = 0;
-let runEndCommit = null;
 let deadlineCommit = null;
 let sessionId = 0;
 let completedSessionId = null;
@@ -219,7 +216,6 @@ let activeRoundId = null;
 let nextRoundId = 0;
 let lastDeadlineResolutionAt = null;
 let roundPresentationExpired = false;
-let runDeadlineAt = null;
 let currentRunId = null;
 let currentRunTicket = null;
 let runStartRequestId = 0;
@@ -580,29 +576,24 @@ function clearTimers() {
   window.clearTimeout(spawnTimer);
   cancelDecoyCadence();
   window.clearTimeout(deadlineTimer);
-  window.clearTimeout(runEndTimer);
   window.clearInterval(clockTimer);
   window.clearTimeout(completionTimer);
   window.clearTimeout(speedRatingTimer);
   window.cancelAnimationFrame(runStartFrame);
   window.cancelAnimationFrame(roundActivationFrame);
-  runEndCommit?.cancel();
   deadlineCommit?.cancel();
   stopResponseProgress();
   spawnTimer = null;
   deadlineTimer = null;
-  runEndTimer = null;
   clockTimer = null;
   completionTimer = null;
   speedRatingTimer = null;
   runStartFrame = null;
   roundActivationFrame = null;
-  runEndCommit = null;
   deadlineCommit = null;
   activeRoundVisibleAt = null;
   activeRoundId = null;
   roundPresentationExpired = false;
-  runDeadlineAt = null;
   sound.tileOff();
   hideSpeedRating();
 }
@@ -639,12 +630,12 @@ async function startGame(mode) {
   music.setStage(MUSIC_STAGES.MENU);
   music.startRun();
   void music.unlock();
-  void refreshTopScore(mode);
+  if (mode === GAME_MODES.NORMAL) void refreshTopScore(mode);
   abandonCurrentRun();
   const startRequestId = runStartRequestId + 1;
   runStartRequestId = startRequestId;
   let ticket = null;
-  if (hasConfirmedProfile()) {
+  if (mode === GAME_MODES.NORMAL && hasConfirmedProfile()) {
     setRunStartControlsDisabled(true);
     try {
       ticket = await profileClient.startRun(mode, APP_BUILD_ID);
@@ -662,7 +653,7 @@ async function startGame(mode) {
   const currentSession = sessionId + 1;
   sessionId = currentSession;
   currentRunTicket = ticket;
-  currentRunId = ticket?.runId ?? createRunId();
+  currentRunId = mode === GAME_MODES.NORMAL ? ticket?.runId ?? createRunId() : null;
   completedSessionId = null;
   lastDeadlineResolutionAt = null;
   engine.reset();
@@ -683,13 +674,8 @@ async function startGame(mode) {
       updateMusicForSnapshot(snapshot);
     }, 100);
 
-    if (mode === GAME_MODES.ZEN) {
-      runDeadlineAt = visibleAt + engine.config.zenDurationMs;
-      scheduleZenEnd(currentSession, runDeadlineAt);
-    }
-
     scheduleRound(currentSession);
-    scheduleDecoySpawn(currentSession);
+    if (mode === GAME_MODES.NORMAL) scheduleDecoySpawn(currentSession);
   });
 }
 
@@ -709,6 +695,7 @@ function scheduleDecoyExpiry(currentSession, cadenceId = decoyCadenceId) {
   window.clearTimeout(decoyExpiryTimer);
   decoyExpiryTimer = null;
   if (
+    engine.mode === GAME_MODES.ZEN ||
     currentSession !== sessionId ||
     cadenceId !== decoyCadenceId ||
     engine.state === GAME_STATES.GAME_OVER
@@ -728,7 +715,6 @@ function scheduleDecoyExpiry(currentSession, cadenceId = decoyCadenceId) {
     }
     decoyExpiryTimer = null;
     const expiredAt = now();
-    if (engine.mode === GAME_MODES.ZEN && reachedDeadline(expiredAt, runDeadlineAt)) return;
     const result = engine.expireDecoys(expiredAt);
     if (result.type === "decoys-dodged") {
       showDodgeAward(result);
@@ -743,6 +729,7 @@ function scheduleDecoySpawn(currentSession, cadenceId = decoyCadenceId) {
   window.clearTimeout(decoySpawnTimer);
   decoySpawnTimer = null;
   if (
+    engine.mode === GAME_MODES.ZEN ||
     currentSession !== sessionId ||
     cadenceId !== decoyCadenceId ||
     engine.state === GAME_STATES.GAME_OVER
@@ -772,10 +759,6 @@ function scheduleDecoySpawn(currentSession, cadenceId = decoyCadenceId) {
         return;
       }
       decoyActivationFrame = null;
-      if (engine.mode === GAME_MODES.ZEN && reachedDeadline(visibleAt, runDeadlineAt)) {
-        finishZenRun(currentSession, visibleAt);
-        return;
-      }
       const result = engine.activateDecoy(visibleAt);
       showDodgeAward(result);
       render();
@@ -803,7 +786,6 @@ function scheduleRound(currentSession, additionalDelayMs = 0) {
       ) {
         return;
       }
-      if (engine.mode === GAME_MODES.ZEN && reachedDeadline(visibleAt, runDeadlineAt)) return;
       const result = engine.activateRound(visibleAt);
       showDodgeAward(result);
       if (result.type !== "round-active") {
@@ -864,7 +846,6 @@ function scheduleDeadline(currentSession, roundId, deadlineAt) {
         return;
       }
       const resolvedAt = now();
-      if (engine.mode === GAME_MODES.ZEN && reachedDeadline(resolvedAt, runDeadlineAt)) return;
       const result = engine.expireRound(resolvedAt);
       showDodgeAward(result);
       if (result.type === "ignored" && result.reason === "not-expired") {
@@ -892,13 +873,6 @@ function handleTileTap(event) {
   const cellIndex = Number.parseInt(event.currentTarget.dataset.index, 10);
   const handledAt = now();
   const inputAt = resolveInputTimestamp(event.timeStamp, handledAt);
-  if (
-    engine.mode === GAME_MODES.ZEN &&
-    reachedDeadline(inputAt, runDeadlineAt)
-  ) {
-    finishZenRun(sessionId, inputAt);
-    return;
-  }
   if (
     engine.state === GAME_STATES.ACTIVE &&
     predatesPresentation(inputAt, activeRoundVisibleAt)
@@ -990,30 +964,6 @@ function handleMiss(result, currentSession, scheduleNextTarget = true) {
   }
 }
 
-function scheduleZenEnd(currentSession, deadlineAt) {
-  const delayMs = remainingUntilDeadline(deadlineAt, now());
-  runEndTimer = window.setTimeout(() => {
-    runEndTimer = null;
-    if (currentSession !== sessionId || document.hidden) return;
-    runEndCommit = scheduleAfterPaint(presentationScheduler, () => {
-      runEndCommit = null;
-      finishZenRun(currentSession, now());
-    });
-  }, delayMs);
-}
-
-function finishZenRun(currentSession, finishedAt = now()) {
-  if (currentSession !== sessionId) return;
-  const result = engine.finishTimedRun(finishedAt);
-  if (result.type === "ignored" && result.reason === "time-remaining") {
-    scheduleZenEnd(currentSession, runDeadlineAt);
-    return;
-  }
-  if (result.type === "time-up") {
-    finishGame(result.snapshot, currentSession);
-  }
-}
-
 function finishGame(snapshot, currentSession) {
   if (
     currentSession !== sessionId ||
@@ -1025,10 +975,9 @@ function finishGame(snapshot, currentSession) {
   completedSessionId = currentSession;
   clearTimers();
   music.advanceTrack(MUSIC_STAGES.MENU);
-  const isZen = snapshot.mode === GAME_MODES.ZEN;
-  elements.dialogTitle.textContent = isZen ? "Three minutes complete" : "Game Over";
+  elements.dialogTitle.textContent = "Game Over";
   elements.resultStats.hidden = false;
-  elements.resultDurationLabel.textContent = isZen ? "Duration" : "Survived";
+  elements.resultDurationLabel.textContent = "Survived";
   elements.resultDurationValue.textContent = formatDuration(snapshot.elapsedMs, true);
   elements.resultFastestValue.textContent = formatReaction(snapshot.fastestReactionMs);
   elements.resultAverageValue.textContent = formatReaction(snapshot.averageReactionMs);
@@ -1037,7 +986,7 @@ function finishGame(snapshot, currentSession) {
   renderSpeedSummary(snapshot.speedRatings);
   elements.resultRestartButton.setAttribute(
     "aria-label",
-    `Restart ${isZen ? "Zen" : "Arcade"} mode`
+    "Restart Arcade mode"
   );
   setDialogView("result");
   pendingResult = {
@@ -1123,14 +1072,11 @@ function resetResultUi() {
 
 function renderResultMessage(result) {
   if (!result) return;
-  const isZen = result.mode === GAME_MODES.ZEN;
-  const modeName = isZen ? "Zen" : "Arcade";
-  const completionReason = isZen ? "The three-minute timer ended." : "You are out of lives.";
   const topScore = topScores[result.mode];
   const bestScore = topScore === null
     ? "<strong>unavailable right now</strong>"
     : `<strong>${topScore.toLocaleString()}</strong>`;
-  elements.dialogMessage.innerHTML = `${completionReason} You made <strong>${result.hits}</strong> correct taps. The best score for ${modeName} mode is ${bestScore}.`;
+  elements.dialogMessage.innerHTML = `You are out of lives. You made <strong>${result.hits}</strong> correct taps. The best score for Arcade mode is ${bestScore}.`;
 }
 
 function showMainMenu() {
@@ -1150,9 +1096,7 @@ function showMainMenu() {
   elements.dialog.scrollTop = 0;
   render();
   elements.normalButton.focus({ preventScroll: true });
-  for (const mode of Object.values(GAME_MODES)) {
-    void refreshTopScore(mode);
-  }
+  void refreshTopScore(GAME_MODES.NORMAL);
 }
 
 function restartCurrentMode() {
@@ -1512,7 +1456,7 @@ function openLeaderboard(returnView = "menu") {
   elements.leaderboardView.hidden = false;
   elements.dialogUtility.hidden = true;
   elements.dialogTitle.textContent = "Leaderboard";
-  elements.dialogMessage.textContent = "Compare every ranked Arcade and Zen result.";
+  elements.dialogMessage.textContent = "Compare Arcade results and the historical Zen board.";
   elements.dialog.scrollTop = 0;
   void music.unlock();
   elements.leaderboardBackButton.focus({ preventScroll: true });
@@ -1813,8 +1757,7 @@ function showResultView(focusTarget = null) {
   elements.resultContent.hidden = false;
   elements.dialogUtility.hidden = false;
   elements.authGateInfo.hidden = true;
-  elements.dialogTitle.textContent =
-    pendingResult.mode === GAME_MODES.ZEN ? "Three minutes complete" : "Game Over";
+  elements.dialogTitle.textContent = "Game Over";
   renderResultMessage(pendingResult);
   renderResultSaveState();
   if (!profileSession.authenticated) void renderGoogleButtons();
@@ -2126,7 +2069,7 @@ function renderUtilityRank() {
   elements.leaderboardRank.hidden = rank === null;
   elements.leaderboardRank.textContent = rank === null ? "" : `#${rank.toLocaleString()}`;
   const coinLabel = `${profileSession.coinBalance.toLocaleString()} ${profileSession.coinBalance === 1 ? "coin" : "coins"}`;
-  elements.coinCount.textContent = coinLabel;
+  elements.coinCount.textContent = profileSession.coinBalance.toLocaleString();
   for (const control of [elements.coinBalance, elements.achievementsToggle, elements.petShopToggle]) {
     control.classList.toggle("is-auth-gated", !profileSession.authenticated);
     control.setAttribute("aria-disabled", String(!profileSession.authenticated));
@@ -2784,13 +2727,11 @@ function ensureBoard(dimension) {
 
 function renderHud(snapshot) {
   elements.points.textContent = snapshot.points.toLocaleString();
-  const topScore = topScores[snapshot.mode];
+  const topScore = snapshot.mode === GAME_MODES.ZEN ? null : topScores[snapshot.mode];
   elements.highScore.textContent = topScore === null ? "—" : topScore.toLocaleString();
   if (snapshot.mode === GAME_MODES.ZEN) {
     elements.modeLabel.textContent = "Time";
-    elements.modeName.textContent = formatDuration(
-      snapshot.remainingMs ?? engine.config.zenDurationMs
-    );
+    elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
   } else {
     elements.modeLabel.textContent = "Survived";
     elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
@@ -3008,6 +2949,4 @@ render();
 void refreshProfileSession().then(() => {
   if (!profileSession.authenticated && dialogView === "profile") void renderGoogleButtons();
 });
-for (const mode of Object.values(GAME_MODES)) {
-  void refreshTopScore(mode);
-}
+void refreshTopScore(GAME_MODES.NORMAL);

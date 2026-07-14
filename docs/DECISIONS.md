@@ -595,3 +595,33 @@ Show the selected pet together with its bedding, climber, perch, floe, or glow s
 Consequences: Practice stays frictionless while durable economy surfaces make their authentication boundary explicit. The controls are not natively disabled because a native disabled control cannot explain why it is unavailable; the server remains the authority and rejects anonymous progression requests regardless of browser markup. Pet identity is consistent across menus without placing extra furniture near high-speed input. Signed-out completion copy may repeat until login, but it does not infer, store, or track an anonymous player profile.
 
 Revisit when: Guest accounts gain server-side migration into Google profiles, anonymous progress becomes a deliberate product feature, gameplay furniture is proven non-distracting on physical devices, or achievement states need richer progress measurements.
+
+## D-045 — Make Zen endless unranked practice without decoys or rewards
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: Timed Zen inherited the full decoy, proof, leaderboard, achievement, and coin pipeline from Arcade. That made the supposedly relaxed mode another pressured three-minute competition and contradicted the requested endless, distraction-free practice experience.
+
+Decision: Make **Zen** endless local practice. It has unlimited lives, no target deadline, no decoys, no automatic completion, no ranked run ticket, no result submission, no leaderboard write, no achievement unlock, and no coin credit. Its current target survives mistakes. The next target delay starts at 1,000 ms and moves halfway toward the previous correct reaction time. The HUD shows elapsed time and the infinity symbol; Restart and Main menu discard the practice run. The Zen mode button states **No coins awarded**. PHP refuses new ranked Zen starts and finishes so the reward boundary is server-enforced rather than merely hidden in the browser.
+
+Retain existing Zen leaderboard rows and historical three-minute proof support as read-only audit/history. Retire `complete_zen` from the active five-achievement catalog without deleting historical database rows or migrations. This supersedes D-018, D-038, and D-039 wherever they define Zen as timed, ranked, decoy-enabled, coin-eligible, or achievement-completable. Arcade remains the only active ranked and coin-earning mode.
+
+Consequences: Zen can continue indefinitely and its live points, reaction ratings, streak, and music progression remain useful immediate feedback, but leaving the mode produces no Game Over screen or durable result. Cached older clients cannot mint Zen rewards because the server rejects those attempts. The historical Zen leaderboard can still be inspected, but cannot receive new entries under this decision.
+
+Revisit when: Zen needs an explicit manual finish with a separate non-coin record type, practice statistics should be stored outside competitive leaderboards, a new finite relaxation challenge is designed, or historical Zen rows should move into a dedicated archive view.
+
+## D-046 — Permit administrator-owned result moderation and hide deleted rows by default
+
+- Date: 2026-07-14
+- Status: Accepted
+
+Context: The first moderation release prohibited administrators from acting on their own or another administrator's results. The sole administrator needs to remove any exact cheated row, including one attached to that same account, while logically deleted records should not clutter routine review lists.
+
+Decision: Allow a database-authorized leaderboard administrator to quarantine and delete/reset any exact result, including their own result or another administrator's. Preserve recent Google authentication, same-origin CSRF, exact result and player IDs, expected-status matching, written reason, explicit confirmation, quarantine-before-delete, transaction boundaries, idempotent reset UUIDs, immutable audit records, and generation-safe reward cleanup. This supersedes D-043 only where it refused self- or administrator-target moderation.
+
+Treat `status=all` as **all non-deleted statuses** in both the full administration list and conservative scan. Return logically deleted rows only when `status=deleted` is selected explicitly. Public ranked lists continue to exclude deleted rows as before.
+
+Consequences: A single administrator can clean any known cheat without a second privileged account, while destructive work remains deliberate, attributable, and reversible only through the existing audited mechanisms. Routine lists stay focused; deletion history remains available through an intentional filter.
+
+Revisit when: Multiple administrators justify two-person approval, role separation, moderation appeals, bulk account actions, or an independent audit-only role.

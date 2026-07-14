@@ -10,11 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="SpeedyTapper" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="SpeedyTapper is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260714-4"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260714-4" />
+    <script src="./src/early-bootstrap.js?v=20260714-5"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260714-5" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-4" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-5" />
     <title>SpeedyTapper</title>
   </head>
   <body>
@@ -136,14 +136,13 @@
               aria-disabled="true"
               title="Coins"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <ellipse cx="12" cy="6" rx="6.5" ry="2.5"></ellipse>
-                <path d="M5.5 6v3c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V6"></path>
-                <path d="M5.5 9v3c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V9"></path>
-                <path d="M5.5 12v3c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-3"></path>
-                <path d="M5.5 15v3c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-3"></path>
+              <svg class="pixel-coin" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
+                <path class="pixel-coin__edge" d="M3 1h6v1h2v2h1v4h-1v2H9v1H3v-1H1V8H0V4h1V2h2z"></path>
+                <path class="pixel-coin__face" d="M3 2h6v1h1v1h1v4h-1v1H9v1H3V9H2V8H1V4h1V3h1z"></path>
+                <path class="pixel-coin__shine" d="M3 3h4v1H3zm-1 1h1v3H2zm2 1h1v3H4z"></path>
+                <path class="pixel-coin__shade" d="M8 4h2v4H9v1H6V8h2z"></path>
               </svg>
-              <strong id="coin-count">0 coins</strong>
+              <strong id="coin-count">0</strong>
             </button>
             <button
               class="leaderboard-shortcut"
@@ -253,8 +252,18 @@
             <fieldset class="mode-group">
               <legend>Game mode</legend>
               <div class="mode-actions">
-                <button class="primary-button" id="normal-button" type="button">Arcade</button>
-                <button class="secondary-button" id="zen-button" type="button">3-min Zen</button>
+                <button class="primary-button mode-button" id="normal-button" type="button">
+                  <span>Arcade</span>
+                </button>
+                <button
+                  class="secondary-button mode-button mode-button--zen"
+                  id="zen-button"
+                  type="button"
+                  aria-label="Zen mode. No coins awarded."
+                >
+                  <span>Zen</span>
+                  <small>No coins awarded</small>
+                </button>
               </div>
             </fieldset>
             <div class="menu-spacer" aria-hidden="true"></div>
@@ -266,7 +275,7 @@
               aria-disabled="true"
             >
               <span>Achievements</span>
-              <span class="settings-toggle__value" id="achievements-summary">0 / 6 claimed</span>
+              <span class="settings-toggle__value" id="achievements-summary">0 / 5 claimed</span>
             </button>
             <button
               class="secondary-button settings-toggle is-auth-gated"
@@ -436,22 +445,9 @@
           <section class="achievements-panel" aria-labelledby="achievements-heading">
             <div class="section-heading">
               <h2 id="achievements-heading">Achievements</h2>
-              <span id="achievements-progress">0 of 6 claimed</span>
+              <span id="achievements-progress">0 of 5 claimed</span>
             </div>
             <div class="achievements-list" id="achievements-list">
-              <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="complete_zen" disabled>
-                <span class="achievement-card__check" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-                </span>
-                <span class="achievement-card__copy">
-                  <strong>Complete Zen mode</strong>
-                  <small>Finish a full three-minute Zen run.</small>
-                </span>
-                <span class="achievement-card__action">
-                  <strong><span>+1</span><span class="achievement-reward-coin" aria-hidden="true"></span></strong>
-                  <small hidden></small>
-                </span>
-              </button>
               <button class="achievement-card achievement-card--locked" type="button" data-achievement-id="complete_arcade" disabled>
                 <span class="achievement-card__check" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
@@ -685,7 +681,7 @@
               <label>
                 <span>Status</span>
                 <select id="leaderboard-admin-status-filter">
-                  <option value="all">All statuses</option>
+                  <option value="all">All except deleted</option>
                   <option value="verified">Verified</option>
                   <option value="review">Review</option>
                   <option value="legacy">Legacy</option>
@@ -730,7 +726,7 @@
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260714-4"></script>
-    <script type="module" src="./src/main.js?v=20260714-4"></script>
+    <script src="./src/service-worker-registration.js?v=20260714-5"></script>
+    <script type="module" src="./src/main.js?v=20260714-5"></script>
   </body>
 </html>
