@@ -104,7 +104,7 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 
 ### `POST /api/runs`
 
-Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260714-12" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260715-1" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -118,7 +118,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260714-12",
+  "buildId": "20260715-1",
   "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [

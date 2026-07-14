@@ -248,3 +248,14 @@ final result: local candidate `20260713-16` passed automated and desktop browser
 - Physical iPhone Safari and installed-PWA validation remains required for narrow-screen logo fit, accent contrast in every purchased theme, Mitsuri's ear-stripe legibility, pet animation cadence, Google-authenticated activation, and cache upgrade behavior before this candidate is described as device-validated.
 
 final result: local candidate `20260714-12` passed automated and desktop browser-runtime QA; deployment and physical-iPhone validation remain pending
+
+## Local Candidate 20260715-1 Mitsuri Cushion and Run-Control Labels QA
+
+- This is local candidate evidence only. It does not establish the active Hostinger deployment, and no physical-iPhone validation was performed.
+- Mitsuri's bottom-weighted two-layer cushion now uses dedicated shared non-game-scene and leaderboard offsets. A focused fixture rendered the sleeping rabbit directly on the cushion in the non-game scene used by the menu, Pet Shop, and other dialogs, while the compact leaderboard portrait kept both layers inside its clipped avatar.
+- Arcade gameplay and both result views show **Restart** and **Menu** to the right of their existing icons. Leaderboard, Profile, Coins, and other utility controls remain icon-only; Zen retains its single **End run** action.
+- Browser-runtime geometry passed at the 2022 iPhone SE CSS viewport of 375×667: the game utility occupied x=12–363, Restart measured 85.48×44 px, Menu 74.15×44 px, and the document scroll width remained exactly 375 px. Game Over used the same 44 px controls within the 355 px dialog without overflow. The 320×568 regression viewport also remained exactly 320 px wide, with both controls ending at x=308 inside the 12 px page inset.
+- `npm run check` passed on the complete `20260715-1` graph with 159 JavaScript tests and 152 PHP assertions; Composer validation/audit, every PHP syntax check, and `git diff --check` also passed.
+- Physical iPhone Safari/PWA confirmation remains required for perceived touch spacing, Mitsuri's actual authenticated-profile presentation, and final sprite sharpness before this release is described as device-validated.
+
+final result: local candidate `20260715-1` passed automated and responsive browser-runtime QA; deployment and physical-iPhone validation remain pending

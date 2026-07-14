@@ -70,7 +70,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260714-12");
+  assert.equal(buildId, "20260715-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -194,8 +194,10 @@ test("the Pet Shop ships five companions plus the server-authorized Mitsuri east
   assert.match(mainSource, /pets\.handleNonGameTap\(event\.clientX, event\.clientY\)/);
   assert.match(stylesSource, /\.pet-scene--menu > \.pet-sprite \{[\s\S]*?top: -4px;/);
   assert.match(stylesSource, /\.pet-scene--menu\[data-pet="foka"\][\s\S]*?top: -6px;/);
+  assert.match(stylesSource, /\.pet-scene--menu\[data-pet="mitsuri"\] > \.pet-habitat \{[\s\S]*?top: -20px;/);
   assert.match(stylesSource, /\.pet-preview-scene > \.pet-sprite \{[\s\S]*?top: -8px;/);
   assert.match(stylesSource, /\.pet-preview-scene\[data-pet="foka"\][\s\S]*?top: -13px;/);
+  assert.match(stylesSource, /\.leaderboard-entry__avatar\[data-pet="mitsuri"\] > \.pet-habitat \{[\s\S]*?top: -8px;/);
   assert.match(stylesSource, /\[data-pet="misha"\] > \.pet-sprite \{[\s\S]*?z-index: 4;/);
   assert.match(stylesSource, /\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?box-shadow: 10px 0 #140905;/);
   assert.match(stylesSource, /\.leaderboard-entry__avatar\[data-pet="pancake"\] > \.pet-sprite::before \{[\s\S]*?top: 14px;[\s\S]*?box-shadow: 6px 0 #140905;/);
@@ -754,6 +756,10 @@ test("Arcade and Zen expose mode-specific gameplay controls and shared top resul
   assert.match(indexHtml, /id="game-menu-button"[\s\S]*aria-label="Return to main menu"/);
   assert.match(
     indexHtml,
+    /id="game-restart-button"[\s\S]*?<span>Restart<\/span>[\s\S]*?id="game-menu-button"[\s\S]*?<span>Menu<\/span>/
+  );
+  assert.match(
+    indexHtml,
     /id="game-end-run-button"[\s\S]*aria-label="End Zen run and view results"[\s\S]*>\s*End run\s*<\/button>/
   );
   assert.match(
@@ -763,6 +769,10 @@ test("Arcade and Zen expose mode-specific gameplay controls and shared top resul
   assert.ok(
     indexHtml.indexOf('id="result-navigation"') < indexHtml.indexOf('id="result-content"'),
     "The shared square result controls must be above the result body."
+  );
+  assert.match(
+    indexHtml,
+    /id="result-restart-button"[\s\S]*?<span>Restart<\/span>[\s\S]*?id="result-menu-button"[\s\S]*?<span>Menu<\/span>/
   );
   const resultContentMarkup = indexHtml.slice(
     indexHtml.indexOf('id="result-content"'),
@@ -818,6 +828,10 @@ test("Arcade and Zen expose mode-specific gameplay controls and shared top resul
   assertClickHandler("resultMenuButton", "showMainMenu");
   assert.match(mainSource, /function showMainMenu\(\)[\s\S]*elements\.normalButton\.focus\(\{ preventScroll: true \}\)/);
   assert.match(stylesSource, /\.game-utility__button\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;/s);
+  assert.match(
+    stylesSource,
+    /\.game-utility__button--labeled\s*\{[^}]*width:\s*auto;[^}]*padding:\s*0 9px;[^}]*display:\s*inline-flex;/s
+  );
   assert.match(stylesSource, /\.result-navigation\s*\{[^}]*display:\s*flex;/s);
   assert.match(stylesSource, /\.dialog\s*\{[^}]*width:\s*min\(100%,\s*460px\)/s);
   assert.match(

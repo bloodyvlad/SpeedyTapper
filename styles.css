@@ -189,6 +189,29 @@ button {
   stroke-linejoin: round;
 }
 
+.game-utility__button--labeled {
+  width: auto;
+  min-width: 0;
+  padding: 0 9px;
+  gap: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-utility__button--labeled svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.game-utility__button--labeled span {
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .game-utility__button:active {
   transform: translateY(1px);
 }
@@ -284,6 +307,10 @@ button {
 
 .pet-scene--menu[data-habitat="true"] {
   height: 144px;
+}
+
+.pet-scene--menu[data-pet="mitsuri"] > .pet-habitat {
+  top: -20px;
 }
 
 .pet-scene--menu > .pet-sprite {
@@ -3451,6 +3478,10 @@ h1 {
   right: 4px;
   width: 36px;
   height: 54px;
+}
+
+.leaderboard-entry__avatar[data-pet="mitsuri"] > .pet-habitat {
+  top: -8px;
 }
 
 .leaderboard-entry__avatar[data-pet="pancake"] > .pet-habitat--back {

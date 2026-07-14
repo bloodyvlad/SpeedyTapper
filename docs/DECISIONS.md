@@ -756,3 +756,16 @@ Make authored right turns symmetric by skipping the duplicate front cell: half-r
 Consequences: The public name changes without a risky backend namespace or persistence migration. Menu customization destinations remain distinct in every theme and fit narrow phones without literal 50%-plus-gap overflow. Mitsuri appears immediately after the exact nickname save, disappears just as immediately after a different save, cannot be purchased or forged through the supported API, and never disturbs durable pet state. Physical-iPhone Safari/PWA review is still required for logo fit, outline contrast, stripe legibility, and turn cadence.
 
 Revisit when: The domain/repository/backend names should follow the public brand, nickname cosmetics become permanent inventory, special pets need hiding or selection controls, or more menu destinations require a different information hierarchy.
+
+## D-056 — Label primary run controls and align Mitsuri's compact cushion
+
+- Date: 2026-07-15
+- Status: Accepted
+
+Context: Icon-only Restart and Main menu controls were compact but required players to infer two important actions. Mitsuri's 32×48 cushion art also places its visible pixels at the bottom of each two-layer source cell, so the generic habitat top offset produced a large empty gap below the 32×32 rabbit when both were scaled for non-game scenes and portraits.
+
+Decision: Keep non-run utility shortcuts icon-only, but render visible **Restart** and **Menu** captions immediately to the right of their icons in Arcade gameplay and both result views. Preserve a 44 px touch height and use content-width buttons so the controls remain compact on the 2022 iPhone SE viewport. Keep Zen's single **End run** action unchanged. Give Mitsuri's cushion dedicated shared non-game-scene and leaderboard offsets that account for its bottom-weighted transparent source cells; do not move the rabbit sprite or alter gameplay, where habitats remain hidden.
+
+Consequences: The two primary navigation actions are self-explanatory without expanding every utility icon, and Mitsuri visually rests on her cushion across non-game presentations. The source sheets remain unchanged, so this release does not recover detail discarded by the current 32 px logical-frame pipeline. Automated and desktop responsive checks do not replace physical-iPhone Safari/PWA confirmation of touch spacing and pixel sharpness.
+
+Revisit when: Utility labels need localization, narrow layouts need a different header hierarchy, or the pet pipeline moves from generated 32 px sheets to hand-authored 64 px logical frames.

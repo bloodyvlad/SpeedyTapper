@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260714-12";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260714-12";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260715-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260715-1";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260714-12";
+} from "./input-timing.js?v=20260715-1";
 import {
   getPet,
   isPetId,
@@ -16,24 +16,24 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260714-12";
-import { createPetController } from "./pet-controller.js?v=20260714-12";
-import { createSoundController } from "./sound-controller.js?v=20260714-12";
-import { createMusicController } from "./music-controller.js?v=20260714-12";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260714-12";
+} from "./pet-catalog.js?v=20260715-1";
+import { createPetController } from "./pet-controller.js?v=20260715-1";
+import { createSoundController } from "./sound-controller.js?v=20260715-1";
+import { createMusicController } from "./music-controller.js?v=20260715-1";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260715-1";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260714-12";
+} from "./theme-catalog.js?v=20260715-1";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260714-12";
+const APP_BUILD_ID = "20260715-1";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
