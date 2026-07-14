@@ -664,18 +664,64 @@ export class GameEngine {
     return Object.freeze({ type: "ignored", reason: "not-timed", snapshot: this.getSnapshot(now) });
   }
 
+  endZenRun(now) {
+    if (this.state === GAME_STATES.IDLE) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "not-running",
+        snapshot: this.getSnapshot(now)
+      });
+    }
+    if (this.state === GAME_STATES.GAME_OVER) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "already-ended",
+        snapshot: this.getSnapshot(now)
+      });
+    }
+    if (this.mode !== GAME_MODES.ZEN) {
+      return Object.freeze({
+        type: "ignored",
+        reason: "not-zen",
+        snapshot: this.getSnapshot(now)
+      });
+    }
+
+    this.state = GAME_STATES.GAME_OVER;
+    this.endedAt = Math.max(this.startedAt ?? now, now);
+    this.endReason = "manual";
+    this.activeDecoys = [];
+    this.recentlyExpiredDecoyIndexes.clear();
+    this.targetIndex = null;
+    this.activeAt = null;
+    this.roundKind = null;
+    this.roundDifficulty = null;
+    this.recoveryUntil = null;
+    this.proofTargetAt = null;
+
+    return Object.freeze({
+      type: "zen-ended",
+      reason: "manual",
+      snapshot: this.getSnapshot(now)
+    });
+  }
+
   isRunComplete() {
     if (this.state !== GAME_STATES.GAME_OVER) return false;
-    return this.mode === GAME_MODES.NORMAL && this.lives === 0 && this.endReason === "lives";
+    return (
+      (this.mode === GAME_MODES.NORMAL && this.lives === 0 && this.endReason === "lives") ||
+      (this.mode === GAME_MODES.ZEN && this.endReason === "manual")
+    );
   }
 
   getSnapshot(now = this.startedAt ?? 0) {
-    const elapsedMs = this.getElapsedMs(now);
-    const difficulty = this.#currentDifficulty(now);
+    const snapshotAt = this.endedAt ?? now;
+    const elapsedMs = this.getElapsedMs(snapshotAt);
+    const difficulty = this.#currentDifficulty(snapshotAt);
     const expectedCellCount = difficulty.gridDimension ** 2;
     const cells = Array.from({ length: expectedCellCount }, () => ({ ...EMPTY_CELL }));
     const visibleDecoys = this.activeDecoys.filter(
-      ({ cellIndex, expiresAt }) => cellIndex < expectedCellCount && expiresAt > now
+      ({ cellIndex, expiresAt }) => cellIndex < expectedCellCount && expiresAt > snapshotAt
     );
     for (const decoy of visibleDecoys) {
       cells[decoy.cellIndex] = { kind: "decoy", colorIndex: decoy.colorIndex };
@@ -687,7 +733,7 @@ export class GameEngine {
       this.mode !== GAME_MODES.ZEN &&
       this.state === GAME_STATES.ACTIVE &&
       this.activeAt !== null
-        ? clamp(1 - (now - this.activeAt) / difficulty.responseWindowMs, 0, 1)
+        ? clamp(1 - (snapshotAt - this.activeAt) / difficulty.responseWindowMs, 0, 1)
         : null;
 
     return Object.freeze({
@@ -712,9 +758,9 @@ export class GameEngine {
       multiplierBasePoints: Object.freeze({ ...this.multiplierBasePoints }),
       reactionProgress,
       nextTargetDelayMs: this.mode === GAME_MODES.ZEN ? this.zenTargetDelayMs : null,
-      recoveryRemainingMs: this.getRecoveryRemainingMs(now),
+      recoveryRemainingMs: this.getRecoveryRemainingMs(snapshotAt),
       elapsedMs,
-      remainingMs: this.getRemainingMs(now),
+      remainingMs: this.getRemainingMs(snapshotAt),
       endReason: this.endReason,
       playerColorIndex: this.playerColorIndex,
       playerColor: this.colors[this.playerColorIndex],

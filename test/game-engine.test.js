@@ -599,6 +599,75 @@ test("Zen remains playable beyond the former three-minute boundary", () => {
   assert.deepEqual(engine.getRunProofEvents(), []);
 });
 
+test("ending an active Zen run freezes its result and clears live play state", () => {
+  const engine = makeEngine(() => 0);
+  engine.start(1_000, GAME_MODES.ZEN);
+  const active = engine.activateRound(5_000);
+  engine.activeDecoys = [{
+    id: 1,
+    cellIndex: (active.snapshot.targetIndex + 1) % 4,
+    colorIndex: 1,
+    visibleAt: 5_100,
+    expiresAt: 20_000
+  }];
+
+  const result = engine.endZenRun(12_345);
+
+  assert.equal(result.type, "zen-ended");
+  assert.equal(result.reason, "manual");
+  assert.equal(result.snapshot.state, GAME_STATES.GAME_OVER);
+  assert.equal(result.snapshot.endReason, "manual");
+  assert.equal(result.snapshot.elapsedMs, 11_345);
+  assert.equal(result.snapshot.targetIndex, null);
+  assert.equal(result.snapshot.activeDecoys.length, 0);
+  assert.equal(result.snapshot.cells.every(({ kind }) => kind === "idle"), true);
+  assert.equal(result.snapshot.roundKind, null);
+  assert.equal(engine.isRunComplete(), true);
+  assert.deepEqual(engine.getRunProofEvents(), []);
+  assert.deepEqual(engine.getSnapshot(999_999), result.snapshot);
+});
+
+test("ending a waiting Zen run preserves its accumulated statistics", () => {
+  const engine = makeEngine();
+  engine.start(100, GAME_MODES.ZEN);
+  const hit = hitRound(engine, 1_100, 240);
+
+  const result = engine.endZenRun(2_500);
+
+  assert.equal(hit.snapshot.state, GAME_STATES.WAITING);
+  assert.equal(result.type, "zen-ended");
+  assert.equal(result.snapshot.elapsedMs, 2_400);
+  assert.equal(result.snapshot.points, hit.snapshot.points);
+  assert.equal(result.snapshot.hits, 1);
+  assert.equal(result.snapshot.fastestReactionMs, 240);
+  assert.equal(result.snapshot.averageReactionMs, 240);
+  assert.deepEqual(result.snapshot.speedRatings, hit.snapshot.speedRatings);
+});
+
+test("manual Zen ending ignores idle, Arcade, and already-ended runs", () => {
+  const idle = makeEngine();
+  const idleResult = idle.endZenRun(100);
+  assert.equal(idleResult.type, "ignored");
+  assert.equal(idleResult.reason, "not-running");
+  assert.equal(idle.state, GAME_STATES.IDLE);
+
+  const arcade = makeEngine();
+  arcade.start(0, GAME_MODES.NORMAL);
+  const arcadeResult = arcade.endZenRun(100);
+  assert.equal(arcadeResult.type, "ignored");
+  assert.equal(arcadeResult.reason, "not-zen");
+  assert.equal(arcade.state, GAME_STATES.WAITING);
+  assert.equal(arcade.endReason, null);
+
+  const zen = makeEngine();
+  zen.start(0, GAME_MODES.ZEN);
+  const ended = zen.endZenRun(1_000);
+  const endedAgain = zen.endZenRun(5_000);
+  assert.equal(endedAgain.type, "ignored");
+  assert.equal(endedAgain.reason, "already-ended");
+  assert.deepEqual(endedAgain.snapshot, ended.snapshot);
+});
+
 test("Zen targets stay active through wrong taps and have no response deadline", () => {
   const engine = makeEngine(() => 0);
   engine.start(0, GAME_MODES.ZEN);
