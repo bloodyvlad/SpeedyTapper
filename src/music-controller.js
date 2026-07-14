@@ -15,22 +15,22 @@ export const INTERACTIVE_MUSIC_TRACKS = Object.freeze([
   Object.freeze({
     id: "neon-circuit-refined",
     backingFile: "./assets/audio/interactive-neon-circuit-refined.m4a",
-    notesFile: "./assets/audio/interactive-notes-neon-circuit-refined.wav",
-    noteScaleDegreeCount: 5,
+    notesFile: "./assets/audio/interactive-notes-uniform-neon-circuit-refined.wav",
+    noteSlotCount: 16,
     motif: Object.freeze([0, 3, 5, 1, 1, 4, 0, 2, 2, 5, 1, 3, 3, 0, 2, 4])
   }),
   Object.freeze({
     id: "deep-current",
     backingFile: "./assets/audio/interactive-deep-current.m4a",
-    notesFile: "./assets/audio/interactive-notes-deep-current.wav",
-    noteScaleDegreeCount: 5,
+    notesFile: "./assets/audio/interactive-notes-uniform-deep-current.wav",
+    noteSlotCount: 16,
     motif: Object.freeze([0, 3, 5, 1, 2, 5, 1, 3, 4, 1, 3, 5, 0, 3, 5, 1])
   }),
   Object.freeze({
     id: "power-grid",
     backingFile: "./assets/audio/interactive-power-grid.m4a",
-    notesFile: "./assets/audio/interactive-notes-power-grid.wav",
-    noteScaleDegreeCount: 5,
+    notesFile: "./assets/audio/interactive-notes-uniform-power-grid.wav",
+    noteSlotCount: 16,
     motif: Object.freeze([0, 3, 5, 1, 3, 0, 2, 4, 0, 3, 5, 1, 3, 0, 2, 4])
   })
 ]);
@@ -98,7 +98,8 @@ const TRANSITION_BY_PAIR = new Map(
   ])
 );
 const MUSIC_GAIN = 0.45;
-const NOTE_GAIN = 0.58;
+const INTERACTIVE_BACKING_GAIN = 1.25;
+const NOTE_GAIN = 0.34;
 const NOTE_SLOT_SECONDS = 24_000 / SAMPLE_RATE;
 const MAX_NOTE_VOICES = 2;
 const CROSSFADE_SECONDS = 0.12;
@@ -123,21 +124,12 @@ export function resolveMusicStage(snapshot) {
   return MUSIC_STAGES.GRID_2;
 }
 
-export function resolveInteractiveNoteCue(track, noteIndex, sectionIndex) {
-  const section = INTERACTIVE_MUSIC_SECTIONS[sectionIndex] ?? INTERACTIVE_MUSIC_SECTIONS[0];
-  const scaleDegreeCount = Number.isInteger(track?.noteScaleDegreeCount)
-    ? Math.max(1, track.noteScaleDegreeCount)
-    : 5;
-  const safeNoteIndex = Number.isInteger(noteIndex) && noteIndex >= 0 ? noteIndex : 0;
-  const liftDegrees = Math.floor(section.richness / 2);
-  if (liftDegrees === 0) {
-    return Object.freeze({ noteIndex: safeNoteIndex, playbackRate: 1 });
-  }
-  const absoluteDegree = safeNoteIndex + liftDegrees;
-  return Object.freeze({
-    noteIndex: absoluteDegree % scaleDegreeCount,
-    playbackRate: 2 ** Math.floor(absoluteDegree / scaleDegreeCount)
-  });
+export function resolveInteractiveNoteCue(track, motifIndex) {
+  const slotCount = Number.isInteger(track?.noteSlotCount)
+    ? Math.max(1, track.noteSlotCount)
+    : 16;
+  const safeMotifIndex = Number.isInteger(motifIndex) && motifIndex >= 0 ? motifIndex : 0;
+  return Object.freeze({ noteIndex: safeMotifIndex % slotCount });
 }
 
 function ignoreFailure(promise) {
@@ -206,7 +198,10 @@ export function createMusicController({
 
   function voiceGainAtTime(voice, time) {
     const envelope = voice?.envelope;
-    if (!envelope) return 1;
+    if (!envelope) {
+      const nominalGain = voice?.gain?.gain?.value;
+      return Number.isFinite(nominalGain) ? nominalGain : 1;
+    }
     if (time <= envelope.startedAt) return envelope.from;
     if (time >= envelope.endsAt) return envelope.to;
     const progress = (time - envelope.startedAt) / (envelope.endsAt - envelope.startedAt);
@@ -367,7 +362,7 @@ export function createMusicController({
     const section = interactiveSection(sectionIndex);
     const voice = createVoice({
       buffer: interactiveBackingBuffers.get(desiredTrackIndex),
-      gainValue: fadeIn ? 0 : 1,
+      gainValue: fadeIn ? 0 : INTERACTIVE_BACKING_GAIN,
       kind: "interactive-backing",
       startedAt
     });
@@ -378,10 +373,13 @@ export function createMusicController({
     voice.sectionIndex = sectionIndex;
     voice.trackIndex = desiredTrackIndex;
     if (fadeIn) {
-      voice.gain.gain.linearRampToValueAtTime(1, startedAt + CROSSFADE_SECONDS);
+      voice.gain.gain.linearRampToValueAtTime(
+        INTERACTIVE_BACKING_GAIN,
+        startedAt + CROSSFADE_SECONDS
+      );
       voice.envelope = Object.freeze({
         from: 0,
-        to: 1,
+        to: INTERACTIVE_BACKING_GAIN,
         startedAt,
         endsAt: startedAt + CROSSFADE_SECONDS
       });
@@ -465,12 +463,12 @@ export function createMusicController({
     });
     bridgeVoice.trackIndex = desiredTrackIndex;
     bridgeVoice.gain.gain.linearRampToValueAtTime(
-      1,
+      INTERACTIVE_BACKING_GAIN,
       switchAt + TRANSITION_CROSSFADE_SECONDS
     );
     bridgeVoice.envelope = Object.freeze({
       from: 0,
-      to: 1,
+      to: INTERACTIVE_BACKING_GAIN,
       startedAt: switchAt,
       endsAt: switchAt + TRANSITION_CROSSFADE_SECONDS
     });
@@ -492,11 +490,9 @@ export function createMusicController({
       activeContext,
       activeGeneration,
       bridgeVoice,
-      fromIndex,
       oldVoice,
       targetVoice,
       toIndex,
-      transitionEndsAt,
       trackIndex: desiredTrackIndex
     };
     pendingTransition = pending;
@@ -740,18 +736,6 @@ export function createMusicController({
     }
   }
 
-  function audibleInteractiveSectionIndex(atTime) {
-    if (pendingTransition) {
-      return atTime < pendingTransition.transitionEndsAt
-        ? pendingTransition.fromIndex
-        : pendingTransition.toIndex;
-    }
-    if (currentVoice?.kind === "interactive-backing") {
-      return currentVoice.sectionIndex;
-    }
-    return desiredInteractiveSection;
-  }
-
   function playCorrectTap(hitNumber) {
     if (
       !enabled ||
@@ -767,11 +751,7 @@ export function createMusicController({
     const safeHitNumber = Number.isInteger(hitNumber) && hitNumber > 0 ? hitNumber : 1;
     const motifIndex = (safeHitNumber - 1) % track.motif.length;
     const time = context.currentTime;
-    const cue = resolveInteractiveNoteCue(
-      track,
-      track.motif[motifIndex],
-      audibleInteractiveSectionIndex(time)
-    );
+    const cue = resolveInteractiveNoteCue(track, motifIndex);
 
     let activeNoteVoices = [...noteVoices].filter(
       (voice) => voice.audioContext === context
@@ -789,20 +769,18 @@ export function createMusicController({
       }
     }
 
-    const accent = motifIndex % 4 === 0 ? 1.08 : 1;
     const voice = createVoice({
       buffer: interactiveNoteBuffers.get(desiredTrackIndex),
-      gainValue: NOTE_GAIN * accent,
+      gainValue: NOTE_GAIN,
       kind: "interactive-note",
       startedAt: time
     });
     noteVoices.add(voice);
-    voice.source.playbackRate.setValueAtTime(cue.playbackRate, time);
     voice.envelope = Object.freeze({
-      from: NOTE_GAIN * accent,
-      to: NOTE_GAIN * accent,
+      from: NOTE_GAIN,
+      to: NOTE_GAIN,
       startedAt: time,
-      endsAt: time + NOTE_SLOT_SECONDS / cue.playbackRate
+      endsAt: time + NOTE_SLOT_SECONDS
     });
     voice.source.start(time, cue.noteIndex * NOTE_SLOT_SECONDS, NOTE_SLOT_SECONDS);
     return true;

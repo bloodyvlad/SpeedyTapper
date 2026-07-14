@@ -8,9 +8,9 @@ const MUSIC_ASSET_PATHS = new Set([
   "/assets/audio/interactive-neon-circuit-refined.m4a",
   "/assets/audio/interactive-deep-current.m4a",
   "/assets/audio/interactive-power-grid.m4a",
-  "/assets/audio/interactive-notes-neon-circuit-refined.wav",
-  "/assets/audio/interactive-notes-deep-current.wav",
-  "/assets/audio/interactive-notes-power-grid.wav"
+  "/assets/audio/interactive-notes-uniform-neon-circuit-refined.wav",
+  "/assets/audio/interactive-notes-uniform-deep-current.wav",
+  "/assets/audio/interactive-notes-uniform-power-grid.wav"
 ]);
 const APP_SHELL = [
   "./index.html",

@@ -309,28 +309,13 @@ test("Interactive Music follows the engine pace level, not reactions or elapsed 
   })), 8);
 });
 
-test("tap-note pitch rises diatonically with soundtrack richness", () => {
+test("tap-note cues use one fixed-duration native slot per motif position", () => {
   const track = INTERACTIVE_MUSIC_TRACKS[0];
-  assert.deepEqual(resolveInteractiveNoteCue(track, 0, 0), {
-    noteIndex: 0,
-    playbackRate: 1
-  });
-  assert.deepEqual(resolveInteractiveNoteCue(track, 5, 0), {
-    noteIndex: 5,
-    playbackRate: 1
-  });
-  assert.deepEqual(resolveInteractiveNoteCue(track, 0, 2), {
-    noteIndex: 1,
-    playbackRate: 1
-  });
-  assert.deepEqual(resolveInteractiveNoteCue(track, 5, 2), {
-    noteIndex: 1,
-    playbackRate: 2
-  });
-  assert.deepEqual(resolveInteractiveNoteCue(track, 5, 11), {
-    noteIndex: 3,
-    playbackRate: 2
-  });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 0), { noteIndex: 0 });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 5), { noteIndex: 5 });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 15), { noteIndex: 15 });
+  assert.deepEqual(resolveInteractiveNoteCue(track, 16), { noteIndex: 0 });
+  assert.deepEqual(resolveInteractiveNoteCue(track, -1), { noteIndex: 0 });
 });
 
 test("Interactive Music is opt-in and loads only one backing and note bank", async () => {
@@ -360,6 +345,7 @@ test("Interactive Music is opt-in and loads only one backing and note bank", asy
   const opening = INTERACTIVE_MUSIC_SECTIONS[0];
   const backingSource = context.bufferSources[0];
   assert.equal(backingSource.loop, true);
+  assert.equal(backingSource.connections[0].gain.value, 1.25);
   assert.equal(backingSource.loopStart, opening.offsetFrames / 48_000);
   assert.equal(
     backingSource.loopEnd,
@@ -368,12 +354,12 @@ test("Interactive Music is opt-in and loads only one backing and note bank", asy
 
   assert.equal(music.playCorrectTap(1), true);
   assert.deepEqual(context.bufferSources[1].startCalls[0], [5, 0, 0.5]);
-  assert.ok(
-    Math.abs(context.bufferSources[1].connections[0].gain.value - 0.6264) < 0.000001,
-    "The accented tap note must retain its audible balance inside the normalized music bus."
-  );
+  assert.equal(context.bufferSources[1].connections[0].gain.value, 0.34);
+  assert.equal(context.bufferSources[1].playbackRate.value, 1);
+  assert.equal(context.bufferSources[1].playbackRate.events.length, 0);
   assert.equal(music.playCorrectTap(2), true);
-  assert.deepEqual(context.bufferSources[2].startCalls[0], [5, 1.5, 0.5]);
+  assert.deepEqual(context.bufferSources[2].startCalls[0], [5, 0.5, 0.5]);
+  assert.equal(context.bufferSources[2].connections[0].gain.value, 0.34);
 });
 
 test("Interactive backing changes once on the next beat through an authored bridge", async () => {
@@ -408,17 +394,25 @@ test("Interactive backing changes once on the next beat through an authored brid
     context.bufferSources[1].connections[0].gain.events.slice(0, 2),
     [
       { method: "setValueAtTime", time: 5.6, value: 0 },
-      { method: "linearRampToValueAtTime", time: 5.624, value: 1 }
+      { method: "linearRampToValueAtTime", time: 5.624, value: 1.25 }
     ]
+  );
+  assert.equal(
+    openingSource.connections[0].gain.events.findLast(
+      (event) => event.method === "setValueAtTime" && event.time === 5.6
+    ).value,
+    1.25,
+    "Transition fades must begin from the full Interactive backing gain."
   );
   const targetStart = 5.6 + bridge.durationFrames / 48_000;
   assert.deepEqual(context.bufferSources[2].startCalls[0], [
     targetStart,
     INTERACTIVE_MUSIC_SECTIONS[1].offsetFrames / 48_000
   ]);
+  assert.equal(context.bufferSources[2].connections[0].gain.value, 1.25);
 });
 
-test("tap-note pitch follows the soundtrack section audible across a bridge", async () => {
+test("tap-note slots keep the same duration and pitch rate across a backing bridge", async () => {
   FakeAudioContext.instances = [];
   const fetchRecorder = createFetchRecorder();
   const scheduler = new ManualScheduler();
@@ -452,9 +446,11 @@ test("tap-note pitch follows the soundtrack section audible across a bridge", as
   context.currentTime = secondTargetStart + 0.001;
   assert.equal(music.playCorrectTap(1), true);
   const afterBridgeEnd = context.bufferSources[6];
-  assert.deepEqual(afterBridgeEnd.startCalls[0], [context.currentTime, 0.5, 0.5]);
+  assert.deepEqual(afterBridgeEnd.startCalls[0], [context.currentTime, 0, 0.5]);
   assert.equal(beforeBridgeEnd.playbackRate.value, 1);
   assert.equal(afterBridgeEnd.playbackRate.value, 1);
+  assert.equal(beforeBridgeEnd.playbackRate.events.length, 0);
+  assert.equal(afterBridgeEnd.playbackRate.events.length, 0);
 });
 
 test("Interactive tap notes skip while unready and cap overlapping voices", async () => {
@@ -548,7 +544,10 @@ test("Interactive track rotation releases the old sprite and loads only the next
   assert.equal(oldBacking.stopCalls.length, 1);
   assert.match(context.bufferSources[1].buffer.encoded.url, /interactive-deep-current\.m4a$/);
   assert.equal(music.playCorrectTap(1), true);
-  assert.match(context.bufferSources[2].buffer.encoded.url, /interactive-notes-deep-current\.wav$/);
+  assert.match(
+    context.bufferSources[2].buffer.encoded.url,
+    /interactive-notes-uniform-deep-current\.wav$/
+  );
 });
 
 test("Interactive track rotation ignores stale decodes from the previous track", async () => {
@@ -581,7 +580,7 @@ test("Interactive track rotation ignores stale decodes from the previous track",
   assert.equal(music.playCorrectTap(1), true);
   assert.match(
     context.bufferSources[1].buffer.encoded.url,
-    /interactive-notes-deep-current\.wav$/
+    /interactive-notes-uniform-deep-current\.wav$/
   );
 
   music.setInteractiveSection(1);
@@ -864,6 +863,9 @@ test("Interactive Music manifest matches runtime cue metadata and PCM note bound
     )
   );
   assert.equal(manifest.sampleRate, 48_000);
+  assert.equal(manifest.noteSlotFrames, 24_000);
+  assert.equal(manifest.noteSoundFrames, 20_160);
+  assert.equal(manifest.noteRmsTarget, 0.23);
   assert.deepEqual(
     INTERACTIVE_MUSIC_SECTIONS.map(({ id, bpm, richness, beatFrames, offsetFrames, durationFrames }) => ({
       id,
@@ -894,16 +896,66 @@ test("Interactive Music manifest matches runtime cue metadata and PCM note bound
 
   for (const track of INTERACTIVE_MUSIC_TRACKS) {
     assert.deepEqual(track.motif, manifest.tracks[track.id].motif);
-    assert.equal(track.noteScaleDegreeCount, manifest.tracks[track.id].noteScaleDegreeCount);
+    assert.equal(track.noteSlotCount, manifest.tracks[track.id].noteSlotCount);
+    assert.equal(manifest.tracks[track.id].noteOffsets.length, track.noteSlotCount);
+    assert.equal(manifest.tracks[track.id].notes, track.notesFile.split("/").at(-1));
     const wav = await readFile(new URL(`../${track.notesFile.slice(2)}`, import.meta.url));
     assert.equal(wav.readUInt16LE(22), 1, `${track.id} note bank must be mono.`);
     assert.equal(wav.readUInt32LE(24), 48_000, `${track.id} note bank must be 48 kHz.`);
     assert.equal(wav.readUInt16LE(34), 16, `${track.id} note bank must be 16-bit PCM.`);
     const dataOffset = wav.indexOf(Buffer.from("data"));
     const samples = wav.subarray(dataOffset + 8);
-    for (let slot = 0; slot < 6; slot += 1) {
+    assert.equal(samples.length, track.noteSlotCount * 24_000 * 2);
+    const rmsValues = [];
+    for (let slot = 0; slot < track.noteSlotCount; slot += 1) {
       assert.equal(samples.readInt16LE(slot * 24_000 * 2), 0);
+      assert.equal(samples.readInt16LE((slot * 24_000 + 20_160 - 1) * 2), 0);
       assert.equal(samples.readInt16LE(((slot + 1) * 24_000 - 1) * 2), 0);
+      assert.ok(
+        samples
+          .subarray((slot * 24_000 + 20_160) * 2, (slot + 1) * 24_000 * 2)
+          .every((byte) => byte === 0),
+        `${track.id} slot ${slot} must keep an exact 80 ms silent tail.`
+      );
+      let sumSquares = 0;
+      for (let frame = 0; frame < 20_160; frame += 1) {
+        const sample = samples.readInt16LE((slot * 24_000 + frame) * 2) / 32_768;
+        sumSquares += sample * sample;
+      }
+      rmsValues.push(Math.sqrt(sumSquares / 20_160));
     }
+    assert.ok(
+      rmsValues.every((value) => Math.abs(value - 0.23) <= 0.0001),
+      `${track.id} notes must have equal RMS energy.`
+    );
+
+    const backingMaster = await readFile(
+      new URL(
+        `../assets/audio/interactive-music-masters/${manifest.tracks[track.id].master}`,
+        import.meta.url
+      )
+    );
+    const backingDataOffset = backingMaster.indexOf(Buffer.from("data"));
+    const backingSamples = backingMaster.subarray(backingDataOffset + 8);
+    let maximumBackingPeak = 0;
+    for (let offset = 0; offset < backingSamples.length; offset += 2) {
+      maximumBackingPeak = Math.max(
+        maximumBackingPeak,
+        Math.abs(backingSamples.readInt16LE(offset) / 32_768)
+      );
+    }
+    let maximumNotePeak = 0;
+    for (let offset = 0; offset < samples.length; offset += 2) {
+      maximumNotePeak = Math.max(
+        maximumNotePeak,
+        Math.abs(samples.readInt16LE(offset) / 32_768)
+      );
+    }
+    const worstAlgebraicPeak =
+      maximumBackingPeak * 1.25 * 0.45 + 2 * maximumNotePeak * 0.34 * 0.45;
+    assert.ok(
+      worstAlgebraicPeak < 0.7,
+      `${track.id} backing plus two tap cues must retain at least 3 dBFS headroom.`
+    );
   }
 });

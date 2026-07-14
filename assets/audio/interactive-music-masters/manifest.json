@@ -238,7 +238,7 @@
     "neon-circuit-refined": {
       "backing": "interactive-neon-circuit-refined.m4a",
       "master": "neon-circuit-refined.wav",
-      "notes": "interactive-notes-neon-circuit-refined.wav",
+      "notes": "interactive-notes-uniform-neon-circuit-refined.wav",
       "noteScaleDegreeCount": 5,
       "motif": [
         0,
@@ -258,12 +258,31 @@
         2,
         4
       ],
-      "coreAudioValidFrames": 5157120
+      "coreAudioValidFrames": 5157120,
+      "noteSlotCount": 16,
+      "noteOffsets": [
+        0,
+        7,
+        12,
+        3,
+        3,
+        10,
+        0,
+        5,
+        5,
+        12,
+        3,
+        7,
+        7,
+        0,
+        5,
+        10
+      ]
     },
     "deep-current": {
       "backing": "interactive-deep-current.m4a",
       "master": "deep-current.wav",
-      "notes": "interactive-notes-deep-current.wav",
+      "notes": "interactive-notes-uniform-deep-current.wav",
       "noteScaleDegreeCount": 5,
       "motif": [
         0,
@@ -283,12 +302,31 @@
         5,
         1
       ],
-      "coreAudioValidFrames": 5157120
+      "coreAudioValidFrames": 5157120,
+      "noteSlotCount": 16,
+      "noteOffsets": [
+        0,
+        7,
+        12,
+        2,
+        3,
+        12,
+        2,
+        7,
+        10,
+        2,
+        7,
+        12,
+        0,
+        7,
+        12,
+        2
+      ]
     },
     "power-grid": {
       "backing": "interactive-power-grid.m4a",
       "master": "power-grid.wav",
-      "notes": "interactive-notes-power-grid.wav",
+      "notes": "interactive-notes-uniform-power-grid.wav",
       "noteScaleDegreeCount": 5,
       "motif": [
         0,
@@ -308,8 +346,29 @@
         2,
         4
       ],
-      "coreAudioValidFrames": 5157120
+      "coreAudioValidFrames": 5157120,
+      "noteSlotCount": 16,
+      "noteOffsets": [
+        0,
+        7,
+        12,
+        2,
+        7,
+        0,
+        5,
+        9,
+        0,
+        7,
+        12,
+        2,
+        7,
+        0,
+        5,
+        9
+      ]
     }
   },
-  "masterFrames": 5157108
+  "masterFrames": 5157108,
+  "noteSoundFrames": 20160,
+  "noteRmsTarget": 0.23
 }
