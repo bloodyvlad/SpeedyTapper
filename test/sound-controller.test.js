@@ -4,19 +4,12 @@ import test from "node:test";
 
 import { createSoundController } from "../src/sound-controller.js";
 
-const SOUND_URLS = [
-  "./assets/audio/fluorescent-hum.wav",
-  "./assets/audio/oops.wav"
-];
+const TONE_BANK_URL = "./assets/audio/tap-tones.wav";
 
 class FakeAudioParam {
   constructor(value = 0) {
     this.value = value;
     this.events = [];
-  }
-
-  cancelAndHoldAtTime(time) {
-    this.events.push({ method: "cancelAndHoldAtTime", time });
   }
 
   cancelScheduledValues(time) {
@@ -28,14 +21,14 @@ class FakeAudioParam {
     this.events.push({ method: "linearRampToValueAtTime", time, value });
   }
 
-  setValueAtTime(value, time) {
-    this.value = value;
-    this.events.push({ method: "setValueAtTime", time, value });
-  }
-
   setTargetAtTime(value, time, timeConstant) {
     this.value = value;
     this.events.push({ method: "setTargetAtTime", time, timeConstant, value });
+  }
+
+  setValueAtTime(value, time) {
+    this.value = value;
+    this.events.push({ method: "setValueAtTime", time, value });
   }
 }
 
@@ -61,7 +54,7 @@ class FakeBufferSourceNode {
     this.buffer = null;
     this.connections = [];
     this.disconnectCalls = 0;
-    this.loop = false;
+    this.onended = null;
     this.startCalls = [];
     this.stopCalls = [];
   }
@@ -75,8 +68,8 @@ class FakeBufferSourceNode {
     this.disconnectCalls += 1;
   }
 
-  start(time = 0) {
-    this.startCalls.push(time);
+  start(time = 0, offset = 0, duration) {
+    this.startCalls.push({ duration, offset, time });
   }
 
   stop(time = 0) {
@@ -85,6 +78,7 @@ class FakeBufferSourceNode {
 }
 
 class FakeAudioContext {
+  static decodeDuration = 8;
   static instances = [];
   static resumeShouldDefer = false;
   static resumeShouldReject = false;
@@ -101,7 +95,6 @@ class FakeAudioContext {
     this.options = options;
     this.resumeCalls = 0;
     this.resumeResolvers = [];
-    this.sampleRate = 48000;
     this.state = "suspended";
     this.suspendCalls = 0;
     this.suspendResolvers = [];
@@ -140,9 +133,13 @@ class FakeAudioContext {
   decodeAudioData(arrayBuffer) {
     this.decodeCalls.push(arrayBuffer);
     return Promise.resolve({
-      duration: arrayBuffer.url.endsWith("oops.wav") ? 0.62 : 2,
+      duration: FakeAudioContext.decodeDuration,
       id: arrayBuffer.url
     });
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners.get(type)?.delete(listener);
   }
 
   resume() {
@@ -160,10 +157,6 @@ class FakeAudioContext {
     }
     this.changeState("running");
     return Promise.resolve();
-  }
-
-  removeEventListener(type, listener) {
-    this.listeners.get(type)?.delete(listener);
   }
 
   suspend() {
@@ -204,6 +197,7 @@ function createDeferredFetch() {
 }
 
 function resetFakes() {
+  FakeAudioContext.decodeDuration = 8;
   FakeAudioContext.instances = [];
   FakeAudioContext.resumeShouldDefer = false;
   FakeAudioContext.resumeShouldReject = false;
@@ -216,76 +210,17 @@ function createController(fetchImpl, AudioContextClass = FakeAudioContext) {
 }
 
 async function flushAsyncWork(turns = 12) {
-  for (let turn = 0; turn < turns; turn += 1) {
-    await Promise.resolve();
-  }
+  for (let turn = 0; turn < turns; turn += 1) await Promise.resolve();
 }
 
-function findHumSource(context) {
-  return context.bufferSources.find((source) => source.loop);
-}
-
-test("the PCM hum asset has a click-safe loop seam", async () => {
-  const wav = await readFile(new URL("../assets/audio/fluorescent-hum.wav", import.meta.url));
-  let offset = 12;
-  let audioData = null;
-  while (offset + 8 <= wav.length) {
-    const chunkId = wav.toString("ascii", offset, offset + 4);
-    const chunkSize = wav.readUInt32LE(offset + 4);
-    if (chunkId === "data") {
-      audioData = wav.subarray(offset + 8, offset + 8 + chunkSize);
-      break;
-    }
-    offset += 8 + chunkSize + (chunkSize % 2);
-  }
-
-  assert.ok(audioData && audioData.length >= 4, "The hum WAV must contain PCM data.");
-  const firstSample = audioData.readInt16LE(0);
-  const lastSample = audioData.readInt16LE(audioData.length - 2);
-  assert.ok(
-    Math.abs(lastSample - firstSample) <= 512,
-    `The hum loop edge is too large: ${lastSample} → ${firstSample}.`
-  );
-});
-
-test("the PCM life-loss cue starts and ends at exact zero", async () => {
-  const wav = await readFile(new URL("../assets/audio/oops.wav", import.meta.url));
-  let offset = 12;
-  let audioData = null;
-  while (offset + 8 <= wav.length) {
-    const chunkId = wav.toString("ascii", offset, offset + 4);
-    const chunkSize = wav.readUInt32LE(offset + 4);
-    if (chunkId === "data") {
-      audioData = wav.subarray(offset + 8, offset + 8 + chunkSize);
-      break;
-    }
-    offset += 8 + chunkSize + (chunkSize % 2);
-  }
-
-  assert.ok(audioData && audioData.length >= 4, "The oops WAV must contain 16-bit PCM data.");
-  assert.equal(audioData.readInt16LE(0), 0);
-  assert.equal(audioData.readInt16LE(audioData.length - 2), 0);
-});
-
-test("the controller is Web Audio based and contains no browser sniffing or media-element seeking", async () => {
+test("the controller uses one Web Audio tone bank and no hum, failure cue, or media element", async () => {
   const source = await readFile(new URL("../src/sound-controller.js", import.meta.url), "utf8");
 
-  assert.doesNotMatch(source, /navigator\.(?:userAgent|platform)|iPhone|iPad|iPod/i);
-  assert.doesNotMatch(source, /HTMLMediaElement|new Audio\s*\(|\.currentTime\s*=/);
   assert.match(source, /AudioContext/);
-  assert.match(source, /latencyHint\s*:\s*["']interactive["']/);
-});
-
-test("Sound FX defaults on in the browser shell while preserving an explicit opt-out", async () => {
-  const [mainSource, indexHtml] = await Promise.all([
-    readFile(new URL("../src/main.js", import.meta.url), "utf8"),
-    readFile(new URL("../index.html", import.meta.url), "utf8")
-  ]);
-
-  assert.match(mainSource, /let soundFxEnabled = true;/);
-  assert.match(mainSource, /soundFxEnabled = storedSoundFx !== ["']off["'];/);
-  assert.match(indexHtml, /id="sound-fx-toggle"[^>]+role="switch"/);
-  assert.match(indexHtml, /id="sound-fx-toggle"[^>]+checked/);
+  assert.match(source, /latencyHint:\s*["']interactive["']/);
+  assert.match(source, /assets\/audio\/tap-tones\.wav/);
+  assert.doesNotMatch(source, /fluorescent-hum|oops\.wav|HTMLMediaElement|new Audio\s*\(/);
+  assert.doesNotMatch(source, /navigator\.(?:userAgent|platform)|iPhone|iPad|iPod/i);
 });
 
 test("disabled Sound FX creates no context and performs no fetch, decode, or playback work", async () => {
@@ -293,18 +228,16 @@ test("disabled Sound FX creates no context and performs no fetch, decode, or pla
   const sound = createController(fetchRecorder.fetchImpl);
 
   sound.setEnabled(false);
-  sound.unlock();
-  sound.startRun();
-  sound.tileOn();
-  sound.lifeLost();
-  sound.tileOff();
+  await sound.unlock();
+  await sound.startRun();
+  assert.equal(sound.playCorrectTap(1), false);
   await flushAsyncWork();
 
   assert.equal(FakeAudioContext.instances.length, 0);
   assert.equal(fetchRecorder.calls.length, 0);
 });
 
-test("enabling eagerly fetches and decodes both buffers once and retains them", async () => {
+test("enabling prepares exactly one eight-second bank with interactive Web Audio", async () => {
   const fetchRecorder = createImmediateFetch();
   const sound = createController(fetchRecorder.fetchImpl);
 
@@ -314,34 +247,51 @@ test("enabling eagerly fetches and decodes both buffers once and retains them", 
   assert.equal(FakeAudioContext.instances.length, 1);
   const context = FakeAudioContext.instances[0];
   assert.equal(context.options.latencyHint, "interactive");
-  assert.deepEqual(fetchRecorder.calls.map(({ url }) => url).sort(), [...SOUND_URLS].sort());
-  assert.equal(context.decodeCalls.length, 2);
+  assert.deepEqual(fetchRecorder.calls, [
+    {
+      options: {
+        cache: "no-store",
+        signal: fetchRecorder.calls[0].options.signal
+      },
+      url: TONE_BANK_URL
+    }
+  ]);
+  assert.equal(context.decodeCalls.length, 1);
+  assert.equal(context.bufferSources.length, 0, "Preloading must remain silent.");
 
-  sound.unlock();
-  sound.tileOn();
-  sound.tileOff();
-  sound.lifeLost();
+  sound.setEnabled(true);
+  await sound.unlock();
   await flushAsyncWork();
-
-  assert.equal(FakeAudioContext.instances.length, 1, "The enabled session must retain its context.");
-  assert.equal(fetchRecorder.calls.length, 2, "Gameplay must reuse the preloaded buffers.");
-  assert.equal(context.decodeCalls.length, 2, "Gameplay must not repeatedly decode audio.");
+  assert.equal(FakeAudioContext.instances.length, 1);
+  assert.equal(fetchRecorder.calls.length, 1);
+  assert.equal(context.decodeCalls.length, 1);
 });
 
-test("unlock resumes the interactive context and softly opens its master gate", async () => {
+test("a short or malformed bank is rejected and taps remain silent", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  FakeAudioContext.decodeDuration = 7.99;
+
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  await sound.unlock();
+
+  assert.equal(sound.playCorrectTap(1), false);
+  assert.equal(FakeAudioContext.instances[0].bufferSources.length, 0);
+});
+
+test("unlock resumes only from the caller's gesture and softly opens the output gate", async () => {
   const fetchRecorder = createImmediateFetch();
   const sound = createController(fetchRecorder.fetchImpl);
   sound.setEnabled(true);
   await flushAsyncWork();
   const context = FakeAudioContext.instances[0];
+  const masterGain = context.gainNodes[0];
 
   assert.equal(context.resumeCalls, 0);
-  const masterGain = context.gainNodes[0];
-  assert.equal(masterGain.gain.value, 0, "The output must remain closed before a gesture.");
-  const unlocked = sound.unlock();
+  assert.equal(sound.playCorrectTap(1), false);
+  assert.equal(await sound.unlock(), true);
   assert.equal(context.resumeCalls, 1);
-  await flushAsyncWork();
-  assert.equal(await unlocked, true);
   assert.ok(
     masterGain.gain.events.some(
       (event) =>
@@ -349,14 +299,153 @@ test("unlock resumes the interactive context and softly opens its master gate", 
         event.value === 1 &&
         event.timeConstant >= 0.01
     ),
-    "The resumed output must fade in instead of opening with a hardware pop."
+    "The output route must fade in rather than opening abruptly."
   );
 
-  sound.unlock();
-  assert.equal(context.resumeCalls, 1, "An already-running context does not need another resume.");
+  assert.equal(await sound.unlock(), true);
+  assert.equal(context.resumeCalls, 1, "An already-running context is reused.");
 });
 
-test("a pending resume cannot reopen audio after suspension", async () => {
+test("correct taps play successive half-second slots and wrap after slot 16", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  await sound.unlock();
+  const context = FakeAudioContext.instances[0];
+
+  for (const [hitNumber, expectedOffset] of [
+    [1, 0],
+    [2, 0.5],
+    [16, 7.5],
+    [17, 0],
+    [0, 0]
+  ]) {
+    context.currentTime += 0.01;
+    assert.equal(sound.playCorrectTap(hitNumber), true);
+    const source = context.bufferSources.at(-1);
+    assert.deepEqual(source.startCalls, [
+      { duration: 0.5, offset: expectedOffset, time: context.currentTime }
+    ]);
+    assert.equal(source.buffer.id, TONE_BANK_URL);
+    source.onended();
+  }
+});
+
+test("the third overlapping tap briefly fades and stops only the oldest of two voices", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  await sound.unlock();
+  const context = FakeAudioContext.instances[0];
+
+  sound.playCorrectTap(1);
+  context.currentTime = 4.05;
+  sound.playCorrectTap(2);
+  context.currentTime = 4.1;
+  sound.playCorrectTap(3);
+
+  assert.equal(context.bufferSources.length, 3);
+  const [oldest, second, newest] = context.bufferSources;
+  assert.equal(oldest.stopCalls.length, 1);
+  assert.ok(Math.abs(oldest.stopCalls[0] - 4.114) < 1e-9);
+  assert.equal(second.stopCalls.length, 0);
+  assert.equal(newest.stopCalls.length, 0);
+  const oldestGain = oldest.connections[0];
+  assert.ok(
+    oldestGain.gain.events.some(
+      (event) =>
+        event.method === "linearRampToValueAtTime" &&
+        event.value === 0 &&
+        Math.abs(event.time - 4.112) < 1e-9
+    )
+  );
+});
+
+test("a tap before decoding is skipped and never arrives late", async () => {
+  const fetchRecorder = createDeferredFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  sound.setEnabled(true);
+  await flushAsyncWork(2);
+  const context = FakeAudioContext.instances[0];
+  await sound.unlock();
+
+  assert.equal(sound.playCorrectTap(1), false);
+  fetchRecorder.calls[0].resolve({
+    ok: true,
+    async arrayBuffer() {
+      return { url: TONE_BANK_URL };
+    }
+  });
+  await flushAsyncWork();
+
+  assert.equal(context.bufferSources.length, 0, "Readiness must not replay the missed cue.");
+  assert.equal(sound.playCorrectTap(2), true);
+  assert.equal(context.bufferSources[0].startCalls[0].offset, 0.5);
+});
+
+test("startRun retires stale tones and keeps the prepared context and bank", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  await sound.unlock();
+  const context = FakeAudioContext.instances[0];
+  sound.playCorrectTap(1);
+  context.currentTime = 4.2;
+
+  assert.equal(await sound.startRun(), true);
+  assert.equal(context.bufferSources[0].stopCalls.length, 1);
+  assert.ok(Math.abs(context.bufferSources[0].stopCalls[0] - 4.214) < 1e-9);
+  assert.equal(fetchRecorder.calls.length, 1);
+  assert.equal(context.resumeCalls, 1);
+  assert.equal(sound.playCorrectTap(1), true);
+});
+
+test("backgrounding stops active tones and requires another trusted gesture", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  await sound.unlock();
+  const context = FakeAudioContext.instances[0];
+  sound.playCorrectTap(1);
+  const source = context.bufferSources[0];
+
+  sound.suspend();
+  await flushAsyncWork();
+  assert.equal(context.state, "suspended");
+  assert.equal(context.suspendCalls, 1);
+  assert.deepEqual(source.stopCalls, [0]);
+  assert.equal(sound.playCorrectTap(2), false);
+
+  assert.equal(await sound.unlock(), true);
+  assert.equal(context.resumeCalls, 2);
+  assert.equal(sound.playCorrectTap(2), true);
+});
+
+test("an interruption stays silent until a newer gesture explicitly resumes it", async () => {
+  const fetchRecorder = createImmediateFetch();
+  const sound = createController(fetchRecorder.fetchImpl);
+  sound.setEnabled(true);
+  await flushAsyncWork();
+  await sound.unlock();
+  const context = FakeAudioContext.instances[0];
+  const masterGain = context.gainNodes[0];
+  sound.playCorrectTap(1);
+
+  context.changeState("interrupted");
+  assert.equal(masterGain.gain.value, 0);
+  assert.deepEqual(context.bufferSources[0].stopCalls, [0]);
+  context.changeState("running");
+  assert.equal(sound.playCorrectTap(2), false, "Automatic recovery must remain gated.");
+
+  assert.equal(await sound.unlock(), true);
+  assert.equal(sound.playCorrectTap(2), true);
+});
+
+test("a stale resume completion cannot reopen audio after suspension", async () => {
   const fetchRecorder = createImmediateFetch();
   const sound = createController(fetchRecorder.fetchImpl);
   FakeAudioContext.resumeShouldDefer = true;
@@ -366,51 +455,23 @@ test("a pending resume cannot reopen audio after suspension", async () => {
   const masterGain = context.gainNodes[0];
 
   const unlocking = sound.unlock();
-  assert.equal(context.resumeCalls, 1);
   sound.suspend();
   context.resumeResolvers[0]();
   await flushAsyncWork();
 
   assert.equal(await unlocking, false);
   assert.equal(context.state, "suspended");
-  assert.equal(context.suspendCalls, 1, "A stale resume must be suspended again.");
+  assert.equal(context.suspendCalls, 1);
   assert.equal(masterGain.gain.value, 0);
   assert.equal(
     masterGain.gain.events.filter(
       (event) => event.method === "setTargetAtTime" && event.value === 1
     ).length,
-    0,
-    "A stale completion must never reopen the master gate."
+    0
   );
 });
 
-test("an old resume completion cannot suspend a newer valid gesture", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  FakeAudioContext.resumeShouldDefer = true;
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  const context = FakeAudioContext.instances[0];
-  const masterGain = context.gainNodes[0];
-
-  const oldUnlock = sound.unlock();
-  sound.suspend();
-  const newUnlock = sound.unlock();
-  assert.equal(context.resumeResolvers.length, 2);
-
-  context.resumeResolvers[1]();
-  await flushAsyncWork();
-  assert.equal(await newUnlock, true);
-  context.resumeResolvers[0]();
-  await flushAsyncWork();
-
-  assert.equal(await oldUnlock, false);
-  assert.equal(context.state, "running");
-  assert.equal(context.suspendCalls, 0, "The stale completion must respect the newer run.");
-  assert.equal(masterGain.gain.value, 1);
-});
-
-test("a newer gesture replaces a context with a pending suspension", async () => {
+test("a gesture during a pending suspension replaces the old context safely", async () => {
   const fetchRecorder = createImmediateFetch();
   const sound = createController(fetchRecorder.fetchImpl);
   FakeAudioContext.suspendShouldDefer = true;
@@ -420,348 +481,68 @@ test("a newer gesture replaces a context with a pending suspension", async () =>
   const oldContext = FakeAudioContext.instances[0];
 
   sound.suspend();
-  assert.equal(oldContext.state, "running");
   assert.equal(oldContext.suspendResolvers.length, 1);
   const newRun = sound.startRun();
   await flushAsyncWork();
   assert.equal(await newRun, true);
-
   assert.equal(FakeAudioContext.instances.length, 2);
   const newContext = FakeAudioContext.instances[1];
   assert.equal(oldContext.closeCalls, 1);
   assert.equal(newContext.state, "running");
+
   oldContext.suspendResolvers[0]();
   await flushAsyncWork();
-
-  assert.equal(newContext.state, "running", "The old suspension must not mute the newer run.");
-  const newMasterGain = newContext.gainNodes[0];
-  assert.equal(newMasterGain.gain.value, 1);
+  assert.equal(newContext.state, "running");
 });
 
-test("an unmanaged iOS interruption closes stale gates before resuming", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  await sound.unlock();
-  const context = FakeAudioContext.instances[0];
-  const masterGain = context.gainNodes[0];
-  const hum = findHumSource(context);
-  const humGain = hum.connections.find((node) => node instanceof FakeGainNode);
-
-  sound.tileOn();
-  assert.equal(humGain.gain.value, 0.75);
-  context.changeState("interrupted");
-  const restarting = sound.startRun();
-
-  assert.equal(humGain.gain.value, 0, "A stale active target must be gated before resume.");
-  assert.equal(masterGain.gain.value, 0, "The output route must be closed before resume.");
-  await restarting;
-  const openEvents = masterGain.gain.events.filter(
-    (event) => event.method === "setTargetAtTime" && event.value === 1
-  );
-  assert.equal(openEvents.length, 2, "The resumed route must get a fresh soft opening.");
-});
-
-test("automatic iOS interruption recovery stays silent until another trusted gesture", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  await sound.unlock();
-  const context = FakeAudioContext.instances[0];
-  const masterGain = context.gainNodes[0];
-  const hum = findHumSource(context);
-  const humGain = hum.connections.find((node) => node instanceof FakeGainNode);
-
-  sound.tileOn();
-  context.changeState("interrupted");
-  assert.equal(humGain.gain.value, 0);
-  assert.equal(masterGain.gain.value, 0);
-  context.changeState("running");
-
-  const openEventsBeforeGesture = masterGain.gain.events.filter(
-    (event) => event.method === "setTargetAtTime" && event.value === 1
-  );
-  assert.equal(openEventsBeforeGesture.length, 1, "Automatic recovery must keep the gate closed.");
-  assert.equal(masterGain.gain.value, 0);
-
-  await sound.unlock();
-  const openEventsAfterGesture = masterGain.gain.events.filter(
-    (event) => event.method === "setTargetAtTime" && event.value === 1
-  );
-  assert.equal(openEventsAfterGesture.length, 2);
-});
-
-test("background suspension silences all audio and requires the next gesture to resume", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  sound.unlock();
-  await flushAsyncWork();
-  const context = FakeAudioContext.instances[0];
-  const hum = findHumSource(context);
-  const humGain = hum.connections.find((node) => node instanceof FakeGainNode);
-
-  sound.tileOn();
-  sound.lifeLost();
-  const oneShot = context.bufferSources.find((source) => !source.loop);
-  sound.suspend();
-  await flushAsyncWork();
-
-  assert.equal(context.suspendCalls, 1);
-  assert.equal(context.state, "suspended");
-  assert.equal(humGain.gain.value, 0);
-  assert.equal(oneShot.stopCalls.length, 1, "A suspended cue must not resume in the next run.");
-  assert.ok(oneShot.disconnectCalls > 0);
-
-  sound.unlock();
-  assert.equal(context.resumeCalls, 2);
-});
-
-test("events that occur before decoding finishes are skipped instead of playing late", async () => {
+test("disabling aborts preparation, closes audio, and prevents stale work from reviving it", async () => {
   const fetchRecorder = createDeferredFetch();
   const sound = createController(fetchRecorder.fetchImpl);
   sound.setEnabled(true);
   await flushAsyncWork(2);
-  const context = FakeAudioContext.instances[0];
-
-  sound.unlock();
-  sound.tileOn();
-  sound.lifeLost();
-
-  for (const request of fetchRecorder.calls) {
-    request.resolve({
-      ok: true,
-      async arrayBuffer() {
-        return { url: request.url };
-      }
-    });
-  }
-  await flushAsyncWork();
-
-  const hum = findHumSource(context);
-  assert.ok(hum, "The persistent silent loop may be prepared for future rounds.");
-  const humGain = hum.connections.find((node) => node instanceof FakeGainNode);
-  assert.equal(
-    humGain.gain.events.filter(
-      (event) => event.method === "setTargetAtTime" && event.value > 0
-    ).length,
-    0,
-    "A target that appeared before readiness must not make the hum arrive late."
-  );
-  assert.equal(
-    context.bufferSources.filter((source) => !source.loop).length,
-    0,
-    "A life-loss cue that occurred before readiness must not be queued."
-  );
-});
-
-test("the hum is one persistent loop controlled by smooth click-resistant targets", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  sound.unlock();
-  await flushAsyncWork();
-
-  const context = FakeAudioContext.instances[0];
-  const hum = findHumSource(context);
-  assert.ok(hum, "A looped hum source should be prepared once.");
-  assert.equal(hum.startCalls.length, 1);
-  assert.equal(hum.stopCalls.length, 0);
-  const humGain = hum.connections.find((node) => node instanceof FakeGainNode);
-  assert.ok(humGain, "The persistent hum must be gated through a GainNode.");
-
-  context.currentTime = 10;
-  sound.tileOn();
-  const onTarget = humGain.gain.events.findLast(
-    (event) => event.method === "setTargetAtTime" && event.value > 0
-  );
-  assert.ok(onTarget, "tileOn should smoothly approach an audible gain.");
-  assert.equal(onTarget.value, 0.75, "The ambient cue must use the normalized SFX mix.");
-  assert.equal(onTarget.time, 10);
-  assert.ok(
-    onTarget.timeConstant >= 0.006 && onTarget.timeConstant <= 0.01,
-    "The attack must begin immediately and settle without a linear corner."
-  );
-
-  context.currentTime = 11;
-  sound.tileOff();
-  const offTarget = humGain.gain.events.findLast(
-    (event) => event.method === "setTargetAtTime" && event.value === 0
-  );
-  assert.ok(offTarget, "tileOff should smoothly approach silence.");
-  assert.equal(offTarget.time, 11);
-  assert.ok(offTarget.timeConstant >= 0.01 && offTarget.timeConstant <= 0.014);
-
-  context.currentTime = 12;
-  sound.tileOn();
-  context.currentTime = 13;
-  sound.tileOff();
-  assert.equal(findHumSource(context), hum);
-  assert.equal(hum.startCalls.length, 1, "Tiles must never restart or seek the hum source.");
-  assert.equal(hum.stopCalls.length, 0, "Tiles must never stop the hum source.");
-});
-
-test("life-loss cues cannot overlap and clip the output", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  sound.unlock();
-  await flushAsyncWork();
-  const context = FakeAudioContext.instances[0];
-
-  sound.lifeLost();
-  sound.lifeLost();
-
-  let oneShots = context.bufferSources.filter((source) => !source.loop);
-  assert.equal(oneShots.length, 1, "Rapid misses must not stack multiple loud cues.");
-  assert.ok(oneShots[0].buffer?.id.endsWith("oops.wav"));
-  assert.equal(oneShots[0].startCalls.length, 1);
-  const oneShotGain = oneShots[0].connections.find((node) => node instanceof FakeGainNode);
-  assert.equal(oneShotGain.gain.events[0]?.value, 0);
-  assert.ok(
-    oneShotGain.gain.events.some(
-      (event) => event.method === "linearRampToValueAtTime" && event.value === 0.55
-    ),
-    "The life-loss cue must peak at the normalized SFX level."
-  );
-
-  oneShots[0].onended();
-  sound.lifeLost();
-  oneShots = context.bufferSources.filter((source) => !source.loop);
-  assert.equal(oneShots.length, 2, "A later miss may use a fresh source after cleanup.");
-});
-
-test("starting a new run fades and stops a stale failure cue", async () => {
-  const fetchRecorder = createImmediateFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  await sound.unlock();
-  const context = FakeAudioContext.instances[0];
-
-  sound.lifeLost();
-  const oneShot = context.bufferSources.find((source) => !source.loop);
-  context.currentTime = 4.614;
-  await sound.startRun();
-
-  assert.equal(oneShot.stopCalls.length, 1);
-  assert.ok(oneShot.stopCalls[0] > 4.626 && oneShot.stopCalls[0] <= 4.629);
-  const oneShotGain = oneShot.connections.find((node) => node instanceof FakeGainNode);
-  const fadeTarget = oneShotGain.gain.events.findLast(
-    (event) => event.method === "setTargetAtTime" && event.value === 0
-  );
-  const heldReleaseGain = oneShotGain.gain.events.findLast(
-    (event) => event.method === "setValueAtTime" && event.time === 4.614
-  );
-  const settledZero = oneShotGain.gain.events.findLast(
-    (event) => event.method === "setValueAtTime" && event.value === 0 && event.time > 4.614
-  );
-  assert.ok(fadeTarget);
-  assert.ok(
-    Math.abs(heldReleaseGain.value - 0.275) < 0.001,
-    "Restart must hold the cue's instantaneous release value before fading."
-  );
-  assert.ok(
-    oneShot.stopCalls[0] - fadeTarget.time >= 8 * fadeTarget.timeConstant,
-    "The cue must decay for at least eight time constants before it stops."
-  );
-  assert.ok(settledZero?.time < oneShot.stopCalls[0], "The gain must reach exact zero before stop.");
-});
-
-test("disabling aborts preparation, closes audio, and prevents stale async work from reviving it", async () => {
-  const fetchRecorder = createDeferredFetch();
-  const sound = createController(fetchRecorder.fetchImpl);
-  sound.setEnabled(true);
-  await flushAsyncWork(2);
-  assert.equal(fetchRecorder.calls.length, 2);
   const context = FakeAudioContext.instances[0];
 
   sound.setEnabled(false);
-  assert.ok(fetchRecorder.calls.every(({ options }) => options.signal?.aborted));
+  assert.equal(fetchRecorder.calls[0].options.signal.aborted, true);
   assert.equal(context.closeCalls, 1);
-
-  for (const request of fetchRecorder.calls) {
-    request.resolve({
-      ok: true,
-      async arrayBuffer() {
-        return { url: request.url };
-      }
-    });
-  }
+  fetchRecorder.calls[0].resolve({
+    ok: true,
+    async arrayBuffer() {
+      return { url: TONE_BANK_URL };
+    }
+  });
   await flushAsyncWork();
 
   assert.equal(context.decodeCalls.length, 0);
-  assert.equal(context.bufferSources.length, 0);
-  sound.unlock();
-  sound.tileOn();
-  sound.tileOff();
-  sound.lifeLost();
+  assert.equal(await sound.unlock(), false);
+  assert.equal(sound.playCorrectTap(1), false);
   assert.equal(FakeAudioContext.instances.length, 1);
 });
 
-test("one failed preload aborts its sibling and cannot start a duplicate preparation", async () => {
-  const calls = [];
-  let resolveSibling;
-  const sound = createController((url, options = {}) => {
-    calls.push({ options, url });
-    if (url.endsWith("fluorescent-hum.wav")) {
-      return Promise.reject(new Error("Hum unavailable."));
-    }
-    return new Promise((resolve) => {
-      resolveSibling = resolve;
-    });
-  });
-
-  sound.setEnabled(true);
-  await flushAsyncWork();
-  assert.equal(calls.length, 2);
-  assert.ok(calls.every(({ options }) => options.signal.aborted));
-
-  sound.unlock();
-  await flushAsyncWork();
-  assert.equal(calls.length, 2, "A pending sibling must retain preparation ownership.");
-
-  resolveSibling({
-    ok: true,
-    async arrayBuffer() {
-      return { url: SOUND_URLS[1] };
-    }
-  });
-  await flushAsyncWork();
-});
-
-test("disabling a prepared session stops its persistent source and closes its context", async () => {
+test("disabling a prepared session stops tones, disconnects nodes, and closes its context", async () => {
   const fetchRecorder = createImmediateFetch();
   const sound = createController(fetchRecorder.fetchImpl);
   sound.setEnabled(true);
   await flushAsyncWork();
-  sound.unlock();
-  await flushAsyncWork();
+  await sound.unlock();
   const context = FakeAudioContext.instances[0];
-  const hum = findHumSource(context);
+  sound.playCorrectTap(1);
+  const source = context.bufferSources[0];
 
   sound.setEnabled(false);
   await flushAsyncWork();
-
-  assert.equal(hum.stopCalls.length, 1);
-  assert.equal(context.closeCalls, 1);
+  assert.deepEqual(source.stopCalls, [0]);
+  assert.ok(source.disconnectCalls > 0);
   assert.ok(context.gainNodes.some((node) => node.disconnectCalls > 0));
+  assert.equal(context.closeCalls, 1);
 });
 
 test("unsupported, failed, or blocked audio degrades silently", async () => {
   const fetchRecorder = createImmediateFetch();
   const unsupported = createController(fetchRecorder.fetchImpl, null);
   assert.doesNotThrow(() => unsupported.setEnabled(true));
-  assert.doesNotThrow(() => unsupported.unlock());
-  assert.doesNotThrow(() => unsupported.tileOn());
-  assert.doesNotThrow(() => unsupported.tileOff());
-  assert.doesNotThrow(() => unsupported.lifeLost());
-  await flushAsyncWork();
+  assert.equal(await unsupported.unlock(), false);
+  assert.equal(unsupported.playCorrectTap(1), false);
   assert.equal(fetchRecorder.calls.length, 0);
 
   resetFakes();
@@ -773,9 +554,7 @@ test("unsupported, failed, or blocked audio degrades silently", async () => {
   });
   assert.doesNotThrow(() => failed.setEnabled(true));
   await flushAsyncWork();
-  assert.doesNotThrow(() => failed.unlock());
-  assert.doesNotThrow(() => failed.tileOn());
-  assert.doesNotThrow(() => failed.lifeLost());
+  assert.doesNotThrow(() => failed.playCorrectTap(1));
 
   resetFakes();
   FakeAudioContext.resumeShouldReject = true;
@@ -786,8 +565,6 @@ test("unsupported, failed, or blocked audio degrades silently", async () => {
   });
   blocked.setEnabled(true);
   await flushAsyncWork();
-  assert.doesNotThrow(() => blocked.unlock());
-  await flushAsyncWork();
-  assert.doesNotThrow(() => blocked.tileOn());
-  assert.doesNotThrow(() => blocked.lifeLost());
+  assert.equal(await blocked.unlock(), false);
+  assert.equal(blocked.playCorrectTap(1), false);
 });

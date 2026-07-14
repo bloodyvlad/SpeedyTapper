@@ -1,19 +1,13 @@
-const SOUND_FILES = Object.freeze({
-  hum: "./assets/audio/fluorescent-hum.wav",
-  oops: "./assets/audio/oops.wav"
-});
+const TONE_BANK_URL = "./assets/audio/tap-tones.wav";
 
-const HUM_GAIN = 0.75;
-const OOPS_GAIN = 0.55;
-const HUM_ATTACK_TIME_CONSTANT = 0.008;
-const HUM_RELEASE_TIME_CONSTANT = 0.012;
+const TONE_SLOT_COUNT = 16;
+const TONE_SLOT_SECONDS = 0.5;
+const REQUIRED_BANK_DURATION_SECONDS = TONE_SLOT_COUNT * TONE_SLOT_SECONDS;
+const TONE_GAIN = 0.5;
+const MAX_TONE_VOICES = 2;
+const VOICE_RELEASE_SECONDS = 0.012;
+const VOICE_STOP_PADDING_SECONDS = 0.002;
 const MASTER_ATTACK_TIME_CONSTANT = 0.012;
-const ONE_SHOT_ATTACK_SECONDS = 0.008;
-const ONE_SHOT_RELEASE_SECONDS = 0.012;
-const ONE_SHOT_RESTART_FADE_SECONDS = 0.012;
-const RESTART_FADE_TIME_CONSTANT_DIVISOR = 8;
-const RENDER_QUANTUM_FRAMES = 128;
-const DEFAULT_SAMPLE_RATE = 48000;
 
 function ignoreFailure(promise) {
   Promise.resolve(promise).catch(() => {});
@@ -32,13 +26,11 @@ export function createSoundController({
   let pendingSuspendContext = null;
   let pendingSuspendWork = null;
   let masterGain = null;
-  let humGain = null;
-  let humSource = null;
-  let buffers = null;
+  let masterGateOpen = false;
+  let toneBuffer = null;
   let preparation = null;
   let loadController = null;
-  let masterGateOpen = false;
-  const oneShots = new Set();
+  const voices = new Set();
 
   function isCurrent(preparationGeneration, preparationContext) {
     return (
@@ -47,20 +39,6 @@ export function createSoundController({
       preparationContext === context &&
       preparationContext.state !== "closed"
     );
-  }
-
-  function stopSource(source) {
-    if (!source) return;
-    try {
-      source.stop();
-    } catch {
-      // A source may already have ended or may not have started yet.
-    }
-    try {
-      source.disconnect();
-    } catch {
-      // Already-disconnected nodes need no further cleanup.
-    }
   }
 
   function disconnectNode(node) {
@@ -72,87 +50,83 @@ export function createSoundController({
     }
   }
 
-  function cleanupOneShot(record) {
-    if (!record || !oneShots.delete(record)) return;
-    disconnectNode(record.source);
-    disconnectNode(record.gain);
+  function cleanupVoice(voice) {
+    if (!voice || voice.cleaned) return;
+    voice.cleaned = true;
+    voices.delete(voice);
+    voice.source.onended = null;
+    disconnectNode(voice.source);
+    disconnectNode(voice.gain);
   }
 
-  function stopOneShots(fadeSeconds = 0) {
-    for (const record of [...oneShots]) {
-      if (fadeSeconds > 0 && context?.state === "running") {
-        const time = context.currentTime;
-        const fadeEndTime = time + fadeSeconds;
-        const timeConstant = fadeSeconds / RESTART_FADE_TIME_CONSTANT_DIVISOR;
-        const renderQuantumSeconds =
-          RENDER_QUANTUM_FRAMES / (context.sampleRate || DEFAULT_SAMPLE_RATE);
-        const heldGain = getOneShotGainAtTime(record, time);
-        record.gain.gain.cancelScheduledValues(time);
-        record.gain.gain.setValueAtTime(heldGain, time);
-        record.gain.gain.setTargetAtTime(0, time, timeConstant);
-        record.gain.gain.setValueAtTime(0, fadeEndTime);
-        try {
-          record.source.stop(fadeEndTime + renderQuantumSeconds);
-          continue;
-        } catch {
-          // Fall through to immediate cleanup if this source already ended.
-        }
-      }
+  function stopVoiceImmediately(voice) {
+    if (!voice || voice.cleaned) return;
+    try {
+      voice.source.stop();
+    } catch {
+      // The source may already have ended or been scheduled to stop.
+    }
+    cleanupVoice(voice);
+  }
 
-      oneShots.delete(record);
-      record.source.onended = null;
-      stopSource(record.source);
-      disconnectNode(record.gain);
+  function fadeAndStopVoice(voice, activeContext = context) {
+    if (!voice || voice.cleaned || voice.retiring) return;
+    voice.retiring = true;
+
+    if (!activeContext || activeContext.state !== "running") {
+      stopVoiceImmediately(voice);
+      return;
+    }
+
+    const time = activeContext.currentTime;
+    const fadeEndTime = time + VOICE_RELEASE_SECONDS;
+    voice.gain.gain.cancelScheduledValues(time);
+    voice.gain.gain.setValueAtTime(TONE_GAIN, time);
+    voice.gain.gain.linearRampToValueAtTime(0, fadeEndTime);
+    try {
+      voice.source.stop(fadeEndTime + VOICE_STOP_PADDING_SECONDS);
+    } catch {
+      cleanupVoice(voice);
     }
   }
 
-  function getOneShotGainAtTime(record, time) {
-    const elapsed = Math.max(0, time - record.startedAt);
-    if (record.duration <= ONE_SHOT_ATTACK_SECONDS + ONE_SHOT_RELEASE_SECONDS) {
-      return elapsed < record.duration ? OOPS_GAIN : 0;
+  function stopAllVoices({ fade = false } = {}) {
+    for (const voice of [...voices]) {
+      if (fade) fadeAndStopVoice(voice);
+      else stopVoiceImmediately(voice);
     }
-    if (elapsed < ONE_SHOT_ATTACK_SECONDS) {
-      return OOPS_GAIN * (elapsed / ONE_SHOT_ATTACK_SECONDS);
-    }
-    if (elapsed < record.duration - ONE_SHOT_RELEASE_SECONDS) return OOPS_GAIN;
-    if (elapsed < record.duration) {
-      return OOPS_GAIN * ((record.duration - elapsed) / ONE_SHOT_RELEASE_SECONDS);
-    }
-    return 0;
   }
 
-  function createPersistentHum(preparationGeneration, preparationContext) {
-    if (!isCurrent(preparationGeneration, preparationContext) || !buffers?.hum) return;
-
-    const source = preparationContext.createBufferSource();
-    const gain = preparationContext.createGain();
-    source.buffer = buffers.hum;
-    source.loop = true;
-    gain.gain.value = 0;
-    source.connect(gain);
-    gain.connect(masterGain);
-    source.start();
-    humSource = source;
-    humGain = gain;
-  }
-
-  async function fetchAndDecode(url, signal, preparationGeneration, preparationContext) {
-    const response = await fetchImpl(url, { cache: "no-store", signal });
+  async function fetchAndDecode(
+    signal,
+    preparationGeneration,
+    preparationContext
+  ) {
+    const response = await fetchImpl(TONE_BANK_URL, {
+      cache: "no-store",
+      signal
+    });
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
-    if (!response?.ok) throw new Error(`Unable to load ${url}`);
+    if (!response?.ok) throw new Error(`Unable to load ${TONE_BANK_URL}`);
 
     const encodedAudio = await response.arrayBuffer();
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
 
     const decodedAudio = await preparationContext.decodeAudioData(encodedAudio);
     if (!isCurrent(preparationGeneration, preparationContext)) return null;
+    if (
+      !Number.isFinite(decodedAudio?.duration) ||
+      decodedAudio.duration < REQUIRED_BANK_DURATION_SECONDS
+    ) {
+      throw new Error("The tap-tone bank does not contain all 16 slots.");
+    }
     return decodedAudio;
   }
 
   function prepareAudio(preparationGeneration, preparationContext) {
     if (
       preparation ||
-      buffers ||
+      toneBuffer ||
       !isCurrent(preparationGeneration, preparationContext) ||
       typeof fetchImpl !== "function"
     ) {
@@ -161,77 +135,22 @@ export function createSoundController({
 
     loadController = new AbortController();
     const activeController = loadController;
-    const requests = [SOUND_FILES.hum, SOUND_FILES.oops].map((url) =>
-      fetchAndDecode(
-        url,
-        activeController.signal,
-        preparationGeneration,
-        preparationContext
-      ).catch((error) => {
-        activeController.abort();
-        throw error;
+    const work = fetchAndDecode(
+      activeController.signal,
+      preparationGeneration,
+      preparationContext
+    )
+      .then((decodedAudio) => {
+        if (decodedAudio && isCurrent(preparationGeneration, preparationContext)) {
+          toneBuffer = decodedAudio;
+        }
       })
-    );
-    const work = Promise.allSettled(requests)
-      .then(([humResult, oopsResult]) => {
-        if (humResult.status !== "fulfilled" || oopsResult.status !== "fulfilled") return;
-        const hum = humResult.value;
-        const oops = oopsResult.value;
-        if (!hum || !oops || !isCurrent(preparationGeneration, preparationContext)) return;
-        buffers = Object.freeze({ hum, oops });
-        createPersistentHum(preparationGeneration, preparationContext);
-      })
+      .catch(() => {})
       .finally(() => {
         if (preparation === work) preparation = null;
         if (loadController === activeController) loadController = null;
       });
     preparation = work;
-  }
-
-  function ensureContext() {
-    if (!enabled || typeof AudioContextClass !== "function" || typeof fetchImpl !== "function") {
-      return null;
-    }
-
-    if (!context || context.state === "closed") {
-      try {
-        context = new AudioContextClass({ latencyHint: "interactive" });
-        masterGain = context.createGain();
-        masterGain.gain.value = 0;
-        masterGateOpen = false;
-        masterGain.connect(context.destination);
-        const observedContext = context;
-        contextStateHandler = () => {
-          if (context !== observedContext || observedContext.state === "running") return;
-          desiredRunning = false;
-          resumeAttemptId += 1;
-          silenceHumImmediately();
-          silenceMasterImmediately();
-          stopOneShots();
-        };
-        observedContext.addEventListener?.("statechange", contextStateHandler);
-      } catch {
-        context = null;
-        masterGain = null;
-        return null;
-      }
-    }
-
-    prepareAudio(generation, context);
-    return context;
-  }
-
-  function smoothHumTo(targetGain) {
-    if (!enabled || !context || context.state !== "running" || !humSource || !humGain) return;
-
-    const time = context.currentTime;
-    const gain = humGain.gain;
-    gain.cancelScheduledValues(time);
-    gain.setTargetAtTime(
-      targetGain,
-      time,
-      targetGain > 0 ? HUM_ATTACK_TIME_CONSTANT : HUM_RELEASE_TIME_CONSTANT
-    );
   }
 
   function openMasterGate(activeContext) {
@@ -262,83 +181,45 @@ export function createSoundController({
     gain.value = 0;
   }
 
-  function resumeFromGesture() {
-    if (!enabled) return Promise.resolve(false);
-    if (pendingSuspendContext && pendingSuspendContext === context) {
-      // suspend() cannot be cancelled. Replace its context inside this newer trusted
-      // gesture so the old completion cannot mute the run that now owns audio.
-      generation += 1;
-      desiredRunning = false;
-      resumeAttemptId += 1;
-      releaseAudio();
-    }
-    const activeContext = ensureContext();
-    if (!activeContext) return Promise.resolve(false);
-    const unlockGeneration = generation;
-    desiredRunning = true;
-    const unlockAttemptId = resumeAttemptId + 1;
-    resumeAttemptId = unlockAttemptId;
-    if (activeContext.state === "running") {
-      openMasterGate(activeContext);
-      return Promise.resolve(true);
+  function ensureContext() {
+    if (!enabled || typeof AudioContextClass !== "function" || typeof fetchImpl !== "function") {
+      return null;
     }
 
-    // iOS may interrupt a running context without sending this controller through suspend().
-    // Close both gates before resume so a stale target cannot return with the audio route.
-    silenceHumImmediately();
-    silenceMasterImmediately();
-    try {
-      return Promise.resolve(activeContext.resume())
-        .then(() => {
-          if (
-            !isCurrent(unlockGeneration, activeContext) ||
-            unlockAttemptId !== resumeAttemptId ||
-            !desiredRunning ||
-            activeContext.state !== "running"
-          ) {
-            if (
-              !desiredRunning &&
-              context === activeContext &&
-              activeContext.state === "running"
-            ) {
-              silenceHumImmediately();
-              silenceMasterImmediately();
-              stopOneShots();
-              ignoreFailure(activeContext.suspend());
-            }
-            return false;
-          }
-          openMasterGate(activeContext);
-          return true;
-        })
-        .catch(() => false);
-    } catch {
-      // Browsers can reject audio output while still allowing gameplay.
-      return Promise.resolve(false);
-    }
-  }
+    if (!context || context.state === "closed") {
+      try {
+        context = new AudioContextClass({ latencyHint: "interactive" });
+        masterGain = context.createGain();
+        masterGain.gain.value = 0;
+        masterGateOpen = false;
+        masterGain.connect(context.destination);
 
-  function silenceHumImmediately() {
-    if (!context || !humGain) return;
-    const time = context.currentTime;
-    const gain = humGain.gain;
-    gain.cancelScheduledValues(time);
-    gain.setValueAtTime(0, time);
-    gain.value = 0;
+        const observedContext = context;
+        contextStateHandler = () => {
+          if (context !== observedContext || observedContext.state === "running") return;
+          desiredRunning = false;
+          resumeAttemptId += 1;
+          silenceMasterImmediately();
+          stopAllVoices();
+        };
+        observedContext.addEventListener?.("statechange", contextStateHandler);
+      } catch {
+        context = null;
+        masterGain = null;
+        return null;
+      }
+    }
+
+    prepareAudio(generation, context);
+    return context;
   }
 
   function releaseAudio() {
     loadController?.abort();
     loadController = null;
     preparation = null;
-    buffers = null;
-
-    stopSource(humSource);
-    humSource = null;
-    disconnectNode(humGain);
-    humGain = null;
-
-    stopOneShots();
+    toneBuffer = null;
+    stopAllVoices();
 
     disconnectNode(masterGain);
     masterGain = null;
@@ -358,8 +239,103 @@ export function createSoundController({
       try {
         ignoreFailure(closingContext.close());
       } catch {
-        // A failed close still leaves this controller fully detached.
+        // Sound FX remain optional when audio output is unavailable.
       }
+    }
+  }
+
+  function resumeFromGesture() {
+    if (!enabled) return Promise.resolve(false);
+    if (pendingSuspendContext && pendingSuspendContext === context) {
+      // suspend() cannot be cancelled. Replace its context while this newer
+      // trusted gesture is active so an old completion cannot mute the run.
+      generation += 1;
+      desiredRunning = false;
+      resumeAttemptId += 1;
+      releaseAudio();
+    }
+
+    const activeContext = ensureContext();
+    if (!activeContext) return Promise.resolve(false);
+    const unlockGeneration = generation;
+    desiredRunning = true;
+    const unlockAttemptId = resumeAttemptId + 1;
+    resumeAttemptId = unlockAttemptId;
+
+    if (activeContext.state === "running") {
+      openMasterGate(activeContext);
+      return Promise.resolve(true);
+    }
+
+    silenceMasterImmediately();
+    try {
+      return Promise.resolve(activeContext.resume())
+        .then(() => {
+          if (
+            !isCurrent(unlockGeneration, activeContext) ||
+            unlockAttemptId !== resumeAttemptId ||
+            !desiredRunning ||
+            activeContext.state !== "running"
+          ) {
+            if (
+              !desiredRunning &&
+              context === activeContext &&
+              activeContext.state === "running"
+            ) {
+              silenceMasterImmediately();
+              stopAllVoices();
+              ignoreFailure(activeContext.suspend());
+            }
+            return false;
+          }
+          openMasterGate(activeContext);
+          return true;
+        })
+        .catch(() => false);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+
+  function playCorrectTap(hitNumber) {
+    if (
+      !enabled ||
+      !desiredRunning ||
+      context?.state !== "running" ||
+      !masterGateOpen ||
+      !masterGain ||
+      !toneBuffer
+    ) {
+      return false;
+    }
+
+    const safeHitNumber = Number.isInteger(hitNumber) && hitNumber > 0 ? hitNumber : 1;
+    const slotIndex = (safeHitNumber - 1) % TONE_SLOT_COUNT;
+    const activeVoices = [...voices].filter((voice) => !voice.retiring && !voice.cleaned);
+    while (activeVoices.length >= MAX_TONE_VOICES) {
+      fadeAndStopVoice(activeVoices.shift());
+    }
+
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    gain.gain.value = TONE_GAIN;
+    source.buffer = toneBuffer;
+    source.connect(gain);
+    gain.connect(masterGain);
+
+    const voice = { cleaned: false, gain, retiring: false, source };
+    voices.add(voice);
+    source.onended = () => cleanupVoice(voice);
+    try {
+      source.start(
+        context.currentTime,
+        slotIndex * TONE_SLOT_SECONDS,
+        TONE_SLOT_SECONDS
+      );
+      return true;
+    } catch {
+      cleanupVoice(voice);
+      return false;
     }
   }
 
@@ -384,8 +360,7 @@ export function createSoundController({
 
     startRun() {
       if (!enabled) return Promise.resolve(false);
-      stopOneShots(ONE_SHOT_RESTART_FADE_SECONDS);
-      smoothHumTo(0);
+      stopAllVoices({ fade: true });
       return resumeFromGesture();
     },
 
@@ -393,10 +368,10 @@ export function createSoundController({
       if (!enabled || !context) return;
       desiredRunning = false;
       resumeAttemptId += 1;
-      silenceHumImmediately();
       silenceMasterImmediately();
-      stopOneShots();
+      stopAllVoices();
       if (context.state !== "running") return;
+
       const suspendingContext = context;
       try {
         const work = Promise.resolve(suspendingContext.suspend())
@@ -409,54 +384,10 @@ export function createSoundController({
         pendingSuspendContext = suspendingContext;
         pendingSuspendWork = work;
       } catch {
-        // A failed suspension is harmless because the hum has already been gated off.
+        // The closed master gate keeps a failed background suspension silent.
       }
     },
 
-    tileOn() {
-      smoothHumTo(HUM_GAIN);
-    },
-
-    tileOff() {
-      smoothHumTo(0);
-    },
-
-    lifeLost() {
-      if (!enabled || !context || context.state !== "running" || !buffers?.oops || !masterGain) {
-        return;
-      }
-      if (oneShots.size > 0) return;
-
-      const source = context.createBufferSource();
-      const gain = context.createGain();
-      const time = context.currentTime;
-      gain.gain.value = 0;
-      gain.gain.setValueAtTime(0, time);
-      source.buffer = buffers.oops;
-      source.connect(gain);
-      gain.connect(masterGain);
-
-      const duration = Number.isFinite(buffers.oops.duration) ? buffers.oops.duration : 0;
-      if (duration > ONE_SHOT_ATTACK_SECONDS + ONE_SHOT_RELEASE_SECONDS) {
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(OOPS_GAIN, time + ONE_SHOT_ATTACK_SECONDS);
-        gain.gain.setValueAtTime(
-          OOPS_GAIN,
-          time + duration - ONE_SHOT_RELEASE_SECONDS
-        );
-        gain.gain.linearRampToValueAtTime(0, time + duration);
-      } else {
-        gain.gain.value = OOPS_GAIN;
-      }
-
-      const record = { duration, gain, source, startedAt: time };
-      oneShots.add(record);
-      source.onended = () => cleanupOneShot(record);
-      try {
-        source.start();
-      } catch {
-        cleanupOneShot(record);
-      }
-    }
+    playCorrectTap
   };
 }
