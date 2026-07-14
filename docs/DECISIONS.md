@@ -664,3 +664,18 @@ Decision: Restore the original lossless `oops.wav` cue under **Sound FX**, with 
 Consequences: Sound FX once again means both immediate success and failure feedback, while Music is an independently removable background layer. Turning either category off creates no context or network/decode/playback work for that category. The single low-complexity loop avoids adaptive transition clicks and decodes to a small bounded buffer; its bass-heavy phone audibility and balance against two overlapping tones still require physical-iPhone listening. The soundtrack is entirely original SpeedyTapper audio: a stylistic reference influenced only broad restrained downtempo qualities, and no third-party recording or composition is sampled or imitated.
 
 Revisit when: Physical-device testing calls for a different low-end balance or gain, a longer non-repetitive bed is commissioned, music should continue into menus, or an explicitly redesigned adaptive system can justify its added lifecycle and test surface.
+
+## D-050 — Pair Power Grid tap tones with a lighter fixed background
+
+- Date: 2026-07-14
+- Status: Accepted locally; not yet deployed
+
+Context: Direct listening favored the Power Grid uniform tap bank over Deep Current. Objective inspection also showed that every archived backing opening remained dominated by energy below 80 Hz, making even the brighter Power Grid backing feel heavier and more pressing than the requested calm, lightly uplifting bed. The Disco presentation also needs atmosphere without reintroducing adaptive-music timing or lifecycle complexity.
+
+Decision: Replace only the fixed Sound FX bank bytes with the lossless Power Grid uniform bank while retaining the existing sixteen native half-second slots, two-voice cap, gain, sequence behavior, and Sound FX lifecycle. Replace the fixed Deep Current backing runtime with **Daylight Circuit**, a deterministic original four-bar loop at 80 BPM in F-sharp major. Use warm pads, restrained mid-bass, half-time tonal percussion, and quiet chord blooms; exclude a lead melody, sub-led ostinato, noise hats, reaction mapping, adaptive stages, and track rotation. Retain the lossless master and generator, keep Music at `0.28` runtime gain, and use the authored 12-second boundary. Preserve the former Deep Current lossless master and its release commit as rollback sources.
+
+Keep the plain Disco concrete as the material for gameplay tiles, the streak meter, and pet cards. Add a separate, static full-cover concrete variant with broad, pre-blurred cyan, violet, and warm reflected light only to Disco page, overlay, dialog, board-surround, and theme-preview backgrounds. Do not animate or live-blur it, repeat it as a colored spot grid, or expose it in Classic.
+
+Consequences: The preferred tap timbre changes without touching reaction-critical scheduling. The background stays roughly nine decibels behind a tap voice at the current gains, while its below-80-Hz energy is about one tenth rather than more than nine tenths of total spectral energy. The longer, slower loop should feel calmer. Reflections add Disco atmosphere around the game without becoming false target cues or adding runtime blur cost. Automated level, seam, and CSS-scope checks do not establish subjective balance, iPhone-speaker quality, or small-screen visual contrast; physical Safari and installed-PWA review remain required before production validation.
+
+Revisit when: Physical-device listening calls for a different tempo, harmony, gain, percussion density, or loop length, or when a future separately designed background system justifies more variation.

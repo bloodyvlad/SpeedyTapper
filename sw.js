@@ -21,6 +21,7 @@ const APP_SHELL = [
   "./assets/icon-512.png",
   "./assets/apple-touch-icon.png",
   "./assets/disco-concrete.png",
+  "./assets/disco-concrete-lights.png",
   "./assets/disco-tile-overlay.png",
   "./assets/pets/misha-climber.png",
   "./assets/pets/misha-sprite.png",

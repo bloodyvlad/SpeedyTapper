@@ -86,6 +86,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, new RegExp(`early-bootstrap\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, new RegExp(`service-worker-registration\\.js\\?v=\\$\\{BUILD_ID\\}`));
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
+  assert.match(workerSource, /\.\/assets\/disco-concrete-lights\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-climber\.png/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-sprite\.png/);
@@ -108,7 +109,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(htaccessSource, /AddType audio\/mp4 \.m4a/);
   assert.deepEqual(audioFiles.toSorted(), [
     "SOURCES.md",
-    "background-deep-current.m4a",
+    "background-daylight-circuit.m4a",
     "background-masters",
     "oops.wav",
     "tap-tones.wav"
@@ -386,10 +387,11 @@ test("the streamlined dialog contains settings, leaderboard, and reaction statis
   );
 
   assert.match(stylesSource, /assets\/disco-concrete\.png/);
+  assert.match(stylesSource, /assets\/disco-concrete-lights\.png/);
   assert.match(stylesSource, /assets\/disco-tile-overlay\.png/);
   assert.ok(
-    (stylesSource.match(/assets\/disco-concrete\.png/g) ?? []).length >= 3,
-    "Disco concrete should remain visible across the page, board, and menu surface."
+    (stylesSource.match(/assets\/disco-concrete\.png/g) ?? []).length >= 2,
+    "Plain Disco concrete should remain available on non-reflective utility surfaces."
   );
   assert.match(
     stylesSource,
@@ -416,7 +418,7 @@ test("Sound FX owns tap and life-loss cues while simple Music stays independent"
   assert.match(settingsPanel, /id="music-toggle"[^>]+role="switch"[^>]+checked/);
   assert.doesNotMatch(`${settingsPanel}\n${mainSource}\n${musicSource}`, /interactive-music|interactiveMusic/i);
   assert.match(mainSource, /speedytapper\.music\.v1/);
-  assert.match(musicSource, /background-deep-current\.m4a/);
+  assert.match(musicSource, /background-daylight-circuit\.m4a/);
   assert.doesNotMatch(soundSource, /backing|soundtrack|ambient|hum/i);
   assert.match(
     mainSource,
@@ -903,7 +905,10 @@ test("Classic and Disco gameplay tiles keep distinct material treatments", () =>
   assert.match(discoLitWear, /opacity:/);
   assert.doesNotMatch(classicLit, /disco-cell-on|disco-tile-overlay/);
   assert.ok(
-    discoConcreteRules.every((rule) => /disco-concrete\.png/.test(rule)),
-    "Disco concrete must remain on the page, board, overlay, and dialog surfaces."
+    discoConcreteRules.every((rule) => /disco-concrete-lights\.png/.test(rule)),
+    "Reflected-light concrete must stay scoped to the page, board, overlay, and dialog surfaces."
   );
+  assert.match(ruleFor(':root[data-theme="disco"] .streak-meter'), /disco-concrete\.png/);
+  assert.doesNotMatch(ruleFor(':root[data-theme="disco"] .streak-meter'), /disco-concrete-lights\.png/);
+  assert.doesNotMatch(discoIdle, /disco-concrete-lights\.png/);
 });

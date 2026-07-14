@@ -1,7 +1,7 @@
-const BACKGROUND_MUSIC_URL = "./assets/audio/background-deep-current.m4a";
+const BACKGROUND_MUSIC_URL = "./assets/audio/background-daylight-circuit.m4a";
 
 const BACKGROUND_GAIN = 0.28;
-const LOOP_DURATION_SECONDS = 9.6;
+const LOOP_DURATION_SECONDS = 12;
 const FADE_IN_SECONDS = 0.12;
 const FADE_OUT_SECONDS = 0.08;
 const STOP_PADDING_SECONDS = 0.01;

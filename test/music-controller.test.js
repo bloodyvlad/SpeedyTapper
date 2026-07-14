@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { createMusicController } from "../src/music-controller.js";
 
-const BACKGROUND_URL = "./assets/audio/background-deep-current.m4a";
+const BACKGROUND_URL = "./assets/audio/background-daylight-circuit.m4a";
 
 class FakeAudioParam {
   constructor(value = 0) {
@@ -76,7 +76,7 @@ class FakeBufferSourceNode {
 }
 
 class FakeAudioContext {
-  static decodeDuration = 9.6;
+  static decodeDuration = 12;
   static instances = [];
 
   constructor(options) {
@@ -172,7 +172,7 @@ function createDeferredFetch() {
 }
 
 function resetFakes() {
-  FakeAudioContext.decodeDuration = 9.6;
+  FakeAudioContext.decodeDuration = 12;
   FakeAudioContext.instances = [];
 }
 
@@ -183,10 +183,10 @@ async function flushAsyncWork(turns = 12) {
 test("the music controller is one fixed original background loop with no Interactive system", async () => {
   const source = await readFile(new URL("../src/music-controller.js", import.meta.url), "utf8");
 
-  assert.match(source, /background-deep-current\.m4a/);
+  assert.match(source, /background-daylight-circuit\.m4a/);
   assert.match(source, /latencyHint:\s*"playback"/);
   assert.match(source, /BACKGROUND_GAIN = 0\.28/);
-  assert.match(source, /LOOP_DURATION_SECONDS = 9\.6/);
+  assert.match(source, /LOOP_DURATION_SECONDS = 12/);
   assert.doesNotMatch(source, /interactive|pace|stage|rotation|motif|HTMLAudioElement|new Audio\s*\(/i);
 });
 
@@ -251,7 +251,7 @@ test("a trusted run gesture starts one sample-aligned loop with a gentle fade", 
   assert.equal(source.buffer.id, BACKGROUND_URL);
   assert.equal(source.loop, true);
   assert.equal(source.loopStart, 0);
-  assert.equal(source.loopEnd, 9.6);
+  assert.equal(source.loopEnd, 12);
   assert.deepEqual(source.startCalls, [5]);
   assert.deepEqual(context.gainNodes[0].gain.events.slice(-3), [
     { method: "cancelScheduledValues", time: 5 },

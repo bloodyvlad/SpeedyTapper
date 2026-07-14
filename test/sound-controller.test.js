@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -227,6 +228,28 @@ test("the controller uses Web Audio tap tones and a life-loss cue without hum or
   assert.match(source, /assets\/audio\/oops\.wav/);
   assert.doesNotMatch(source, /fluorescent-hum|HTMLMediaElement|new Audio\s*\(/);
   assert.doesNotMatch(source, /navigator\.(?:userAgent|platform)|iPhone|iPad|iPod/i);
+});
+
+test("the shipped tap bank is the approved fixed-slot Power Grid master", async () => {
+  const bank = await readFile(new URL("../assets/audio/tap-tones.wav", import.meta.url));
+
+  assert.equal(
+    createHash("sha256").update(bank).digest("hex"),
+    "f880c81515b731c867c8f50bae64187dce0af00930c2559a692d52e36b96764c"
+  );
+  assert.equal(bank.readUInt16LE(22), 1, "The reaction bank must remain mono.");
+  assert.equal(bank.readUInt32LE(24), 48_000);
+  assert.equal(bank.readUInt16LE(34), 16);
+  assert.equal(bank.readUInt32LE(40), 16 * 24_000 * 2);
+
+  for (let slot = 0; slot < 16; slot += 1) {
+    const tailStart = 44 + (slot * 24_000 + 20_160) * 2;
+    const tailEnd = 44 + (slot + 1) * 24_000 * 2;
+    assert.ok(
+      bank.subarray(tailStart, tailEnd).every((sampleByte) => sampleByte === 0),
+      `Power Grid slot ${slot + 1} must retain its exact 80 ms zero tail.`
+    );
+  }
 });
 
 test("disabled Sound FX creates no context and performs no fetch, decode, or playback work", async () => {
