@@ -4,6 +4,7 @@
 .env*
 README.md
 AGENTS.md
+assets/pets/sources
 design-qa.md
 docs
 scripts

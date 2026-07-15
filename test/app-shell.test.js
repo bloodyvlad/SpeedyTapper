@@ -128,6 +128,7 @@ test("the complete browser module graph uses one release version", () => {
 
   const appShell = workerSource.match(/const APP_SHELL = \[([\s\S]*?)\];/)?.[1] ?? "";
   assert.doesNotMatch(appShell, /assets\/audio|\.(?:mp3|m4a|aac|wav|ogg)/i);
+  assert.doesNotMatch(appShell, /assets\/pets\/sources\//);
   assert.doesNotMatch(indexHtml, /<audio\b|rel="preload"[^>]+as="audio"/i);
   assert.match(htaccessSource, /AddType audio\/mp4 \.m4a/);
   const repositoryAudioEntries = audioFiles.filter(
@@ -218,8 +219,8 @@ test("the Pet Shop ships five companions plus the server-authorized Mitsuri east
 
   for (const sprite of [mishaSprite, fokaSprite, keshaSprite, tautaSprite, pancakeSprite, mitsuriSprite]) {
     assert.equal(sprite.subarray(1, 4).toString("ascii"), "PNG");
-    assert.equal(sprite.readUInt32BE(16), 320);
-    assert.equal(sprite.readUInt32BE(20), 32);
+    assert.equal(sprite.readUInt32BE(16), 640);
+    assert.equal(sprite.readUInt32BE(20), 64);
   }
   for (const habitat of [mishaClimber, fokaFloe, keshaPerch, tautaBed, mitsuriCushion]) {
     assert.equal(habitat.subarray(1, 4).toString("ascii"), "PNG");

@@ -259,3 +259,12 @@ final result: local candidate `20260714-12` passed automated and desktop browser
 - Physical iPhone Safari/PWA confirmation remains required for perceived touch spacing, Mitsuri's actual authenticated-profile presentation, and final sprite sharpness before this release is described as device-validated.
 
 final result: local candidate `20260715-1` passed automated and responsive browser-runtime QA; deployment and physical-iPhone validation remain pending
+
+## Unreleased Native 64 px Pet Sprite QA
+
+- This is branch-local asset evidence only. It does not describe the active Hostinger deployment, does not assign a new release ID, and was not validated on a physical iPhone.
+- The final Mitsuri file supplied as `Generated image 3.png` was recovered byte-for-byte, together with the retained high-resolution Foka, Kesha, Tauta, Misha, Mitsuri-cushion, and unused Pancake-concept masters. Accepted chroma, alpha, and former runtime-layout sources are now retained under `assets/pets/sources/` rather than depending on temporary Codex storage or unreachable Git objects.
+- Foka, Kesha, Tauta, Misha, and Mitsuri were rebuilt from high-resolution alpha art as ten-cell 640×64 PNGs. Their former 320×32 sheets provide only pose order, baseline, and visible-footprint boxes. Direct native and 2× nearest-neighbor contact-sheet inspection confirmed all ten frames, binary runtime alpha with no soft-matte values, transparent surroundings, the red rabbit's pale ear stripe, the parrot's hanging endpoint, the seal's prone silhouettes, the dog and cat transitions, and removal of residual magenta motion marks.
+- Pancake remains the accepted recording-derived design. Its missing original recording prevents source-detail recovery, so the new 640×64 sheet is a lossless nearest-neighbor 2× preservation rather than the retained but unapproved generated concept.
+- Runtime CSS dimensions, animation percentages, pet-controller logic, habitats, and scene offsets are unchanged. Automated checks require every sprite to be exactly 640×64 and every habitat to retain its 64×48 contract.
+- Physical iPhone Safari/PWA confirmation remains required for perceived detail, Retina sampling, cache replacement, animation cadence, and habitat composition before these assets are described as production-validated.

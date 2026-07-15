@@ -127,7 +127,7 @@ Production deployment requires explicit user authorization.
 3. Commit the exact release contents.
 4. Confirm the source tree for deployment is clean.
 5. Prefer merged `main`; for a manual release, deploy from an isolated worktree checked out at the exact commit.
-6. Build a root-flat, allowlisted runtime artifact from `git archive` of that commit in temporary staging. Never package the checkout, tests, docs, package files, or non-runtime audio masters.
+6. Build a root-flat, allowlisted runtime artifact from `git archive` of that commit in temporary staging. Never package the checkout, tests, docs, package files, non-runtime audio masters, or `assets/pets/sources/` art masters.
 7. Install production Composer dependencies in staging and inject the ignored runtime config only into staging. Prefer `~/.config/speedytapper/config.php`; for MCP-only deployment, protected `server/config.local.php` is permitted only when it remains untracked and direct `/server` probes are denied after deployment.
 8. Deploy through Hostinger MCP `hosting_deployStaticWebsite` to the exact independent addon website `speedytapper.otcsoft.com`, never to `otcsoft.com` and never to a nested parent-site directory.
 9. Let the shared migration runner apply pending idempotent migrations under its advisory lock, then purge only the SpeedyTapper website cache.

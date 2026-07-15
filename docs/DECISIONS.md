@@ -769,3 +769,16 @@ Decision: Keep non-run utility shortcuts icon-only, but render visible **Restart
 Consequences: The two primary navigation actions are self-explanatory without expanding every utility icon, and Mitsuri visually rests on her cushion across non-game presentations. The source sheets remain unchanged, so this release does not recover detail discarded by the current 32 px logical-frame pipeline. Automated and desktop responsive checks do not replace physical-iPhone Safari/PWA confirmation of touch spacing and pixel sharpness.
 
 Revisit when: Utility labels need localization, narrow layouts need a different header hierarchy, or the pet pipeline moves from generated 32 px sheets to hand-authored 64 px logical frames.
+
+## D-057 — Recover source masters and adopt native 64 px pet frames
+
+- Date: 2026-07-15
+- Status: Accepted
+
+Context: The browser displayed 32×32 logical pet cells at 64 CSS pixels. Nearest-neighbor scaling kept their edges crisp, but reducing the generated masters to 32 pixels had already discarded facial, fur, feather, and outline detail. The final Mitsuri source was still recoverable only from a temporary image-generation cache and an unreachable Git object; the other generated sources also lived outside the repository and could be lost. Pancake differs because its accepted runtime art came from a user-supplied recording whose original frames no longer survive in Git.
+
+Decision: Retain the accepted high-resolution chroma masters, reviewed alpha intermediates, and former 32 px layout sheets under `assets/pets/sources/`. Build Foka, Kesha, Tauta, Misha, and Mitsuri from those high-resolution alpha masters into ten-cell 640×64 PNG sheets with `scripts/build-pet-sprites.py`. Extract only each authored connected pose, remove residual chroma spill, resize with nearest-neighbor sampling, harden the final runtime matte to binary alpha at cutoff 96, and preserve the former layout sheet's exact pose order, baseline, and visible footprint. Keep CSS scene sizes and frame percentages unchanged. Preserve Pancake's accepted recording-derived look as an exact nearest-neighbor 2× 640×64 sheet; retain its generated concept only as unused provenance and never substitute it silently. Keep all habitat sheets on their existing two-layer contract.
+
+Consequences: Five generated companions gain real 64 px source detail without changing animation timing, click direction, habitat alignment, gameplay geometry, or shop ownership. Pancake becomes dimensionally consistent and stays crisp but gains no new information. The source pipeline is reproducible and no longer depends on garbage-collectable Codex/Git temporary objects. Chroma and intermediate masters are source-only and must remain outside curated production artifacts. Asset-dimension tests now require 640×64 sprite sheets. Direct alpha-sheet inspection cannot replace physical-iPhone Safari/PWA review of final perceived sharpness and cache replacement.
+
+Revisit when: Pancake's original recording or an approved higher-resolution replacement becomes available, habitats also move to higher-resolution logical layers, individual frames are hand-retouched at 64 px, or native clients need density-specific sprite atlases.
