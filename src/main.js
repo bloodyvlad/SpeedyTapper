@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260715-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260715-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260715-2";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260715-2";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260715-1";
+} from "./input-timing.js?v=20260715-2";
 import {
   getPet,
   isPetId,
@@ -16,24 +16,24 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260715-1";
-import { createPetController } from "./pet-controller.js?v=20260715-1";
-import { createSoundController } from "./sound-controller.js?v=20260715-1";
-import { createMusicController } from "./music-controller.js?v=20260715-1";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260715-1";
+} from "./pet-catalog.js?v=20260715-2";
+import { createPetController } from "./pet-controller.js?v=20260715-2";
+import { createSoundController } from "./sound-controller.js?v=20260715-2";
+import { createMusicController } from "./music-controller.js?v=20260715-2";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260715-2";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260715-1";
+} from "./theme-catalog.js?v=20260715-2";
 
 const INTRO_COPY_HTML =
   "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260715-1";
+const APP_BUILD_ID = "20260715-2";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -701,7 +701,6 @@ async function startGame(mode) {
   elements.gameMenuButton.hidden = isZen;
   elements.gameEndRunButton.hidden = !isZen;
   elements.gameEndRunButton.disabled = isZen;
-  setOverlayVisible(false);
   elements.dialogTitle.textContent = "Ready to react?";
   runStartFrame = window.requestAnimationFrame((visibleAt) => {
     runStartFrame = null;
@@ -709,6 +708,7 @@ async function startGame(mode) {
     const initialSnapshot = engine.start(visibleAt, mode);
     if (mode === GAME_MODES.ZEN) elements.gameEndRunButton.disabled = false;
     render();
+    setOverlayVisible(false);
 
     clockTimer = window.setInterval(() => {
       const snapshot = engine.getSnapshot(now());
@@ -3010,26 +3010,38 @@ function ensureBoard(dimension) {
 }
 
 function renderHud(snapshot) {
+  const isZen = snapshot.mode === GAME_MODES.ZEN;
   elements.points.textContent = snapshot.points.toLocaleString();
-  const topScore = snapshot.mode === GAME_MODES.ZEN ? null : topScores[snapshot.mode];
+  const topScore = isZen ? null : topScores[snapshot.mode];
   elements.highScore.textContent = topScore === null ? "—" : topScore.toLocaleString();
-  if (snapshot.mode === GAME_MODES.ZEN) {
+  if (isZen) {
     elements.modeLabel.textContent = "Time";
     elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
   } else {
     elements.modeLabel.textContent = "Survived";
     elements.modeName.textContent = formatDuration(snapshot.elapsedMs);
   }
-  const playerColor = getDisplayColor(snapshot.playerColorIndex);
-  elements.colorName.textContent = playerColor.name;
-  elements.colorGlyph.hidden = !colorBlindMode;
-  elements.colorGlyph.textContent = colorBlindMode ? playerColor.glyph : "";
-  elements.colorSwatch.style.background = playerColor.value;
-  elements.colorSwatch.style.color = playerColor.ink;
-  elements.colorHero.style.setProperty("--player-color", playerColor.value);
+  elements.colorHero.classList.toggle("color-hero--any", isZen);
+  elements.colorSwatch.classList.toggle("color-swatch--any", isZen);
+  if (isZen) {
+    elements.colorName.textContent = "Any";
+    elements.colorGlyph.hidden = false;
+    elements.colorGlyph.textContent = "☯";
+    elements.colorSwatch.style.removeProperty("background");
+    elements.colorSwatch.style.removeProperty("color");
+    elements.colorHero.style.removeProperty("--player-color");
+  } else {
+    const playerColor = getDisplayColor(snapshot.playerColorIndex);
+    elements.colorName.textContent = playerColor.name;
+    elements.colorGlyph.hidden = !colorBlindMode;
+    elements.colorGlyph.textContent = colorBlindMode ? playerColor.glyph : "";
+    elements.colorSwatch.style.background = playerColor.value;
+    elements.colorSwatch.style.color = playerColor.ink;
+    elements.colorHero.style.setProperty("--player-color", playerColor.value);
+  }
 
   elements.statusValue.className = "stat__value status-value";
-  if (snapshot.mode === GAME_MODES.ZEN) {
+  if (isZen) {
     elements.statusLabel.textContent = "Lives";
     elements.statusValue.classList.add("lives");
     elements.statusValue.textContent = "∞";

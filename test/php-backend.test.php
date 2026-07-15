@@ -120,6 +120,7 @@ $assert(
 );
 $throwsApi(static fn () => PetCatalog::require('unknown'), 'Unknown pets are rejected.');
 $throwsApi(static fn () => PetCatalog::require('mitsuri'), 'The nickname-only Mitsuri pet cannot be purchased.');
+$throwsApi(static fn () => PetCatalog::require('muse'), 'The nickname-only Muse companion cannot be purchased.');
 $assert(
     PetCatalog::specialForNickname('кокос', true) === 'mitsuri',
     'The exact confirmed lowercase Cyrillic nickname enables Mitsuri.',
@@ -131,6 +132,16 @@ $assert(
     'Uppercase, Latin lookalikes, and unconfirmed nicknames do not enable Mitsuri.',
 );
 $assert(PetCatalog::isRenderable('mitsuri'), 'Mitsuri is a renderable server-authorized cosmetic.');
+$assert(
+    PetCatalog::specialForNickname('bloodyvlad', true) === 'muse',
+    'The exact confirmed bloodyvlad nickname enables Muse.',
+);
+$assert(
+    PetCatalog::specialForNickname('BloodyVlad', true) === null
+    && PetCatalog::specialForNickname('bloodyvlad', false) === null,
+    'Case variants and unconfirmed nicknames do not enable Muse.',
+);
+$assert(PetCatalog::isRenderable('muse'), 'Muse is a renderable server-authorized cosmetic.');
 $assert(count(AchievementCatalog::all()) === 5, 'The achievement catalog exposes five active goals.');
 $assert(
     ThemeCatalog::all() === [

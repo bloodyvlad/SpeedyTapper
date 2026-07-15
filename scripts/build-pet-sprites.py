@@ -3,9 +3,12 @@
 
 The generated animals use accepted high-resolution alpha masters. Their old
 32 px runtime sheets are retained only as layout templates so pose order,
-baseline, and on-screen footprint stay unchanged. Pancake is the one exception:
-its original recording is no longer available, so its accepted 32 px capture is
-scaled losslessly with nearest-neighbour sampling rather than reinterpreted.
+baseline, and on-screen footprint stay unchanged. Muse uses an explicit native
+64 px layout because she was introduced after that legacy pipeline, and her
+right-facing sequence is mirrored from the accepted left poses to prevent
+asymmetric anatomy. Pancake is the one exception: its original recording is no
+longer available, so its accepted 32 px capture is scaled losslessly with
+nearest-neighbour sampling rather than reinterpreted.
 """
 
 from __future__ import annotations
@@ -27,6 +30,18 @@ LEGACY_FRAME_SIZE = 32
 RUNTIME_FRAME_SIZE = 64
 ALPHA_THRESHOLD = 8
 RUNTIME_ALPHA_CUTOFF = 96
+MUSE_FRAME_BOXES = [
+    (20, 2, 44, 62),
+    (14, 4, 50, 62),
+    (12, 4, 52, 62),
+    (2, 9, 62, 62),
+    (20, 2, 44, 62),
+    (14, 4, 50, 62),
+    (12, 4, 52, 62),
+    (2, 9, 62, 62),
+    (2, 22, 62, 62),
+    (3, 29, 61, 62),
+]
 
 
 @dataclass(frozen=True)
@@ -135,6 +150,19 @@ def _ordered_grid_components(
     return [_component_image(source, component) for component in components]
 
 
+def _ordered_horizontal_components(
+    path: Path,
+    *,
+    minimum_area: int = 10_000,
+) -> list[Image.Image]:
+    """Return authored components from a single-row source in left-to-right order."""
+
+    source = Image.open(path).convert("RGBA")
+    components = _connected_components(source, minimum_area)
+    components.sort(key=lambda component: component.bbox[0])
+    return [_component_image(source, component) for component in components]
+
+
 def _single_component(path: Path, *, choose_topmost: bool = False) -> Image.Image:
     source = Image.open(path).convert("RGBA")
     components = _connected_components(source, 10_000)
@@ -208,20 +236,90 @@ def _write_generated_pet(
     frames: list[Image.Image],
     *,
     remove_magenta_spill: bool = False,
+    target_boxes: list[tuple[int, int, int, int]] | None = None,
+    preserve_aspect: bool = False,
+    runtime_mirror_pairs: tuple[tuple[int, int], ...] = (),
 ) -> None:
     if len(frames) != FRAME_COUNT:
         raise RuntimeError(f"Expected ten {pet_id} frames, found {len(frames)}")
 
     sheet = Image.new("RGBA", (FRAME_COUNT * RUNTIME_FRAME_SIZE, RUNTIME_FRAME_SIZE), (0, 0, 0, 0))
-    for frame_index, (frame, target_box) in enumerate(zip(frames, _layout_boxes(pet_id), strict=True)):
+    boxes = _layout_boxes(pet_id) if target_boxes is None else target_boxes
+    if len(boxes) != FRAME_COUNT:
+        raise RuntimeError(f"Expected ten {pet_id} target boxes, found {len(boxes)}")
+
+    for frame_index, (frame, target_box) in enumerate(zip(frames, boxes, strict=True)):
         left, top, right, bottom = target_box
         if remove_magenta_spill:
             frame = _remove_magenta_spill(frame)
-        resized = frame.resize((right - left, bottom - top), Image.Resampling.NEAREST)
+        target_width = right - left
+        target_height = bottom - top
+        if preserve_aspect:
+            scale = min(target_width / frame.width, target_height / frame.height)
+            resized_width = max(1, round(frame.width * scale))
+            resized_height = max(1, round(frame.height * scale))
+            resized = frame.resize((resized_width, resized_height), Image.Resampling.NEAREST)
+            output_left = left + (target_width - resized_width) // 2
+            output_top = bottom - resized_height
+        else:
+            resized = frame.resize((target_width, target_height), Image.Resampling.NEAREST)
+            output_left = left
+            output_top = top
         resized = _harden_runtime_alpha(resized)
-        sheet.alpha_composite(resized, (frame_index * RUNTIME_FRAME_SIZE + left, top))
+        sheet.alpha_composite(
+            resized,
+            (frame_index * RUNTIME_FRAME_SIZE + output_left, output_top),
+        )
+
+    for source_index, destination_index in runtime_mirror_pairs:
+        source_cell = sheet.crop(
+            (
+                source_index * RUNTIME_FRAME_SIZE,
+                0,
+                (source_index + 1) * RUNTIME_FRAME_SIZE,
+                RUNTIME_FRAME_SIZE,
+            )
+        )
+        mirrored_cell = source_cell.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        destination_box = (
+            destination_index * RUNTIME_FRAME_SIZE,
+            0,
+            (destination_index + 1) * RUNTIME_FRAME_SIZE,
+            RUNTIME_FRAME_SIZE,
+        )
+        sheet.paste((0, 0, 0, 0), destination_box)
+        sheet.alpha_composite(
+            mirrored_cell,
+            (destination_index * RUNTIME_FRAME_SIZE, 0),
+        )
 
     destination = PET_ROOT / f"{pet_id}-sprite.png"
+    sheet.save(destination, format="PNG", optimize=True)
+    print(f"Wrote {destination.relative_to(ROOT)} ({sheet.width}x{sheet.height})")
+
+
+def _write_muse_floor() -> None:
+    components = _ordered_horizontal_components(ALPHA_ROOT / "muse-floor-generated.png")
+    if len(components) != 2:
+        raise RuntimeError(f"Expected two Muse floor layers, found {len(components)}")
+
+    sheet = Image.new("RGBA", (64, 48), (0, 0, 0, 0))
+    target_boxes = [(1, 0, 31, 11), (1, 3, 31, 10)]
+    for cell_index, (component, box) in enumerate(zip(components, target_boxes, strict=True)):
+        component = _remove_magenta_spill(component)
+        left, top, right, bottom = box
+        target_width = right - left
+        target_height = bottom - top
+        scale = min(target_width / component.width, target_height / component.height)
+        width = max(1, round(component.width * scale))
+        height = max(1, round(component.height * scale))
+        resized = component.resize((width, height), Image.Resampling.NEAREST)
+        resized = _harden_runtime_alpha(resized)
+        output_left = cell_index * 32 + left + (target_width - width) // 2
+        output_top = bottom - height
+        sheet.alpha_composite(resized, (output_left, output_top))
+
+    destination = PET_ROOT / "muse-floor.png"
     sheet.save(destination, format="PNG", optimize=True)
     print(f"Wrote {destination.relative_to(ROOT)} ({sheet.width}x{sheet.height})")
 
@@ -258,6 +356,31 @@ def main() -> None:
 
     mitsuri_frames = _ordered_grid_components(ALPHA_ROOT / "mitsuri-generated.png")
     _write_generated_pet("mitsuri", mitsuri_frames)
+
+    muse_source_frames = _ordered_horizontal_components(ALPHA_ROOT / "muse-generated.png")
+    if len(muse_source_frames) != FRAME_COUNT:
+        raise RuntimeError(f"Expected ten Muse source poses, found {len(muse_source_frames)}")
+    muse_frames = [
+        muse_source_frames[0],
+        muse_source_frames[1],
+        muse_source_frames[2],
+        muse_source_frames[3],
+        muse_source_frames[0].copy(),
+        muse_source_frames[1],
+        muse_source_frames[2],
+        muse_source_frames[3],
+        muse_source_frames[8],
+        muse_source_frames[9],
+    ]
+    _write_generated_pet(
+        "muse",
+        muse_frames,
+        remove_magenta_spill=True,
+        target_boxes=MUSE_FRAME_BOXES,
+        preserve_aspect=True,
+        runtime_mirror_pairs=((1, 5), (2, 6), (3, 7)),
+    )
+    _write_muse_floor()
 
     _write_pancake()
 

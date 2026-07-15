@@ -44,8 +44,18 @@ export const MITSURI_PET = Object.freeze({
   nicknameOnly: true
 });
 
+export const MUSE_PET = Object.freeze({
+  id: "muse",
+  name: "Muse",
+  kind: "Home companion",
+  idlePose: "sleeping",
+  nicknameOnly: true
+});
+
 const SHOP_PETS_BY_ID = new Map(PET_CATALOG.map((pet) => [pet.id, pet]));
-const PETS_BY_ID = new Map([...SHOP_PETS_BY_ID, [MITSURI_PET.id, MITSURI_PET]]);
+const SPECIAL_PETS = Object.freeze([MITSURI_PET, MUSE_PET]);
+const SPECIAL_PETS_BY_ID = new Map(SPECIAL_PETS.map((pet) => [pet.id, pet]));
+const PETS_BY_ID = new Map([...SHOP_PETS_BY_ID, ...SPECIAL_PETS_BY_ID]);
 
 export function getPet(petId) {
   return typeof petId === "string" ? PETS_BY_ID.get(petId) ?? null : null;
@@ -60,7 +70,7 @@ export function isShopPetId(petId) {
 }
 
 export function isSpecialPetId(petId) {
-  return petId === MITSURI_PET.id;
+  return typeof petId === "string" && SPECIAL_PETS_BY_ID.has(petId);
 }
 
 export function normalizeOwnedPetIds(value) {

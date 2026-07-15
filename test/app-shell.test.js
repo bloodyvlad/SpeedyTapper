@@ -17,6 +17,7 @@ const [
   serviceWorkerRegistrationSource,
   workerSource,
   stylesSource,
+  petBuildSource,
   mishaClimber,
   mishaSprite,
   fokaFloe,
@@ -28,6 +29,8 @@ const [
   pancakeSprite,
   mitsuriCushion,
   mitsuriSprite,
+  museFloor,
+  museSprite,
   pixelFont,
   pixelFontLicense
 ] = await Promise.all([
@@ -45,6 +48,7 @@ const [
   readFile(new URL("../src/service-worker-registration.js", import.meta.url), "utf8"),
   readFile(new URL("../sw.js", import.meta.url), "utf8"),
   readFile(new URL("../styles.css", import.meta.url), "utf8"),
+  readFile(new URL("../scripts/build-pet-sprites.py", import.meta.url), "utf8"),
   readFile(new URL("../assets/pets/misha-climber.png", import.meta.url)),
   readFile(new URL("../assets/pets/misha-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/foka-ice-floe.png", import.meta.url)),
@@ -56,6 +60,8 @@ const [
   readFile(new URL("../assets/pets/pancake-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/mitsuri-cushion.png", import.meta.url)),
   readFile(new URL("../assets/pets/mitsuri-sprite.png", import.meta.url)),
+  readFile(new URL("../assets/pets/muse-floor.png", import.meta.url)),
+  readFile(new URL("../assets/pets/muse-sprite.png", import.meta.url)),
   readFile(new URL("../assets/fonts/pixelify-sans-variable.ttf", import.meta.url)),
   readFile(new URL("../assets/fonts/OFL-PixelifySans.txt", import.meta.url), "utf8")
 ]);
@@ -70,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260715-1");
+  assert.equal(buildId, "20260715-2");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -120,7 +126,9 @@ test("the complete browser module graph uses one release version", () => {
     "tauta-sprite.png",
     "pancake-sprite.png",
     "mitsuri-cushion.png",
-    "mitsuri-sprite.png"
+    "mitsuri-sprite.png",
+    "muse-floor.png",
+    "muse-sprite.png"
   ]) {
     assert.match(workerSource, new RegExp(`\\.\\/assets\\/pets\\/${path.replaceAll(".", "\\.")}`));
   }
@@ -165,7 +173,7 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, /fetch\(request, \{ cache: "no-store" \}\)/);
 });
 
-test("the Pet Shop ships five companions plus the server-authorized Mitsuri easter egg", () => {
+test("the Pet Shop ships five companions plus two server-authorized nickname easter eggs", () => {
   assert.match(indexHtml, /id="menu-pet-scene"[\s\S]*data-pet="none"[\s\S]*data-habitat="true"[\s\S]*hidden/);
   assert.match(indexHtml, /id="game-pet-scene"[\s\S]*data-habitat="false"[\s\S]*hidden/);
   assert.match(indexHtml, /id="dialog-utility"[\s\S]*id="menu-pet-scene"[\s\S]*id="dialog-title"/);
@@ -210,19 +218,21 @@ test("the Pet Shop ships five companions plus the server-authorized Mitsuri east
   assert.match(mainSource, /isShopPetId\(profileSession\.profile\?\.selectedPetId\)/);
   assert.match(mainSource, /isShopPetId\(profileSession\.profile\?\.equippedPetId\)/);
   assert.match(petCatalogSource, /id: "mitsuri"[\s\S]*name: "Mitsuri"[\s\S]*kind: "Red rabbit"/);
+  assert.match(petCatalogSource, /id: "muse"[\s\S]*name: "Muse"[\s\S]*kind: "Home companion"/);
   assert.doesNotMatch(indexHtml, /data-pet-card="mitsuri"/);
+  assert.doesNotMatch(indexHtml, /data-pet-card="muse"/);
   assert.match(petControllerSource, /PET_IDLE_DELAY_MS = 5_000/);
   assert.match(petControllerSource, /resolvePancakeFacing/);
   assert.match(stylesSource, /@keyframes pet-turn-half-left/);
   assert.match(stylesSource, /@keyframes pet-turn-half-right/);
   assert.match(stylesSource, /prefers-reduced-motion[\s\S]*\.pet-sprite/);
 
-  for (const sprite of [mishaSprite, fokaSprite, keshaSprite, tautaSprite, pancakeSprite, mitsuriSprite]) {
+  for (const sprite of [mishaSprite, fokaSprite, keshaSprite, tautaSprite, pancakeSprite, mitsuriSprite, museSprite]) {
     assert.equal(sprite.subarray(1, 4).toString("ascii"), "PNG");
     assert.equal(sprite.readUInt32BE(16), 640);
     assert.equal(sprite.readUInt32BE(20), 64);
   }
-  for (const habitat of [mishaClimber, fokaFloe, keshaPerch, tautaBed, mitsuriCushion]) {
+  for (const habitat of [mishaClimber, fokaFloe, keshaPerch, tautaBed, mitsuriCushion, museFloor]) {
     assert.equal(habitat.subarray(1, 4).toString("ascii"), "PNG");
     assert.equal(habitat.readUInt32BE(16), 64);
     assert.equal(habitat.readUInt32BE(20), 48);
@@ -230,6 +240,10 @@ test("the Pet Shop ships five companions plus the server-authorized Mitsuri east
   assert.match(petCatalogSource, /priceCoins: 500/);
   assert.match(stylesSource, /\[data-pet="mitsuri"\] > \.pet-sprite[\s\S]*mitsuri-sprite\.png/);
   assert.match(stylesSource, /\[data-pet="mitsuri"\] > \.pet-habitat[\s\S]*mitsuri-cushion\.png/);
+  assert.match(stylesSource, /\[data-pet="muse"\] > \.pet-sprite[\s\S]*muse-sprite\.png/);
+  assert.match(stylesSource, /\[data-pet="muse"\] > \.pet-habitat[\s\S]*muse-floor\.png/);
+  assert.match(petBuildSource, /runtime_mirror_pairs=\(\(1, 5\), \(2, 6\), \(3, 7\)\)/);
+  assert.match(petBuildSource, /source_cell\.transpose\(Image\.Transpose\.FLIP_LEFT_RIGHT\)/);
   assert.match(stylesSource, /@keyframes pet-turn-half-right[\s\S]*50%[\s\S]*55\.556%[\s\S]*100%[\s\S]*66\.667%/);
   assert.match(stylesSource, /@keyframes pet-turn-right[\s\S]*34%[\s\S]*55\.556%[\s\S]*67%[\s\S]*66\.667%[\s\S]*100%[\s\S]*77\.778%/);
 });
@@ -857,7 +871,18 @@ test("endless unranked Zen has no decoys, deadline, proof submission, or coins",
   assert.match(indexHtml, /id="zen-button"[^>]+aria-label="Zen mode\. No coins awarded\."[^>]*>[\s\S]*?<span>Zen<\/span>[\s\S]*?<small>No coins awarded<\/small>/);
   assert.match(mainSource, /elements\.statusValue\.textContent = "∞"/);
   assert.match(mainSource, /elements\.modeName\.textContent = formatDuration\(snapshot\.elapsedMs\)/);
-  assert.match(mainSource, /snapshot\.mode === GAME_MODES\.ZEN \? null : topScores\[snapshot\.mode\]/);
+  assert.match(mainSource, /const isZen = snapshot\.mode === GAME_MODES\.ZEN;/);
+  assert.match(mainSource, /const topScore = isZen \? null : topScores\[snapshot\.mode\]/);
+  assert.match(mainSource, /elements\.colorHero\.classList\.toggle\("color-hero--any", isZen\)/);
+  assert.match(mainSource, /elements\.colorSwatch\.classList\.toggle\("color-swatch--any", isZen\)/);
+  assert.match(mainSource, /if \(isZen\) \{[\s\S]*elements\.colorName\.textContent = "Any";[\s\S]*elements\.colorGlyph\.hidden = false;[\s\S]*elements\.colorGlyph\.textContent = "☯";/);
+  assert.match(mainSource, /elements\.colorSwatch\.style\.removeProperty\("background"\)/);
+  assert.match(mainSource, /elements\.colorHero\.style\.removeProperty\("--player-color"\)/);
+  assert.match(mainSource, /else \{[\s\S]*const playerColor = getDisplayColor\(snapshot\.playerColorIndex\);[\s\S]*elements\.colorSwatch\.style\.background = playerColor\.value;[\s\S]*elements\.colorHero\.style\.setProperty\("--player-color", playerColor\.value\)/);
+  assert.match(stylesSource, /\.color-swatch\.color-swatch--any\s*\{[\s\S]*conic-gradient\([\s\S]*#ff4f85[\s\S]*#35e6df[\s\S]*#b76cff/);
+  assert.match(stylesSource, /\.color-hero\.color-hero--any\s*\{[\s\S]*border-color: var\(--panel-border\);[\s\S]*background: var\(--panel\);[\s\S]*box-shadow: inset/);
+  assert.match(stylesSource, /\.color-hero\.color-hero--any\s*\{[\s\S]*transition: none;/);
+  assert.match(mainSource, /const initialSnapshot = engine\.start\(visibleAt, mode\);[\s\S]*render\(\);\s*setOverlayVisible\(false\);/);
   assert.match(mainSource, /mode === GAME_MODES\.NORMAL && hasConfirmedProfile\(\)/);
   assert.match(mainSource, /currentRunId = mode === GAME_MODES\.NORMAL/);
   assert.match(mainSource, /if \(mode === GAME_MODES\.NORMAL\) scheduleDecoySpawn\(currentSession\)/);

@@ -235,6 +235,30 @@ test("the server-authorized Mitsuri rabbit uses the standard pet lifecycle", () 
   assert.equal(gameplayScene.dataset.habitat, "false");
 });
 
+test("the server-authorized Muse companion uses the standard directional lifecycle", () => {
+  const { controller, gameplayScene, menuScene } = controllerFixture();
+  const session = {
+    authenticated: true,
+    profile: {
+      nickname: "browser-does-not-decide-this",
+      nicknameConfirmed: true,
+      ownedPetIds: ["foka"],
+      selectedPetId: "foka",
+      petVisible: false,
+      equippedPetId: "muse",
+      specialPetId: "muse"
+    }
+  };
+  assert.equal(controller.setProfileSession(session), "muse");
+  assert.equal(menuScene.dataset.pet, "muse");
+  assert.equal(menuScene.dataset.habitat, "true");
+  assert.equal(controller.handleNonGameTap(300, 210), "half-left");
+  assert.equal(menuScene.dataset.facing, "half-left");
+  controller.setGameplayVisible(true);
+  assert.equal(gameplayScene.dataset.pet, "muse");
+  assert.equal(gameplayScene.dataset.habitat, "false");
+});
+
 test("cancelled idle work cannot override a newer pet tap", () => {
   const { controller, menuScene, scheduler } = controllerFixture();
   controller.setProfileSession(persistedSession("tauta"));

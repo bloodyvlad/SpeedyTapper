@@ -8,6 +8,8 @@ final class PetCatalog
 {
     public const MITSURI_ID = 'mitsuri';
     public const MITSURI_NICKNAME = 'кокос';
+    public const MUSE_ID = 'muse';
+    public const MUSE_NICKNAME = 'bloodyvlad';
 
     /** @var list<array{id: string, name: string, priceCoins: int}> */
     private const PETS = [
@@ -52,11 +54,19 @@ final class PetCatalog
         if (!$nicknameConfirmed || !is_string($nickname)) {
             return null;
         }
-        return hash_equals(self::MITSURI_NICKNAME, $nickname) ? self::MITSURI_ID : null;
+        return match ($nickname) {
+            self::MITSURI_NICKNAME => self::MITSURI_ID,
+            self::MUSE_NICKNAME => self::MUSE_ID,
+            default => null,
+        };
     }
 
     public static function isRenderable(mixed $petId): bool
     {
-        return self::includes($petId) || $petId === self::MITSURI_ID;
+        return self::includes($petId) || in_array(
+            $petId,
+            [self::MITSURI_ID, self::MUSE_ID],
+            true,
+        );
     }
 }
