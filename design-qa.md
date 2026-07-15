@@ -306,3 +306,14 @@ final result: local candidate `20260715-3` passed automated and responsive brows
 - Physical iPhone Safari/PWA confirmation remains required for small-text legibility, fallback rendering, and service-worker cache replacement before this candidate is described as device-validated.
 
 final result: local candidate `20260715-4` passed automated and responsive browser-runtime QA; deployment and physical-iPhone validation remain pending
+
+## Release Candidate 20260715-5 Main-Menu Vertical Balance QA
+
+- This is pre-deployment candidate evidence. It does not by itself establish the active Hostinger deployment, and no physical-iPhone validation was performed.
+- The fixed 112 px hint stage now uses an 8 px top margin instead of 18 px. That moves both the introductory/motivational hint and every following main-menu control upward by exactly 10 px without changing internal button gaps, the 76 px pet-safe inset, or the no-jump contract between first-run and post-run copy.
+- The companion's main-menu-only anchor adds 65 px after the responsive dialog inset instead of 50 px, moving it down exactly 15 px. Its existing sprite, habitat, per-pet adjustments, and every Profile, Leaderboard, shop, Results, and gameplay position remain unchanged.
+- Browser-runtime inspection passed at 375×667 and 320×568 with and without a visible Foka fixture. Both widths had zero horizontal overflow. At 320×568 the hint began at y=104 px, Game mode at y=230 px, Settings ended at y=565 px, and the full 64×144 px pet scene stayed inside the 320 px viewport.
+- `npm run check` passed on the complete `20260715-5` graph with 162 JavaScript tests and 163 PHP assertions. Composer validation/audit, every PHP syntax check, explicit menu-offset assertions, and `git diff --check` passed.
+- Physical iPhone Safari/PWA confirmation remains required for perceived spacing, live authenticated pet presentation, and service-worker cache replacement before this release is described as device-validated.
+
+final result: release candidate `20260715-5` passed automated and responsive browser-runtime QA; Hostinger deployment and physical-iPhone validation remain pending

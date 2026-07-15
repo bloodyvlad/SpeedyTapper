@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260715-4");
+  assert.equal(buildId, "20260715-5");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -1076,7 +1076,11 @@ test("the main menu uses stable hints and unlocks motivation only after Arcade G
   assert.match(mainSource, /function setDialogView\(view\)[\s\S]*clearMenuHintPresentation\(\)[\s\S]*if \(view === "menu"\) renderMenuHint\(\)/);
   assert.match(
     stylesSource,
-    /\.dialog\.dialog--menu > \.dialog__lead--menu\s*\{[^}]*height:\s*112px;[^}]*min-height:\s*112px;[^}]*padding-right:\s*76px;/s
+    /\.dialog\.dialog--menu > \.dialog__lead--menu\s*\{[^}]*height:\s*112px;[^}]*min-height:\s*112px;[^}]*margin:\s*8px 0 14px;[^}]*padding-right:\s*76px;/s
+  );
+  assert.match(
+    stylesSource,
+    /\.dialog\.dialog--menu > \.pet-scene--menu\s*\{[^}]*top:\s*calc\(clamp\(22px, 6vw, 32px\) \+ 65px\);/s
   );
   assert.match(stylesSource, /\.dialog__lead--motivation\s*\{[^}]*font-size:\s*1rem;[^}]*font-weight:\s*850;/s);
   assert.match(stylesSource, /\.dialog-hint__motivation\s*\{[^}]*rotate\(var\(--hint-tilt/s);

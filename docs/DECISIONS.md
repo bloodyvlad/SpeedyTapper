@@ -838,3 +838,16 @@ Decision: Replace Pixelify Sans throughout the Pixel theme with the unmodified G
 Consequences: Pixel UI copy uses a less curved, more traditional arcade face while remaining offline. Jersey 10 has one 400-weight face, so weight-based hierarchy comes primarily from size, color, spacing, panels, and the existing font fallback rather than synthetic bolding; global `font-synthesis: none` remains unchanged. Cyrillic and other unsupported characters stay readable but will not share the Jersey letterforms.
 
 Revisit when: Physical-iPhone review finds that Jersey 10 is still tiring for paragraphs, a matching multiweight family is needed, broader script coverage becomes a product requirement, or the Pixel theme adopts separate display and body faces.
+
+## D-062 — Rebalance the main-menu hint and pet anchors
+
+- Date: 2026-07-15
+- Status: Accepted
+
+Context: The fixed hint stage left more space above the first instruction than the compact menu needed, while the companion sat slightly too high beside that copy. Moving only individual buttons would weaken the no-jump layout contract and risk different geometry between the introductory and motivational states.
+
+Decision: Move the entire fixed menu hint stage 10 px upward by reducing only its top margin, so every following main-menu control naturally moves upward by the same amount. Move the companion 15 px downward only while the dialog is in its true main-menu state. Keep the 112 px hint-stage height, 76 px pet-safe inset, all per-pet sprite/habitat offsets, and every non-menu view anchor unchanged. Apply the same geometry to the introductory and motivational variants.
+
+Consequences: The menu uses vertical space more efficiently without changing button spacing or producing a first-run/post-run jump. The companion sits closer to its intended visual center while Profile, Leaderboard, shops, Results, and gameplay retain their prior layouts. Physical-iPhone Safari/PWA review remains required for final perceived balance and scroll reach.
+
+Revisit when: The utility header height changes, localized hint copy needs a different stage, pet sizes diverge by companion, or the main menu is redesigned as a grid.
