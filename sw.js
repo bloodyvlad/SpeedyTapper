@@ -1,4 +1,4 @@
-const BUILD_ID = "20260715-2";
+const BUILD_ID = "20260715-3";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [

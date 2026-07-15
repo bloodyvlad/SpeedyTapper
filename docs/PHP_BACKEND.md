@@ -23,6 +23,8 @@ The API automatically applies pending migrations before dispatch, serialized wit
 
 Migration `012` extends that sequence with the authoritative theme catalog, paid ownership/selection, `theme_purchase` ledger events, and theme-aware reset audits. It does not clear leaderboard results.
 
+Migration `013` gives the original migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme. It targets the internal UUID only through the durable `leaderboard_admin` role row whose `granted_by` value is `migration-011`; it never uses nickname, email, Google identity, score, or browser state. These ownership rows do not alter coins, selections, visibility, achievements, or `coin_ledger`, and an existing paid purchase is preserved. Default and Disco remain implicit free ownership. A destructive account reward reset removes the one-time grants and the migration runner does not apply them again.
+
 ## API contract
 
 All responses are JSON with `Cache-Control: no-store`. Mutations accept same-origin JSON and require the `X-SpeedyTapper-CSRF` token returned by the session endpoint. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services supplies the `credential` ID token, which is verified server-side by `google/apiclient` against the configured Web client ID. Login regenerates the cookie session ID and rotates CSRF state. Ranked attempts can only be issued after sign-in and nickname confirmation; a signed-out run is local practice and cannot be promoted later.
@@ -104,7 +106,7 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 
 ### `POST /api/runs`
 
-Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260715-2" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260715-3" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -118,7 +120,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260715-2",
+  "buildId": "20260715-3",
   "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [

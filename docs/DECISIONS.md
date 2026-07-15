@@ -797,3 +797,31 @@ Add **Muse** as a second non-purchasable nickname companion. The server returns 
 Consequences: Zen communicates its actual rule without color churn or distracting frame glow, while every theme keeps its own panel geometry. The personal companion remains an authenticated presentation override rather than free inventory, requires no schema migration, and cannot be activated through supported client state alone. Mechanical mirroring makes left/right anatomy deterministic, while the explicit 640×64 sprite and 64×48 habitat contracts preserve existing controller, scene, and leaderboard rendering. Physical-iPhone Safari/PWA review remains required for the yin-yang legibility, neutral-frame contrast, human likeness at 64 px, ponytail readability, floor alignment, and directional cadence.
 
 Revisit when: Zen gains color-specific practice rules, the Any indicator needs a non-symbol accessibility alternative, special companions become owned cosmetics, nickname collision policy changes, or a hand-authored human sprite replaces the generated master.
+
+## D-059 — Reserve a stable menu hint stage and suppress redundant pet turns
+
+- Date: 2026-07-15
+- Status: Accepted
+
+Context: The large **Ready to react?** heading repeated the product's purpose without teaching the three useful actions, while showing or hiding an absolutely positioned pet changed how much width the hint occupied and could move the controls below it. After players learn the rule, the same instructional copy also wastes a playful identity opportunity. Separately, every accepted pointer event restarted a pet turn sequence even when its resolved final direction already matched the pet, making an already full-right companion visibly replay front-to-right.
+
+Decision: Remove the visible menu heading while retaining a visually hidden **PimPoPom** dialog label. Reserve one fixed 112 px menu-only hint area with the same 76 px pet-safe right inset whether a pet is visible or hidden. Before the first local Arcade Game Over, show three normal-size rows: **Tap your color**, **Become the fastest**, and **Collect rewards!**. After that first Game Over, persist one device-local unlock and replace those rows with one of the approved 26 larger, bold, colored, slightly tilted motivational one-liners. Pick a different line at every later Arcade Game Over, keep it stable while navigating subviews, and restore a line after reload. Zen Results neither unlock nor rotate this state.
+
+When a pet tap resolves to the direction already stored, do not cancel or restart an active turn/wake sequence and do not replay a completed turn. Refresh only the non-game idle deadline. Sleeping, stopped, or settling pets still wake, Pancake still resumes dancing from stopped, and gameplay's existing no-idle behavior remains unchanged.
+
+Consequences: New players get concise instruction, returning players get personality, and pet visibility cannot create menu-content jumps. Motivation is a local presentation preference rather than profile progression. Repeated same-direction taps no longer create distracting back-and-forth frames, while genuine direction changes and wake transitions retain their approved animation. Physical-iPhone Safari/PWA review remains required for fixed-area fit, phrase wrapping, tilt/color contrast, and live pet geometry.
+
+Revisit when: Hints become server-personalized, localization makes a fixed stage impractical, players need an option to restore instructions, or animation state moves to a timeline controller.
+
+## D-060 — Give the bootstrap administrator one-time cosmetic test ownership
+
+- Date: 2026-07-15
+- Status: Accepted
+
+Context: The initial leaderboard administrator needs to exercise every current Pet Shop and paid Theme Shop state without manufacturing gameplay currency or contaminating competition and economy records. Targeting a mutable nickname, email, raw Google identity, rank, or browser flag would violate existing identity boundaries, while recording zero-cost test access as a purchase would create false ledger and **Buy a pet** achievement evidence.
+
+Decision: Migration `013_grant_admin_test_cosmetics.sql` targets only the durable `leaderboard_admin` role whose provenance is exactly `granted_by = 'migration-011'`. Add `admin_test_grant` to pet acquisition sources, then insert zero-price ownership for every active shop pet and each active paid theme. Default and Disco remain implicitly owned. Use duplicate-key no-ops so existing paid ownership, acquisition source, ledger entries, and achievements remain unchanged. Do not update the player's balance, economy generation, selections, visibility, achievements, or ledger, and do not grant nickname-only companions.
+
+Consequences: The requested administrator can test all current store cosmetics without affecting coins or competitive accounting. Reconciliation ignores these non-economic ownership rows. A destructive account reward reset removes the grants with other cosmetics; because the migration is one-time, it does not silently restore them afterward. Newly added future cosmetics are not auto-granted without another explicit decision.
+
+Revisit when: Multiple test accounts are needed, entitlements require expiry or revocation independent of reward reset, future cosmetics should auto-grant to a testing role, or a non-production staging environment replaces production test access.

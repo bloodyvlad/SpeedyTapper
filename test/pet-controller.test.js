@@ -8,6 +8,7 @@ import {
   PET_HALF_TURN_MAX_DEGREES,
   PET_IDLE_DELAY_MS,
   PET_TRANSITION_DURATION_MS,
+  PET_TURN_DURATION_MS,
   resolveEquippedPetId,
   resolvePancakeFacing,
   resolvePetFacing
@@ -205,12 +206,46 @@ test("pets settle at five seconds, use the intermediate pose, and wake toward ta
   scheduler.advance(PET_TRANSITION_DURATION_MS);
   assert.equal(menuScene.dataset.pose, "sleeping");
 
-  assert.equal(controller.handleNonGameTap(220, 96), "left");
-  assert.equal(menuScene.dataset.pose, "waking");
-  assert.equal(menuScene.dataset.facing, "left");
+  assert.equal(controller.handleNonGameTap(320, 96), "front");
+  assert.equal(menuScene.dataset.pose, "waking", "A sleeping pet still wakes for a same-facing tap.");
   scheduler.advance(PET_TRANSITION_DURATION_MS);
   assert.equal(menuScene.dataset.pose, "awake");
+
+  assert.equal(controller.handleNonGameTap(220, 96), "left");
+  assert.equal(menuScene.dataset.pose, "turning");
+  assert.equal(menuScene.dataset.facing, "left");
+  scheduler.advance(PET_TURN_DURATION_MS);
+  assert.equal(menuScene.dataset.pose, "awake");
   assert.equal(menuScene.dataset.facing, "left", "The selected pose persists after the turn animation.");
+});
+
+test("repeated taps toward the current direction do not replay turn animations", () => {
+  const { controller, menuScene, scheduler } = controllerFixture();
+  controller.setProfileSession(persistedSession("misha"));
+
+  assert.equal(controller.handleNonGameTap(400, 96), "right");
+  assert.equal(menuScene.dataset.pose, "turning");
+  const firstTransition = scheduler.pending().find(({ delay }) => delay === PET_TURN_DURATION_MS);
+  assert.ok(firstTransition);
+
+  assert.equal(controller.handleNonGameTap(400, 96), "right");
+  assert.equal(menuScene.dataset.pose, "turning");
+  assert.equal(
+    scheduler.pending().find(({ delay }) => delay === PET_TURN_DURATION_MS)?.id,
+    firstTransition.id,
+    "An in-flight same-direction turn must finish instead of restarting."
+  );
+
+  scheduler.advance(PET_TURN_DURATION_MS);
+  assert.equal(menuScene.dataset.pose, "awake");
+  assert.equal(menuScene.dataset.facing, "right");
+  assert.equal(controller.handleNonGameTap(400, 96), "right");
+  assert.equal(menuScene.dataset.pose, "awake");
+  assert.deepEqual(
+    scheduler.pending().map(({ delay }) => delay),
+    [PET_IDLE_DELAY_MS],
+    "A settled same-direction tap resets idle without starting another turn."
+  );
 });
 
 test("the server-authorized Mitsuri rabbit uses the standard pet lifecycle", () => {
@@ -300,7 +335,12 @@ test("Pancake uses only horizontal left-right direction and rests down after ina
 
   assert.equal(controller.handleNonGameTap(20, 96), "left");
   assert.equal(menuScene.dataset.pose, "dancing");
-  scheduler.advance(PET_IDLE_DELAY_MS);
+  scheduler.advance(2_500);
+  assert.equal(controller.handleNonGameTap(20, 96), "left");
+  assert.equal(menuScene.dataset.pose, "dancing");
+  scheduler.advance(PET_IDLE_DELAY_MS - 1);
+  assert.equal(menuScene.dataset.pose, "dancing", "A same-facing tap resets Pancake's rest deadline.");
+  scheduler.advance(1);
   assert.equal(menuScene.dataset.pose, "stopped");
 
   controller.setGameplayVisible(true);

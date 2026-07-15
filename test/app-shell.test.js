@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260715-2");
+  assert.equal(buildId, "20260715-3");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -820,7 +820,7 @@ test("Arcade and Zen expose mode-specific gameplay controls and shared top resul
   );
   assert.match(
     mainSource,
-    /const isZenResult = localPractice && snapshot\.mode === GAME_MODES\.ZEN;\s*elements\.dialogTitle\.textContent = isZenResult \? "Results" : "Game Over";/
+    /const isZenResult = localPractice && snapshot\.mode === GAME_MODES\.ZEN;\s*if \(!isZenResult\) unlockNextMenuMotivation\(\);\s*elements\.dialogTitle\.textContent = isZenResult \? "Results" : "Game Over";/
   );
   assert.match(mainSource, /elements\.resultDurationLabel\.textContent = isZenResult \? "Played" : "Survived"/);
   assert.match(mainSource, /function renderResultSaveState\(\)[\s\S]*if \(pendingResult\.localPractice\) \{[\s\S]*elements\.resultSavePanel\.hidden = true/);
@@ -1023,6 +1023,62 @@ test("five durable ranked achievements expose claimable green checks and claimed
   assert.match(stylesSource, /\.achievement-card--claimed\s*\{[^}]+opacity:\s*0\.76/s);
   assert.match(stylesSource, /\.achievement-card:focus-visible\s*\{[^}]+outline:\s*3px solid white/s);
   assert.match(stylesSource, /\.achievements-alert\s*\{[^}]+position:\s*absolute;[^}]+color:\s*#ffd84d/s);
+});
+
+test("the main menu uses stable hints and unlocks motivation only after Arcade Game Over", () => {
+  assert.doesNotMatch(`${indexHtml}\n${mainSource}`, /Ready to react\?/);
+  assert.match(indexHtml, /class="dialog-title--menu" id="dialog-title">PimPoPom<\/h1>/);
+  assert.match(
+    indexHtml,
+    /id="dialog-message">[\s\S]*– Tap your color[\s\S]*– Become the fastest[\s\S]*– Collect rewards!/
+  );
+
+  for (const phrase of [
+    "Go get your pet!",
+    "You are achiever!",
+    "Go faster, play longer!",
+    "1 minute - 1 coin!",
+    "Coconut in ukrainian?",
+    "Who is misha_boy?",
+    "Tiny taps, giant scores!",
+    "Your pet believes in you!",
+    "Tap first. Blink later.",
+    "Coins don’t collect themselves!",
+    "Faster fingers, happier pets!",
+    "One more run. Obviously.",
+    "That square looked nervous.",
+    "Speed is your superpower!",
+    "Almost legendary. Go again!",
+    "Warm up those thumbs!",
+    "Misha saw that miss.",
+    "Foka demands a rematch!",
+    "Pancake believes in you!",
+    "Zen later. Arcade now!",
+    "Was that your fastest?",
+    "Three lives. Zero excuses.",
+    "The leaderboard is watching.",
+    "Tap like rent is due!",
+    "Your next score is bigger!",
+    "Blink between rounds!"
+  ]) {
+    assert.ok(mainSource.includes(JSON.stringify(phrase)), `Motivational pool contains “${phrase}”.`);
+  }
+
+  assert.match(mainSource, /MENU_MOTIVATION_STORAGE_KEY = "speedytapper\.menuMotivation\.v1"/);
+  assert.match(
+    mainSource,
+    /const isZenResult = localPractice && snapshot\.mode === GAME_MODES\.ZEN;\s*if \(!isZenResult\) unlockNextMenuMotivation\(\)/
+  );
+  assert.match(mainSource, /writeStoredPreference\(MENU_MOTIVATION_STORAGE_KEY, "unlocked"\)/);
+  assert.match(mainSource, /function selectMotivationalHintIndex[\s\S]*nextIndex === previousIndex/);
+  assert.match(mainSource, /function setDialogView\(view\)[\s\S]*clearMenuHintPresentation\(\)[\s\S]*if \(view === "menu"\) renderMenuHint\(\)/);
+  assert.match(
+    stylesSource,
+    /\.dialog\.dialog--menu > \.dialog__lead--menu\s*\{[^}]*height:\s*112px;[^}]*min-height:\s*112px;[^}]*padding-right:\s*76px;/s
+  );
+  assert.match(stylesSource, /\.dialog__lead--motivation\s*\{[^}]*font-size:\s*1rem;[^}]*font-weight:\s*850;/s);
+  assert.match(stylesSource, /\.dialog-hint__motivation\s*\{[^}]*rotate\(var\(--hint-tilt/s);
+  assert.match(stylesSource, /:root\[data-theme="light"\] \.dialog__lead--motivation\[data-tone="cyan"\]/);
 });
 
 test("Classic and Disco gameplay tiles keep distinct material treatments", () => {

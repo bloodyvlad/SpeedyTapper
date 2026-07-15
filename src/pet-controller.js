@@ -1,4 +1,4 @@
-import { getPet, isPetId, isSpecialPetId } from "./pet-catalog.js?v=20260715-2";
+import { getPet, isPetId, isSpecialPetId } from "./pet-catalog.js?v=20260715-3";
 
 export const LEGACY_MISHA_NICKNAME = "misha_boy";
 export const PET_IDLE_DELAY_MS = 5_000;
@@ -200,7 +200,13 @@ export function createPetController({
 
   function animateToward(nextFacing) {
     const wasIdle = pose === "sleeping" || pose === "stopped";
-    facing = normalizedFacing(nextFacing, facing);
+    const targetFacing = normalizedFacing(nextFacing, facing);
+    const requiresWake = wasIdle || pose === "settling";
+    if (targetFacing === facing && !requiresWake) {
+      scheduleIdle();
+      return;
+    }
+    facing = targetFacing;
     cancelTransitionTimer();
     if (isPancake()) {
       pose = "dancing";

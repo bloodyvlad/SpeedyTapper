@@ -1,5 +1,5 @@
 (() => {
-  const buildId = "20260715-2";
+  const buildId = "20260715-3";
   if (!("serviceWorker" in navigator)) return;
 
   const replaceExistingWorker = Boolean(navigator.serviceWorker.controller);

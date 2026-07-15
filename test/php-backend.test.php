@@ -523,6 +523,7 @@ foreach ([
     'is_visible',
     'player_pet_selection_owned_foreign',
     'legacy_easter_egg',
+    'admin_test_grant',
     'player_achievements',
     'total_coins_collected',
     'coin_debt',
@@ -552,6 +553,34 @@ $assert(
         && str_contains($schema, "verification_status IN ('legacy', 'verified')"),
     'Administrator bootstrap requires the exact production result pair to share one player.',
 );
+$adminCosmeticMigration = file_get_contents(
+    dirname(__DIR__) . '/server/migrations/013_grant_admin_test_cosmetics.sql'
+);
+$assert(
+    is_string($adminCosmeticMigration)
+        && str_contains($adminCosmeticMigration, "admin_role.role = 'leaderboard_admin'")
+        && str_contains($adminCosmeticMigration, "admin_role.granted_by = 'migration-011'")
+        && str_contains($adminCosmeticMigration, 'CROSS JOIN pets AS pet')
+        && str_contains($adminCosmeticMigration, 'pet.active = 1')
+        && str_contains($adminCosmeticMigration, "'admin_test_grant'")
+        && str_contains($adminCosmeticMigration, 'CROSS JOIN themes AS theme')
+        && str_contains($adminCosmeticMigration, 'theme.active = 1')
+        && str_contains($adminCosmeticMigration, 'theme.price_coins > 0')
+        && substr_count($adminCosmeticMigration, 'ON DUPLICATE KEY UPDATE') === 2,
+    'Admin test entitlements grant every active shop pet and paid theme through the immutable bootstrap role.',
+);
+foreach ([
+    'coin_ledger',
+    'player_achievements',
+    'player_pet_selection',
+    'player_theme_selection',
+    'UPDATE players',
+] as $forbiddenAdminGrantSideEffect) {
+    $assert(
+        !str_contains($adminCosmeticMigration, $forbiddenAdminGrantSideEffect),
+        'Admin test entitlements avoid ' . $forbiddenAdminGrantSideEffect . '.',
+    );
+}
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
 foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
@@ -728,6 +757,7 @@ $assert(
         && str_contains($achievementService, "\$score->mode !== 'normal'")
         && !str_contains($achievementService, 'COMPLETE_ZEN')
         && str_contains($achievementService, "verification_status = 'verified'")
+        && str_contains($achievementService, "acquisition_source = 'purchase'")
         && str_contains($achievementService, 'achievement_reward')
         && str_contains($achievementService, 'CoinEconomy::applyCredit'),
     'Achievement unlocks use verified runs and durable moderation-safe rewards.',

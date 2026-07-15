@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260715-2";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260715-2";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260715-3";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260715-3";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260715-2";
+} from "./input-timing.js?v=20260715-3";
 import {
   getPet,
   isPetId,
@@ -16,24 +16,57 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260715-2";
-import { createPetController } from "./pet-controller.js?v=20260715-2";
-import { createSoundController } from "./sound-controller.js?v=20260715-2";
-import { createMusicController } from "./music-controller.js?v=20260715-2";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260715-2";
+} from "./pet-catalog.js?v=20260715-3";
+import { createPetController } from "./pet-controller.js?v=20260715-3";
+import { createSoundController } from "./sound-controller.js?v=20260715-3";
+import { createMusicController } from "./music-controller.js?v=20260715-3";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260715-3";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260715-2";
+} from "./theme-catalog.js?v=20260715-3";
 
-const INTRO_COPY_HTML =
-  "Tap only the squares of <strong>Your color</strong> shown above the board. Fast reactions score more. Avoid wrong colors.";
+const INTRO_HINTS = Object.freeze([
+  "– Tap your color",
+  "– Become the fastest",
+  "– Collect rewards!"
+]);
+const MOTIVATIONAL_HINTS = Object.freeze([
+  "Go get your pet!",
+  "You are achiever!",
+  "Go faster, play longer!",
+  "1 minute - 1 coin!",
+  "Coconut in ukrainian?",
+  "Who is misha_boy?",
+  "Tiny taps, giant scores!",
+  "Your pet believes in you!",
+  "Tap first. Blink later.",
+  "Coins don’t collect themselves!",
+  "Faster fingers, happier pets!",
+  "One more run. Obviously.",
+  "That square looked nervous.",
+  "Speed is your superpower!",
+  "Almost legendary. Go again!",
+  "Warm up those thumbs!",
+  "Misha saw that miss.",
+  "Foka demands a rematch!",
+  "Pancake believes in you!",
+  "Zen later. Arcade now!",
+  "Was that your fastest?",
+  "Three lives. Zero excuses.",
+  "The leaderboard is watching.",
+  "Tap like rent is due!",
+  "Your next score is bigger!",
+  "Blink between rounds!"
+]);
+const MOTIVATIONAL_HINT_TONES = Object.freeze(["cyan", "pink", "gold", "green", "violet"]);
+const MOTIVATIONAL_HINT_TILTS = Object.freeze([-3, 2, -2, 3, -1, 1]);
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260715-2";
+const APP_BUILD_ID = "20260715-3";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -41,6 +74,7 @@ const SOUND_FX_STORAGE_KEY = "speedytapper.soundFx.v1";
 const SOUND_FX_VOLUME_STORAGE_KEY = "speedytapper.soundFxVolume.v1";
 const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
 const MUSIC_VOLUME_STORAGE_KEY = "speedytapper.musicVolume.v1";
+const MENU_MOTIVATION_STORAGE_KEY = "speedytapper.menuMotivation.v1";
 const SPEED_RATING_ORDER = Object.freeze(["godlike", "perfect", "great", "good"]);
 const SPEED_RATING_LABELS = Object.freeze({
   godlike: "Godlike",
@@ -283,6 +317,8 @@ let soundFxEnabled = true;
 let soundFxVolume = 1;
 let musicEnabled = true;
 let musicVolume = 1;
+let menuMotivationUnlocked = readStoredPreference(MENU_MOTIVATION_STORAGE_KEY) === "unlocked";
+let motivationalHintIndex = null;
 
 const sound = createSoundController();
 const music = createMusicController();
@@ -318,11 +354,77 @@ function setOverlayVisible(visible) {
   pets.setGameplayVisible(!visible);
 }
 
+function selectMotivationalHintIndex(previousIndex = null, randomValue = Math.random()) {
+  const normalizedRandom = Number.isFinite(randomValue)
+    ? Math.max(0, Math.min(0.999999999, randomValue))
+    : 0;
+  let nextIndex = Math.floor(normalizedRandom * MOTIVATIONAL_HINTS.length);
+  if (MOTIVATIONAL_HINTS.length > 1 && nextIndex === previousIndex) {
+    nextIndex = (nextIndex + 1) % MOTIVATIONAL_HINTS.length;
+  }
+  return nextIndex;
+}
+
+function clearMenuHintPresentation() {
+  elements.dialog.classList.remove("dialog--menu");
+  elements.dialogTitle.classList.remove("dialog-title--menu");
+  elements.dialogMessage.classList.remove(
+    "dialog__lead--menu",
+    "dialog__lead--intro",
+    "dialog__lead--motivation"
+  );
+  elements.dialogMessage.removeAttribute("data-tone");
+  elements.dialogMessage.style.removeProperty("--hint-tilt");
+}
+
+function renderMenuHint() {
+  clearMenuHintPresentation();
+  elements.dialog.classList.add("dialog--menu");
+  elements.dialogTitle.textContent = "PimPoPom";
+  elements.dialogTitle.classList.add("dialog-title--menu");
+  elements.dialogMessage.classList.add("dialog__lead--menu");
+
+  if (!menuMotivationUnlocked) {
+    elements.dialogMessage.classList.add("dialog__lead--intro");
+    elements.dialogMessage.replaceChildren(...INTRO_HINTS.map((text) => {
+      const row = document.createElement("span");
+      row.className = "dialog-hint__row";
+      row.textContent = text;
+      return row;
+    }));
+    return;
+  }
+
+  if (!Number.isInteger(motivationalHintIndex)) {
+    motivationalHintIndex = selectMotivationalHintIndex();
+  }
+  const phrase = document.createElement("span");
+  phrase.className = "dialog-hint__motivation";
+  phrase.textContent = MOTIVATIONAL_HINTS[motivationalHintIndex];
+  elements.dialogMessage.classList.add("dialog__lead--motivation");
+  elements.dialogMessage.dataset.tone = MOTIVATIONAL_HINT_TONES[
+    motivationalHintIndex % MOTIVATIONAL_HINT_TONES.length
+  ];
+  elements.dialogMessage.style.setProperty(
+    "--hint-tilt",
+    `${MOTIVATIONAL_HINT_TILTS[motivationalHintIndex % MOTIVATIONAL_HINT_TILTS.length]}deg`
+  );
+  elements.dialogMessage.replaceChildren(phrase);
+}
+
+function unlockNextMenuMotivation() {
+  menuMotivationUnlocked = true;
+  motivationalHintIndex = selectMotivationalHintIndex(motivationalHintIndex);
+  writeStoredPreference(MENU_MOTIVATION_STORAGE_KEY, "unlocked");
+}
+
 function setDialogView(view) {
+  clearMenuHintPresentation();
   dialogView = view;
   pets.setMenuView(view);
   elements.resultNavigation.hidden = view !== "result";
   if (view !== "menu") elements.authGateInfo.hidden = true;
+  if (view === "menu") renderMenuHint();
 }
 
 function formatDuration(milliseconds, showTenths = false) {
@@ -701,7 +803,6 @@ async function startGame(mode) {
   elements.gameMenuButton.hidden = isZen;
   elements.gameEndRunButton.hidden = !isZen;
   elements.gameEndRunButton.disabled = isZen;
-  elements.dialogTitle.textContent = "Ready to react?";
   runStartFrame = window.requestAnimationFrame((visibleAt) => {
     runStartFrame = null;
     if (currentSession !== sessionId || document.hidden) return;
@@ -1062,6 +1163,7 @@ function presentCompletedRun(snapshot, currentSession, { localPractice = false }
   clearTimers();
   music.stopRun();
   const isZenResult = localPractice && snapshot.mode === GAME_MODES.ZEN;
+  if (!isZenResult) unlockNextMenuMotivation();
   elements.dialogTitle.textContent = isZenResult ? "Results" : "Game Over";
   elements.resultStats.hidden = false;
   elements.resultDurationLabel.textContent = isZenResult ? "Played" : "Survived";
@@ -1156,8 +1258,6 @@ function showMainMenu() {
   engine.reset();
   currentRunId = null;
   resetResultUi();
-  elements.dialogTitle.textContent = "Ready to react?";
-  elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
   setOverlayVisible(true);
   elements.dialog.scrollTop = 0;
   render();
@@ -1418,8 +1518,6 @@ function showMenuView(focusTarget = null) {
   elements.mainMenuContent.hidden = false;
   elements.dialogUtility.hidden = false;
   elements.authGateInfo.hidden = true;
-  elements.dialogTitle.textContent = "Ready to react?";
-  elements.dialogMessage.innerHTML = INTRO_COPY_HTML;
   elements.dialog.scrollTop = 0;
   focusTarget?.focus({ preventScroll: true });
 }
@@ -3114,6 +3212,7 @@ function stopRunForPageExit() {
   clearTimers();
   sessionId += 1;
   resetResultUi();
+  clearMenuHintPresentation();
   elements.dialogTitle.textContent = "Run paused";
   elements.dialogMessage.textContent = "The app moved into the background, so this run was stopped. Choose a mode to restart.";
   setOverlayVisible(true);

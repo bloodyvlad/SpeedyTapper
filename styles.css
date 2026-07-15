@@ -1813,11 +1813,103 @@ h1 {
   line-height: 0.96;
 }
 
+.dialog-title--menu {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .dialog__lead {
   margin: 18px 0 14px;
   color: #d6daea;
   font-size: 0.98rem;
   line-height: 1.5;
+}
+
+.dialog.dialog--menu > .dialog__lead--menu {
+  box-sizing: border-box;
+  width: 100%;
+  height: 112px;
+  min-height: 112px;
+  padding-right: 76px;
+  display: flex;
+  justify-content: center;
+}
+
+.dialog__lead--intro {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.dialog-hint__row {
+  display: block;
+}
+
+.dialog__lead--motivation {
+  align-items: center;
+  font-size: 1rem;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.dialog-hint__motivation {
+  display: inline-block;
+  transform: rotate(var(--hint-tilt, -2deg));
+  transform-origin: left center;
+  text-wrap: balance;
+  text-shadow: 0 0 13px currentColor;
+}
+
+.dialog__lead--motivation[data-tone="cyan"] .dialog-hint__motivation {
+  color: #62f8ff;
+}
+
+.dialog__lead--motivation[data-tone="pink"] .dialog-hint__motivation {
+  color: #ff71c7;
+}
+
+.dialog__lead--motivation[data-tone="gold"] .dialog-hint__motivation {
+  color: #ffe15c;
+}
+
+.dialog__lead--motivation[data-tone="green"] .dialog-hint__motivation {
+  color: #8df27e;
+}
+
+.dialog__lead--motivation[data-tone="violet"] .dialog-hint__motivation {
+  color: #b798ff;
+}
+
+:root[data-theme="light"] .dialog__lead--motivation[data-tone="cyan"] .dialog-hint__motivation {
+  color: #087c9b;
+}
+
+:root[data-theme="light"] .dialog__lead--motivation[data-tone="pink"] .dialog-hint__motivation {
+  color: #bb257b;
+}
+
+:root[data-theme="light"] .dialog__lead--motivation[data-tone="gold"] .dialog-hint__motivation {
+  color: #966700;
+}
+
+:root[data-theme="light"] .dialog__lead--motivation[data-tone="green"] .dialog-hint__motivation {
+  color: #25812f;
+}
+
+:root[data-theme="light"] .dialog__lead--motivation[data-tone="violet"] .dialog-hint__motivation {
+  color: #6942b7;
+}
+
+:root[data-theme="light"] .dialog-hint__motivation {
+  text-shadow: 0 2px 8px rgba(64, 97, 121, 0.16);
 }
 
 .result-content[hidden],
