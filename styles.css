@@ -1,9 +1,9 @@
 @font-face {
-  font-family: "Pixelify Sans";
+  font-family: "Jersey 10";
   font-style: normal;
-  font-weight: 400 700;
+  font-weight: 400;
   font-display: swap;
-  src: url("./assets/fonts/pixelify-sans-variable.ttf") format("truetype");
+  src: url("./assets/fonts/jersey-10-regular.ttf") format("truetype");
 }
 
 :root {
@@ -46,7 +46,7 @@
 :root[data-theme="pixel"] {
   color: #f7f5ff;
   background: #101022;
-  font-family: "Pixelify Sans", "SFMono-Regular", "Roboto Mono", "Courier New", monospace;
+  font-family: "Jersey 10", "SFMono-Regular", "Roboto Mono", "Courier New", monospace;
   --panel: rgba(20, 20, 43, 0.96);
   --panel-border: rgba(113, 238, 255, 0.38);
   --muted: #b0aed0;

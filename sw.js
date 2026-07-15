@@ -1,4 +1,4 @@
-const BUILD_ID = "20260715-3";
+const BUILD_ID = "20260715-4";
 const CACHE_PREFIX = "speedytapper-";
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 const APP_SHELL = [
@@ -25,7 +25,7 @@ const APP_SHELL = [
   "./assets/disco-concrete.png",
   "./assets/disco-concrete-lights.png",
   "./assets/disco-tile-overlay.png",
-  "./assets/fonts/pixelify-sans-variable.ttf",
+  "./assets/fonts/jersey-10-regular.ttf",
   "./assets/pets/misha-climber.png",
   "./assets/pets/misha-sprite.png",
   "./assets/pets/foka-ice-floe.png",

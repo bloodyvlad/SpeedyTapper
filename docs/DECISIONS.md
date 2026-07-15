@@ -825,3 +825,16 @@ Decision: Migration `013_grant_admin_test_cosmetics.sql` targets only the durabl
 Consequences: The requested administrator can test all current store cosmetics without affecting coins or competitive accounting. Reconciliation ignores these non-economic ownership rows. A destructive account reward reset removes the grants with other cosmetics; because the migration is one-time, it does not silently restore them afterward. Newly added future cosmetics are not auto-granted without another explicit decision.
 
 Revisit when: Multiple test accounts are needed, entitlements require expiry or revocation independent of reward reset, future cosmetics should auto-grant to a testing role, or a non-production staging environment replaces production test access.
+
+## D-061 — Use Jersey 10 for the Pixel theme
+
+- Date: 2026-07-15
+- Status: Accepted
+
+Context: Pixelify Sans preserved a playful bitmap identity, but its rounded and irregular small-text forms made result explanations, buttons, and statistics unnecessarily difficult to scan on an iPhone-sized screen. The selected Jersey 10 face is a deliberately compact display bitmap with clearer, more rectilinear Latin forms.
+
+Decision: Replace Pixelify Sans throughout the Pixel theme with the unmodified Google Fonts Jersey 10 Regular binary. Self-host the font in the install-time app shell, retain its SIL Open Font License and provenance, and preserve the existing system monospace fallback. Jersey 10 contains Latin and Latin Extended only; unsupported scripts, including Cyrillic nicknames, intentionally use that documented fallback. Keep the Pixel theme's hard edges, stepped shadows, grid, colors, and gameplay rules unchanged. This supersedes D-054 only where it names Pixelify Sans as the Pixel theme font.
+
+Consequences: Pixel UI copy uses a less curved, more traditional arcade face while remaining offline. Jersey 10 has one 400-weight face, so weight-based hierarchy comes primarily from size, color, spacing, panels, and the existing font fallback rather than synthetic bolding; global `font-synthesis: none` remains unchanged. Cyrillic and other unsupported characters stay readable but will not share the Jersey letterforms.
+
+Revisit when: Physical-iPhone review finds that Jersey 10 is still tiring for paragraphs, a matching multiweight family is needed, broader script coverage becomes a product requirement, or the Pixel theme adopts separate display and body faces.

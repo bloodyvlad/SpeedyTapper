@@ -294,3 +294,15 @@ final result: local candidate `20260715-1` passed automated and responsive brows
 - Physical iPhone Safari/PWA confirmation remains required for real tap behavior, phrase wrapping, pet transition feel, and service-worker cache replacement. After Hostinger applies migration 013, authenticated production smoke must confirm all shop pets and paid themes are available to the bootstrap administrator without changing that account's balance or current selections.
 
 final result: local candidate `20260715-3` passed automated and responsive browser-runtime QA; deployment and physical-iPhone validation remain pending
+
+## Local Candidate 20260715-4 Jersey 10 Pixel Typography QA
+
+- This is a local candidate only. It does not establish the active Hostinger deployment, and no physical-iPhone validation was performed.
+- The Pixel theme now self-hosts the official unmodified **Jersey 10 Regular** face under the SIL Open Font License. The bundled font and licence hashes, upstream Google Fonts source commit, authorship, and coverage are recorded in `assets/fonts/SOURCES.md`; the former Pixelify Sans runtime files are removed.
+- Browser-runtime inspection at the 2022 iPhone SE CSS viewport of 375×667 confirmed that Jersey 10 loaded successfully and was the computed Pixel-theme font. The main menu and Game Over view remained readable without horizontal overflow or clipped controls.
+- Jersey 10 supplies one 400-weight outline and the app keeps `font-synthesis: none`, so Pixel-theme hierarchy relies on size, spacing, and color rather than synthetic bolding. The bundled font is Latin/Latin-extended only; Cyrillic nicknames such as `кокос` intentionally use the existing system monospace fallback.
+- `npm run check` passed on the complete `20260715-4` graph with 162 JavaScript tests and 163 PHP assertions. Composer validation/audit, every PHP syntax check, stale-font release-graph assertions, and `git diff --check` passed.
+- Local evidence: `/tmp/speedytapper-20260715-4-jersey-menu.png` and `/tmp/speedytapper-20260715-4-jersey-game-over.png`.
+- Physical iPhone Safari/PWA confirmation remains required for small-text legibility, fallback rendering, and service-worker cache replacement before this candidate is described as device-validated.
+
+final result: local candidate `20260715-4` passed automated and responsive browser-runtime QA; deployment and physical-iPhone validation remain pending

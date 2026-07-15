@@ -31,8 +31,8 @@ const [
   mitsuriSprite,
   museFloor,
   museSprite,
-  pixelFont,
-  pixelFontLicense
+  jerseyFont,
+  jerseyFontLicense
 ] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../src/early-bootstrap.js", import.meta.url), "utf8"),
@@ -62,8 +62,8 @@ const [
   readFile(new URL("../assets/pets/mitsuri-sprite.png", import.meta.url)),
   readFile(new URL("../assets/pets/muse-floor.png", import.meta.url)),
   readFile(new URL("../assets/pets/muse-sprite.png", import.meta.url)),
-  readFile(new URL("../assets/fonts/pixelify-sans-variable.ttf", import.meta.url)),
-  readFile(new URL("../assets/fonts/OFL-PixelifySans.txt", import.meta.url), "utf8")
+  readFile(new URL("../assets/fonts/jersey-10-regular.ttf", import.meta.url)),
+  readFile(new URL("../assets/fonts/OFL-Jersey10.txt", import.meta.url), "utf8")
 ]);
 
 const [audioFiles, sourceFiles] = await Promise.all([
@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260715-3");
+  assert.equal(buildId, "20260715-4");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -110,11 +110,13 @@ test("the complete browser module graph uses one release version", () => {
   assert.match(workerSource, /\.\/assets\/disco-concrete\.png/);
   assert.match(workerSource, /\.\/assets\/disco-concrete-lights\.png/);
   assert.match(workerSource, /\.\/assets\/disco-tile-overlay\.png/);
-  assert.match(workerSource, /\.\/assets\/fonts\/pixelify-sans-variable\.ttf/);
-  assert.match(stylesSource, /font-family: "Pixelify Sans"/);
-  assert.match(stylesSource, /assets\/fonts\/pixelify-sans-variable\.ttf/);
-  assert.equal(pixelFont.subarray(0, 4).toString("hex"), "00010000");
-  assert.match(pixelFontLicense, /SIL OPEN FONT LICENSE Version 1\.1/);
+  assert.match(workerSource, /\.\/assets\/fonts\/jersey-10-regular\.ttf/);
+  assert.match(stylesSource, /font-family: "Jersey 10"/);
+  assert.match(stylesSource, /assets\/fonts\/jersey-10-regular\.ttf/);
+  assert.doesNotMatch(workerSource, /pixelify-sans|Pixelify Sans/i);
+  assert.doesNotMatch(stylesSource, /pixelify-sans|Pixelify Sans/i);
+  assert.equal(jerseyFont.subarray(0, 4).toString("hex"), "00010000");
+  assert.match(jerseyFontLicense, /SIL OPEN FONT LICENSE Version 1\.1/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-climber\.png/);
   assert.match(workerSource, /\.\/assets\/pets\/misha-sprite\.png/);
   for (const path of [
