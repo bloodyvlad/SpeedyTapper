@@ -1,4 +1,4 @@
-import { getThemeAudio, normalizeThemeAudioId } from "./theme-audio.js?v=20260715-5";
+import { getThemeAudio, normalizeThemeAudioId } from "./theme-audio.js?v=20260716-1";
 
 const BACKGROUND_GAIN = 0.42;
 const LOOP_DURATION_SECONDS = 12;

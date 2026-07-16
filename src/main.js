@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260715-5";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260715-5";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260716-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260716-1";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260715-5";
+} from "./input-timing.js?v=20260716-1";
 import {
   getPet,
   isPetId,
@@ -16,18 +16,18 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260715-5";
-import { createPetController } from "./pet-controller.js?v=20260715-5";
-import { createSoundController } from "./sound-controller.js?v=20260715-5";
-import { createMusicController } from "./music-controller.js?v=20260715-5";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260715-5";
+} from "./pet-catalog.js?v=20260716-1";
+import { createPetController } from "./pet-controller.js?v=20260716-1";
+import { createSoundController } from "./sound-controller.js?v=20260716-1";
+import { createMusicController } from "./music-controller.js?v=20260716-1";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260716-1";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260715-5";
+} from "./theme-catalog.js?v=20260716-1";
 
 const INTRO_HINTS = Object.freeze([
   "– Tap your color",
@@ -66,7 +66,7 @@ const MOTIVATIONAL_HINT_TONES = Object.freeze(["cyan", "pink", "gold", "green", 
 const MOTIVATIONAL_HINT_TILTS = Object.freeze([-3, 2, -2, 3, -1, 1]);
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260715-5";
+const APP_BUILD_ID = "20260716-1";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -75,6 +75,7 @@ const SOUND_FX_VOLUME_STORAGE_KEY = "speedytapper.soundFxVolume.v1";
 const MUSIC_STORAGE_KEY = "speedytapper.music.v1";
 const MUSIC_VOLUME_STORAGE_KEY = "speedytapper.musicVolume.v1";
 const MENU_MOTIVATION_STORAGE_KEY = "speedytapper.menuMotivation.v1";
+const MENU_MOTIVATION_ROTATION_MS = 5_000;
 const SPEED_RATING_ORDER = Object.freeze(["godlike", "perfect", "great", "good"]);
 const SPEED_RATING_LABELS = Object.freeze({
   godlike: "Godlike",
@@ -319,6 +320,7 @@ let musicEnabled = true;
 let musicVolume = 1;
 let menuMotivationUnlocked = readStoredPreference(MENU_MOTIVATION_STORAGE_KEY) === "unlocked";
 let motivationalHintIndex = null;
+let menuMotivationTimer = null;
 
 const sound = createSoundController();
 const music = createMusicController();
@@ -352,6 +354,11 @@ function setOverlayVisible(visible) {
   elements.overlay.hidden = !visible;
   elements.app.inert = visible;
   pets.setGameplayVisible(!visible);
+  if (visible && dialogView === "menu") {
+    scheduleMenuMotivationRotation();
+  } else {
+    clearMenuMotivationTimer();
+  }
 }
 
 function selectMotivationalHintIndex(previousIndex = null, randomValue = Math.random()) {
@@ -365,7 +372,41 @@ function selectMotivationalHintIndex(previousIndex = null, randomValue = Math.ra
   return nextIndex;
 }
 
+function clearMenuMotivationTimer() {
+  window.clearTimeout(menuMotivationTimer);
+  menuMotivationTimer = null;
+}
+
+function scheduleMenuMotivationRotation() {
+  clearMenuMotivationTimer();
+  if (
+    !menuMotivationUnlocked ||
+    dialogView !== "menu" ||
+    elements.overlay.hidden ||
+    document.hidden ||
+    !elements.dialogMessage.classList.contains("dialog__lead--motivation")
+  ) return;
+
+  menuMotivationTimer = window.setTimeout(() => {
+    menuMotivationTimer = null;
+    advanceMenuMotivation();
+  }, MENU_MOTIVATION_ROTATION_MS);
+}
+
+function advanceMenuMotivation() {
+  if (
+    !menuMotivationUnlocked ||
+    dialogView !== "menu" ||
+    elements.overlay.hidden ||
+    document.hidden ||
+    !elements.dialogMessage.classList.contains("dialog__lead--motivation")
+  ) return;
+  motivationalHintIndex = selectMotivationalHintIndex(motivationalHintIndex);
+  updateMotivationalHint();
+}
+
 function clearMenuHintPresentation() {
+  clearMenuMotivationTimer();
   elements.dialog.classList.remove("dialog--menu");
   elements.dialogTitle.classList.remove("dialog-title--menu");
   elements.dialogMessage.classList.remove(
@@ -398,10 +439,19 @@ function renderMenuHint() {
   if (!Number.isInteger(motivationalHintIndex)) {
     motivationalHintIndex = selectMotivationalHintIndex();
   }
-  const phrase = document.createElement("span");
-  phrase.className = "dialog-hint__motivation";
-  phrase.textContent = MOTIVATIONAL_HINTS[motivationalHintIndex];
   elements.dialogMessage.classList.add("dialog__lead--motivation");
+  updateMotivationalHint();
+}
+
+function updateMotivationalHint() {
+  let phrase = elements.dialogMessage.querySelector(".dialog-hint__motivation");
+  if (!(phrase instanceof HTMLButtonElement)) {
+    phrase = document.createElement("button");
+    phrase.type = "button";
+    phrase.className = "dialog-hint__motivation";
+    elements.dialogMessage.replaceChildren(phrase);
+  }
+  phrase.textContent = MOTIVATIONAL_HINTS[motivationalHintIndex];
   elements.dialogMessage.dataset.tone = MOTIVATIONAL_HINT_TONES[
     motivationalHintIndex % MOTIVATIONAL_HINT_TONES.length
   ];
@@ -409,7 +459,7 @@ function renderMenuHint() {
     "--hint-tilt",
     `${MOTIVATIONAL_HINT_TILTS[motivationalHintIndex % MOTIVATIONAL_HINT_TILTS.length]}deg`
   );
-  elements.dialogMessage.replaceChildren(phrase);
+  scheduleMenuMotivationRotation();
 }
 
 function unlockNextMenuMotivation() {
@@ -3220,7 +3270,11 @@ function stopRunForPageExit() {
 }
 
 function pauseForVisibilityChange() {
-  if (!document.hidden) return;
+  if (!document.hidden) {
+    scheduleMenuMotivationRotation();
+    return;
+  }
+  clearMenuMotivationTimer();
   stopRunForPageExit();
   sound.suspend();
   music.suspend();
@@ -3290,6 +3344,11 @@ elements.musicToggle.addEventListener("change", () => {
 elements.musicVolume.addEventListener("input", () => {
   applyMusicVolume(elements.musicVolume.value);
 });
+elements.dialogMessage.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest(".dialog-hint__motivation") === null) return;
+  advanceMenuMotivation();
+});
 elements.leaderboardToggle.addEventListener("click", () => {
   if (dialogView === "result" && pendingResult) {
     openResultLeaderboard();
@@ -3343,6 +3402,7 @@ document.addEventListener("pointerdown", (event) => {
   pets.handleNonGameTap(event.clientX, event.clientY);
 }, { capture: true });
 window.addEventListener("pagehide", () => {
+  clearMenuMotivationTimer();
   stopRunForPageExit();
   sound.suspend();
   music.suspend();

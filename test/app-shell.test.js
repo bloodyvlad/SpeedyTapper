@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260715-5");
+  assert.equal(buildId, "20260716-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -1067,12 +1067,23 @@ test("the main menu uses stable hints and unlocks motivation only after Arcade G
   }
 
   assert.match(mainSource, /MENU_MOTIVATION_STORAGE_KEY = "speedytapper\.menuMotivation\.v1"/);
+  assert.match(mainSource, /MENU_MOTIVATION_ROTATION_MS = 5_000/);
   assert.match(
     mainSource,
     /const isZenResult = localPractice && snapshot\.mode === GAME_MODES\.ZEN;\s*if \(!isZenResult\) unlockNextMenuMotivation\(\)/
   );
   assert.match(mainSource, /writeStoredPreference\(MENU_MOTIVATION_STORAGE_KEY, "unlocked"\)/);
   assert.match(mainSource, /function selectMotivationalHintIndex[\s\S]*nextIndex === previousIndex/);
+  assert.match(
+    mainSource,
+    /function scheduleMenuMotivationRotation\(\)[\s\S]*!menuMotivationUnlocked[\s\S]*dialogView !== "menu"[\s\S]*elements\.overlay\.hidden[\s\S]*document\.hidden[\s\S]*dialog__lead--motivation[\s\S]*MENU_MOTIVATION_ROTATION_MS/
+  );
+  assert.match(
+    mainSource,
+    /function advanceMenuMotivation\(\)[\s\S]*dialog__lead--motivation[\s\S]*selectMotivationalHintIndex\(motivationalHintIndex\)[\s\S]*updateMotivationalHint\(\)/
+  );
+  assert.match(mainSource, /phrase = document\.createElement\("button"\);[\s\S]*phrase\.type = "button"/);
+  assert.match(mainSource, /elements\.dialogMessage\.addEventListener\("click"[\s\S]*target\.closest\("\.dialog-hint__motivation"\)[\s\S]*advanceMenuMotivation\(\)/);
   assert.match(mainSource, /function setDialogView\(view\)[\s\S]*clearMenuHintPresentation\(\)[\s\S]*if \(view === "menu"\) renderMenuHint\(\)/);
   assert.match(
     stylesSource,
@@ -1083,6 +1094,10 @@ test("the main menu uses stable hints and unlocks motivation only after Arcade G
     /\.dialog\.dialog--menu > \.pet-scene--menu\s*\{[^}]*top:\s*calc\(clamp\(22px, 6vw, 32px\) \+ 65px\);/s
   );
   assert.match(stylesSource, /\.dialog__lead--motivation\s*\{[^}]*font-size:\s*1rem;[^}]*font-weight:\s*850;/s);
+  assert.match(stylesSource, /\.dialog__lead--intro \.dialog-hint__row\s*\{[^}]*0 0 8px rgba\(214, 218, 234, 0\.24\)[^}]*0 0 15px rgba\(98, 248, 255, 0\.12\)/s);
+  assert.match(stylesSource, /\.dialog-hint__motivation\s*\{[^}]*appearance:\s*none;[^}]*touch-action:\s*manipulation;/s);
+  assert.match(stylesSource, /\.dialog-hint__motivation:focus-visible\s*\{[^}]*outline:/s);
+  assert.match(stylesSource, /:root\[data-theme="light"\] \.dialog__lead--intro \.dialog-hint__row\s*\{[^}]*rgba\(21, 157, 199, 0\.18\)/s);
   assert.match(stylesSource, /\.dialog-hint__motivation\s*\{[^}]*rotate\(var\(--hint-tilt/s);
   assert.match(stylesSource, /:root\[data-theme="light"\] \.dialog__lead--motivation\[data-tone="cyan"\]/);
 });

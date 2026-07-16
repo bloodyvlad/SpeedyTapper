@@ -317,3 +317,15 @@ final result: local candidate `20260715-4` passed automated and responsive brows
 - Physical iPhone Safari/PWA confirmation remains required for perceived spacing, live authenticated pet presentation, and service-worker cache replacement before this release is described as device-validated.
 
 final result: release candidate `20260715-5` passed automated and responsive browser-runtime QA; Hostinger deployment and physical-iPhone validation remain pending
+
+## Release Candidate 20260716-1 Glowing Instructions and Rotating Slogans QA
+
+- This is pre-deployment candidate evidence. It does not by itself establish the active Hostinger deployment, and no physical-iPhone validation was performed.
+- The three-line first-run instruction keeps its fixed 112 px layout contract and gains a subtle cyan-white glow. The Light theme uses a lower-contrast blue shadow so the copy remains crisp on its near-white panel.
+- After the first Arcade Game Over, the motivational slogan is a real focusable button. It advances immediately when tapped or activated from the keyboard, and otherwise changes after every five seconds spent on the visible main menu without immediately repeating.
+- The recursive timer is cleared when the overlay or page is hidden, the app leaves the main menu, a run starts, or the page unloads. Returning from Settings starts a fresh five-second interval rather than consuming time spent off-menu.
+- Browser-runtime inspection passed at 375×667 and 320×568. The intro computed the intended two-layer glow; the learned slogan changed after 5.2 seconds and immediately on tap; it remained absent for 5.3 seconds in Settings, stayed unchanged one second after returning, then changed after the fresh five-second interval. The hint region remained exactly 112 px tall, both widths had zero horizontal overflow, and the browser console contained no warnings or errors.
+- `npm run check` passed on the complete `20260716-1` graph with 162 JavaScript tests and 163 PHP assertions. Composer validation/audit, every PHP syntax check, release-graph assertions, and `git diff --check` passed.
+- Physical iPhone Safari/PWA confirmation remains required for perceived glow strength, touch behavior, VoiceOver announcement, and service-worker cache replacement before this release is described as device-validated.
+
+final result: release candidate `20260716-1` passed automated and responsive browser-runtime QA; Hostinger deployment and physical-iPhone validation remain pending

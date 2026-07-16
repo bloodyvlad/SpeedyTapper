@@ -851,3 +851,16 @@ Decision: Move the entire fixed menu hint stage 10 px upward by reducing only it
 Consequences: The menu uses vertical space more efficiently without changing button spacing or producing a first-run/post-run jump. The companion sits closer to its intended visual center while Profile, Leaderboard, shops, Results, and gameplay retain their prior layouts. Physical-iPhone Safari/PWA review remains required for final perceived balance and scroll reach.
 
 Revisit when: The utility header height changes, localized hint copy needs a different stage, pet sizes diverge by companion, or the main menu is redesigned as a grid.
+
+## D-063 — Animate and directly advance learned menu slogans
+
+- Date: 2026-07-16
+- Status: Accepted
+
+Context: The three first-run instructions need slightly more presence against the themed menu surfaces, while a learned motivational slogan becomes static during longer menu visits. Rotation must not consume work during gameplay or hidden tabs, restart the five-second wait after direct interaction, or alter the fixed hint geometry.
+
+Decision: Give only the introductory instruction rows a restrained theme-aware text glow. After the local Arcade unlock, treat the motivational hint stage as one keyboard-focusable control: advance to a different approved slogan when tapped, clicked, or activated with Enter/Space, and automatically advance after five visible main-menu seconds. Reset the five-second timer after every advance. Stop the timer whenever the menu overlay is hidden, another dialog view opens, the document becomes hidden, or the page exits; resume a fresh interval when the visible main menu returns. Keep the existing pool, non-repeat selection, colors, tilts, 112 px stage, and Zen unlock exclusion.
+
+Consequences: New players retain stable instructional copy with a modest glow, while returning players see more of the playful slogan library without navigating away. The timer performs no background or gameplay work, direct interaction is accessible beyond touch, and slogan changes cannot move the controls below. Physical-iPhone Safari/PWA review remains required for glow restraint, touch behavior, timer suspension, and service-worker upgrade behavior.
+
+Revisit when: Slogans gain localization, animation transitions, per-player preferences, reduced-motion behavior beyond static replacement, or server-authored campaigns.

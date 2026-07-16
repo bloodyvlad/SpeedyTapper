@@ -1853,8 +1853,11 @@ h1 {
   align-items: flex-start;
 }
 
-.dialog-hint__row {
+.dialog__lead--intro .dialog-hint__row {
   display: block;
+  text-shadow:
+    0 0 8px rgba(214, 218, 234, 0.24),
+    0 0 15px rgba(98, 248, 255, 0.12);
 }
 
 .dialog__lead--motivation {
@@ -1866,11 +1869,29 @@ h1 {
 }
 
 .dialog-hint__motivation {
+  appearance: none;
   display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  touch-action: manipulation;
   transform: rotate(var(--hint-tilt, -2deg));
   transform-origin: left center;
   text-wrap: balance;
   text-shadow: 0 0 13px currentColor;
+  user-select: none;
+}
+
+.dialog-hint__motivation:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
 }
 
 .dialog__lead--motivation[data-tone="cyan"] .dialog-hint__motivation {
@@ -1915,6 +1936,10 @@ h1 {
 
 :root[data-theme="light"] .dialog-hint__motivation {
   text-shadow: 0 2px 8px rgba(64, 97, 121, 0.16);
+}
+
+:root[data-theme="light"] .dialog__lead--intro .dialog-hint__row {
+  text-shadow: 0 1px 8px rgba(21, 157, 199, 0.18);
 }
 
 .result-content[hidden],
