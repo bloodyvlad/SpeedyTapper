@@ -45,6 +45,20 @@ final class PlayerRepository
         }
     }
 
+    /** @return null|array{id: string, nicknameConfirmed: bool} */
+    public function findRunIdentity(string $playerId): ?array
+    {
+        $statement = $this->database->prepare(
+            'SELECT id, nickname_confirmed FROM players WHERE id = :id LIMIT 1'
+        );
+        $statement->execute(['id' => $playerId]);
+        $row = $statement->fetch();
+        return is_array($row) ? [
+            'id' => (string) $row['id'],
+            'nicknameConfirmed' => (bool) $row['nickname_confirmed'],
+        ] : null;
+    }
+
     public function findOrCreate(GoogleIdentity $identity): array
     {
         $subjectHash = hash('sha256', "google\0" . $identity->subject, true);

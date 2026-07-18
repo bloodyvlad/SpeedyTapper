@@ -76,6 +76,15 @@ final class AchievementService
         $this->unlock($playerId, AchievementCatalog::BUY_A_PET);
     }
 
+    public function currentPayload(string $playerId, int $coinBalance): array
+    {
+        return $this->formatPayload(
+            $playerId,
+            $this->achievementRows($playerId),
+            $coinBalance,
+        );
+    }
+
     public function claim(string $playerId, mixed $achievementId): array
     {
         $definition = AchievementCatalog::require($achievementId);

@@ -29,6 +29,22 @@ final class LeaderboardRepository
     public function payload(string $mode, ?string $playerId, ?string $contextEntryId = null): array
     {
         self::validateMode($mode);
+        if ($playerId === null && $contextEntryId === null) {
+            return $this->consistentRead(function () use ($mode): array {
+                $total = $this->countEntries($mode);
+                return [
+                    'season' => ['id' => $this->seasonId, 'name' => $this->seasonName],
+                    'mode' => $mode,
+                    'entries' => $this->publicTopEntries($mode),
+                    'totalEntries' => $total,
+                    'playerRank' => null,
+                    'topPercent' => null,
+                    'contextRank' => null,
+                    'contextTopPercent' => null,
+                    'contextEntryId' => null,
+                ];
+            });
+        }
         return $this->consistentRead(function () use ($mode, $playerId, $contextEntryId): array {
             $total = $this->countEntries($mode);
             $playerPlacement = $playerId === null
@@ -65,6 +81,16 @@ final class LeaderboardRepository
                 'contextEntryId' => $resolvedContextEntryId,
             ];
         });
+    }
+
+    public function topPayload(string $mode): array
+    {
+        self::validateMode($mode);
+        return [
+            'season' => ['id' => $this->seasonId, 'name' => $this->seasonName],
+            'mode' => $mode,
+            'entries' => $this->publicTopEntries($mode),
+        ];
     }
 
     public function rankings(string $playerId): array
@@ -236,6 +262,31 @@ final class LeaderboardRepository
         );
         $statement->execute(['season_id' => $this->seasonId, 'mode' => $mode]);
         return $statement->fetchAll();
+    }
+
+    private function publicTopEntries(string $mode): array
+    {
+        $order = $mode === 'normal'
+            ? 'e.score DESC, e.duration_ms DESC, e.correct_taps DESC, e.achieved_at ASC, e.id ASC'
+            : 'e.score DESC, e.correct_taps DESC, e.achieved_at ASC, e.id ASC';
+        $statement = $this->database->prepare(
+            'SELECT e.id, e.player_id, p.nickname, p.nickname_confirmed, ps.pet_id, e.mode, e.score, '
+            . 'e.duration_ms, e.fastest_reaction_ms, e.average_reaction_ms, e.correct_taps, '
+            . 'e.dodge_count, e.godlike_count, e.perfect_count, e.great_count, e.good_count, '
+            . 'e.achieved_at, e.verification_status '
+            . 'FROM leaderboard_entries e INNER JOIN players p ON p.id = e.player_id '
+            . 'LEFT JOIN player_pet_selection ps ON ps.player_id = e.player_id AND ps.is_visible = 1 '
+            . "WHERE e.season_id = :season_id AND e.mode = :mode "
+            . "AND e.verification_status IN ('legacy', 'verified') "
+            . 'ORDER BY ' . $order . ' LIMIT ' . LeaderboardWindow::TOP_COUNT
+        );
+        $statement->execute(['season_id' => $this->seasonId, 'mode' => $mode]);
+        $entries = [];
+        foreach ($statement->fetchAll() as $index => $row) {
+            $row['rank_position'] = $index + 1;
+            $entries[] = $this->publicEntry($row, null, null);
+        }
+        return $entries;
     }
 
     private static function rankingOrderSql(string $prefix = ''): string

@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260716-1");
+  assert.equal(buildId, "20260718-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -1100,6 +1100,30 @@ test("the main menu uses stable hints and unlocks motivation only after Arcade G
   assert.match(stylesSource, /:root\[data-theme="light"\] \.dialog__lead--intro \.dialog-hint__row\s*\{[^}]*rgba\(21, 157, 199, 0\.18\)/s);
   assert.match(stylesSource, /\.dialog-hint__motivation\s*\{[^}]*rotate\(var\(--hint-tilt/s);
   assert.match(stylesSource, /:root\[data-theme="light"\] \.dialog__lead--motivation\[data-tone="cyan"\]/);
+});
+
+test("normal play uses one ranked start and one ranked finish request", () => {
+  const startGameSource = mainSource.match(
+    /async function startGame\(mode\)[\s\S]*?(?=\nfunction showDodgeAward)/
+  )?.[0] ?? "";
+  const completedRunSource = mainSource.match(
+    /function presentCompletedRun\([\s\S]*?(?=\nfunction finishGame)/
+  )?.[0] ?? "";
+  const submitSource = mainSource.match(
+    /async function submitPendingResult\(\)[\s\S]*?(?=\nfunction loadGoogleIdentity)/
+  )?.[0] ?? "";
+  const sessionRefreshSource = mainSource.match(
+    /async function refreshProfileSession\(\)[\s\S]*?(?=\nfunction updateTopScore)/
+  )?.[0] ?? "";
+
+  assert.match(startGameSource, /profileClient\.startRun\(mode, APP_BUILD_ID\)/);
+  assert.doesNotMatch(startGameSource, /refreshTopScore/);
+  assert.doesNotMatch(completedRunSource, /refreshTopScore/);
+  assert.match(submitSource, /profileClient\.submitResult/);
+  assert.doesNotMatch(submitSource, /refreshProfileSession|getAchievements/);
+  assert.match(submitSource, /body\.achievementSnapshot/);
+  assert.doesNotMatch(sessionRefreshSource, /loadAchievements|getAchievements/);
+  assert.match(mainSource, /profileClient\.getTopScores\(mode\)/);
 });
 
 test("Classic and Disco gameplay tiles keep distinct material treatments", () => {

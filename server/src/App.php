@@ -34,6 +34,14 @@ final class App
             JsonResponse::send(200, $this->sessionPayload());
         }
 
+        if ($request->method === 'GET' && $request->path === '/api/top-scores') {
+            JsonResponse::send(
+                200,
+                $this->leaderboard->topPayload($this->modeFromQuery($request)),
+                ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'],
+            );
+        }
+
         if ($request->method === 'POST' && $request->path === '/api/auth/google') {
             $this->guardMutation($request);
             $body = $request->json();
@@ -151,8 +159,10 @@ final class App
         if ($request->path === '/api/leaderboard' && $request->method === 'GET') {
             $mode = $this->modeFromQuery($request);
             $playerId = $this->session->playerId();
-            if ($playerId !== null && $this->players->find($playerId) === null) {
+            $this->session->close();
+            if ($playerId !== null && $this->players->findRunIdentity($playerId) === null) {
                 $this->session->logout();
+                $this->session->close();
                 $playerId = null;
             }
             JsonResponse::send(200, $this->leaderboard->payload($mode, $playerId));
@@ -160,8 +170,10 @@ final class App
 
         if ($request->path === '/api/achievements' && $request->method === 'GET') {
             $playerId = $this->session->playerId();
-            if ($playerId !== null && $this->players->find($playerId) === null) {
+            $this->session->close();
+            if ($playerId !== null && $this->players->findRunIdentity($playerId) === null) {
                 $this->session->logout();
+                $this->session->close();
                 $playerId = null;
             }
             JsonResponse::send(200, $this->achievements->payload($playerId));
@@ -179,14 +191,11 @@ final class App
 
         if ($request->path === '/api/runs' && $request->method === 'POST') {
             $this->guardMutation($request);
-            $profile = $this->requirePlayer();
-            if (($profile['nicknameConfirmed'] ?? false) !== true) {
-                throw new ApiException(409, 'Choose a public nickname before starting a ranked run.');
-            }
+            [$playerId, $sessionBindingHash] = $this->rankedRunContext(false);
             $body = $request->json();
             JsonResponse::send(201, $this->attempts->start(
-                $profile['id'],
-                $this->session->runBindingHash(),
+                $playerId,
+                $sessionBindingHash,
                 $body['mode'] ?? null,
                 $body['buildId'] ?? null,
             ));
@@ -194,8 +203,10 @@ final class App
 
         if ($request->path === '/api/runs/abandon' && $request->method === 'POST') {
             $this->guardMutation($request);
+            $sessionBindingHash = $this->session->runBindingHash();
+            $this->session->close();
             $this->attempts->abandon(
-                $this->session->runBindingHash(),
+                $sessionBindingHash,
                 $request->json()['runId'] ?? null,
             );
             JsonResponse::send(200, ['abandoned' => true]);
@@ -203,17 +214,13 @@ final class App
 
         if ($request->path === '/api/runs/finish' && $request->method === 'POST') {
             $this->guardMutation($request);
-            $profile = $this->requirePlayer();
-            if (($profile['nicknameConfirmed'] ?? false) !== true) {
-                throw new ApiException(409, 'Choose a public nickname before saving a score.');
-            }
             // Count the request before parsing or normalizing its proof so malformed
             // authenticated bodies cannot repeatedly consume replay CPU for free.
-            $this->session->requireRunFinishCapacity();
+            [$playerId, $sessionBindingHash] = $this->rankedRunContext(true);
             $proof = RunProof::fromArray($request->json());
             $result = $this->runs->submit(
-                $profile['id'],
-                $this->session->runBindingHash(),
+                $playerId,
+                $sessionBindingHash,
                 $proof,
             );
             JsonResponse::send($result['duplicate'] ? 200 : 201, $result);
@@ -325,11 +332,14 @@ final class App
     private function sessionPayload(): array
     {
         $playerId = $this->session->playerId();
+        $csrfToken = $this->session->csrfToken();
+        $this->session->close();
         $profile = $playerId === null ? null : $this->players->find($playerId);
         if ($playerId !== null && $profile === null) {
             $this->session->logout();
+            $csrfToken = $this->session->csrfToken();
+            $this->session->close();
         }
-        $csrfToken = $this->session->csrfToken();
 
         return [
             'authenticated' => $profile !== null,
@@ -338,6 +348,9 @@ final class App
             'season' => ['id' => $this->config->seasonId, 'name' => $this->config->seasonName],
             'profile' => $profile,
             'ranks' => $profile === null ? null : $this->leaderboard->rankings($profile['id']),
+            'achievementSnapshot' => $profile === null
+                ? $this->achievements->payload(null)
+                : $this->achievements->currentPayload($profile['id'], (int) $profile['coins']),
         ];
     }
 
@@ -358,6 +371,38 @@ final class App
             throw new ApiException(401, 'Sign in with Google to continue.');
         }
         return $profile;
+    }
+
+    /** @return array{string, string} */
+    private function rankedRunContext(bool $countFinishRequest): array
+    {
+        $playerId = $this->session->playerId();
+        if ($playerId === null) {
+            $this->session->close();
+            throw new ApiException(401, 'Sign in with Google to continue.');
+        }
+        if ($countFinishRequest) {
+            $this->session->requireRunFinishCapacity();
+        }
+        $sessionBindingHash = $this->session->runBindingHash();
+        $this->session->close();
+
+        $identity = $this->players->findRunIdentity($playerId);
+        if ($identity === null) {
+            $this->session->logout();
+            $this->session->close();
+            throw new ApiException(401, 'Sign in with Google to continue.');
+        }
+        if (($identity['nicknameConfirmed'] ?? false) !== true) {
+            throw new ApiException(
+                409,
+                $countFinishRequest
+                    ? 'Choose a public nickname before saving a score.'
+                    : 'Choose a public nickname before starting a ranked run.',
+            );
+        }
+
+        return [$playerId, $sessionBindingHash];
     }
 
     private function requireAdmin(bool $requireRecentGoogleAuthentication = false): array

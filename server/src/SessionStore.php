@@ -155,6 +155,17 @@ final class SessionStore
         }
     }
 
+    public function close(): void
+    {
+        if (!$this->started) {
+            return;
+        }
+        if (!session_write_close()) {
+            throw new ApiException(503, 'Session storage could not be released.');
+        }
+        $this->started = false;
+    }
+
     private function runBinding(): string
     {
         $this->start();

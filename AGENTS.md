@@ -128,9 +128,9 @@ Production deployment requires explicit user authorization.
 4. Confirm the source tree for deployment is clean.
 5. Prefer merged `main`; for a manual release, deploy from an isolated worktree checked out at the exact commit.
 6. Build a root-flat, allowlisted runtime artifact from `git archive` of that commit in temporary staging. Never package the checkout, tests, docs, package files, non-runtime audio masters, or `assets/pets/sources/` art masters.
-7. Install production Composer dependencies in staging and inject the ignored runtime config only into staging. Prefer `~/.config/speedytapper/config.php`; for MCP-only deployment, protected `server/config.local.php` is permitted only when it remains untracked and direct `/server` probes are denied after deployment.
+7. Install production Composer dependencies in staging, inject the ignored runtime config only into staging, and add the artifact-only `server/.migrations-pending` marker there. Never create that marker in the source checkout. Prefer `~/.config/speedytapper/config.php`; for MCP-only deployment, protected `server/config.local.php` is permitted only when it remains untracked and direct `/server` probes are denied after deployment.
 8. Deploy through Hostinger MCP `hosting_deployStaticWebsite` to the exact independent addon website `speedytapper.otcsoft.com`, never to `otcsoft.com` and never to a nested parent-site directory.
-9. Let the shared migration runner apply pending idempotent migrations under its advisory lock, then purge only the SpeedyTapper website cache.
+9. Call an API route once so the artifact marker triggers the shared migration runner and configured-season upsert under its advisory lock; verify the marker was consumed, then purge only the SpeedyTapper website cache. Ordinary requests must not run migration checks.
 10. Smoke-test HTTPS, build ID, service worker, required assets, denied config/internal paths, PHP health/session routes, Google sign-in, and both leaderboard modes.
 11. Record the commit SHA, build ID, artifact SHA-256, Hostinger target/path, migration/season ID, and previous immutable Vercel rollback deployment.
 12. Retain the previous immutable Vercel deployment until the Hostinger release is verified.

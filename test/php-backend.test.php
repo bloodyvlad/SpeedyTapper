@@ -583,7 +583,7 @@ foreach ([
 }
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(
@@ -598,11 +598,13 @@ $assert(
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
 $assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
 $assert(
-    preg_match('~requireRunFinishCapacity\(\).*?RunProof::fromArray~s', $app) === 1,
+    preg_match('~rankedRunContext\(true\).*?RunProof::fromArray~s', $app) === 1
+        && preg_match('~if \(\$countFinishRequest\).*?requireRunFinishCapacity\(\).*?session->close\(\)~s', $app) === 1,
     'Finish requests consume pre-parse session capacity before proof normalization.',
 );
 $assert(
-    preg_match("~'/api/runs'.*?requirePlayer\(\).*?nicknameConfirmed.*?attempts->start~s", $app) === 1,
+    preg_match("~'/api/runs'.*?rankedRunContext\(false\).*?attempts->start~s", $app) === 1
+        && str_contains($app, "\$identity['nicknameConfirmed']"),
     'Only an authenticated player with a confirmed nickname can issue a ranked attempt.',
 );
 
@@ -816,7 +818,35 @@ $migrationStatements = MigrationRunner::splitStatements(
 $assert(count($migrationStatements) === 2, 'Migration SQL is split into executable statements.');
 
 $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
+$deploymentBootstrap = file_get_contents(dirname(__DIR__) . '/server/src/DeploymentBootstrap.php');
 $assert(str_contains($apiBootstrap, 'new RunAttemptService') && str_contains($apiBootstrap, 'new RunProofValidator'), 'The HTTP API wires issued attempts to server proof replay.');
+$assert(
+    is_string($deploymentBootstrap)
+        && str_contains($deploymentBootstrap, "server/.migrations-pending")
+        && str_contains($deploymentBootstrap, 'MigrationRunner')
+        && str_contains($deploymentBootstrap, 'ensureSeason')
+        && str_contains($apiBootstrap, 'DeploymentBootstrap::migrateIfMarked')
+        && !str_contains($apiBootstrap, 'new MigrationRunner')
+        && !str_contains($apiBootstrap, '$leaderboard->ensureSeason()'),
+    'Normal API requests skip migration and season writes unless a deployment artifact marker exists.',
+);
+$leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
+$assert(
+    is_string($leaderboardRepository)
+        && str_contains($leaderboardRepository, 'public function topPayload')
+        && str_contains($leaderboardRepository, 'ORDER BY ' . "' . \$order . '" . ' LIMIT ')
+        && str_contains($app, "'Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'"),
+    'Public top-five reads use a bounded ordered query and short shared-cache headers.',
+);
+$sessionStoreSource = file_get_contents(dirname(__DIR__) . '/server/src/SessionStore.php');
+$assert(
+    is_string($sessionStoreSource)
+        && str_contains($sessionStoreSource, 'public function close(): void')
+        && str_contains($sessionStoreSource, 'session_write_close()')
+        && str_contains($app, 'findRunIdentity')
+        && str_contains($app, '$this->session->close();'),
+    'Ranked request authentication is lightweight and releases PHP session locks before database work.',
+);
 $assert(
     str_contains($apiBootstrap, 'new PetShopService')
         && str_contains($apiBootstrap, 'new ThemeShopService')

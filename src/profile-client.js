@@ -79,6 +79,11 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
     return request(path, jsonRequest(method, body, csrfToken));
   };
 
+  const publicRequest = async (path) => readJson(await fetchImpl(path, {
+    credentials: "omit",
+    headers: { Accept: "application/json" }
+  }));
+
   return Object.freeze({
     getSession() {
       return request("/api/session");
@@ -148,6 +153,10 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
 
     getLeaderboard(mode) {
       return request(`/api/leaderboard?mode=${encodeURIComponent(mode)}`);
+    },
+
+    getTopScores(mode) {
+      return publicRequest(`/api/top-scores?mode=${encodeURIComponent(mode)}`);
     },
 
     getAdminLeaderboard({ view = "all", mode = "all", status = "all", offset = 0, limit = 100 } = {}) {

@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260716-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260716-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260718-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260718-1";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260716-1";
+} from "./input-timing.js?v=20260718-1";
 import {
   getPet,
   isPetId,
@@ -16,18 +16,18 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260716-1";
-import { createPetController } from "./pet-controller.js?v=20260716-1";
-import { createSoundController } from "./sound-controller.js?v=20260716-1";
-import { createMusicController } from "./music-controller.js?v=20260716-1";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260716-1";
+} from "./pet-catalog.js?v=20260718-1";
+import { createPetController } from "./pet-controller.js?v=20260718-1";
+import { createSoundController } from "./sound-controller.js?v=20260718-1";
+import { createMusicController } from "./music-controller.js?v=20260718-1";
+import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260718-1";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260716-1";
+} from "./theme-catalog.js?v=20260718-1";
 
 const INTRO_HINTS = Object.freeze([
   "– Tap your color",
@@ -66,7 +66,7 @@ const MOTIVATIONAL_HINT_TONES = Object.freeze(["cyan", "pink", "gold", "green", 
 const MOTIVATIONAL_HINT_TILTS = Object.freeze([-3, 2, -2, 3, -1, 1]);
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260716-1";
+const APP_BUILD_ID = "20260718-1";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -819,7 +819,6 @@ async function startGame(mode) {
   clearTimers();
   void sound.startRun();
   void music.startRun();
-  if (mode === GAME_MODES.NORMAL) void refreshTopScore(mode);
   abandonCurrentRun();
   const startRequestId = runStartRequestId + 1;
   runStartRequestId = startRequestId;
@@ -1231,7 +1230,6 @@ function presentCompletedRun(snapshot, currentSession, { localPractice = false }
   setDialogView("result");
   selectLeaderboardMode(snapshot.mode);
   renderResultMessage(pendingResult);
-  if (!isZenResult) void refreshTopScore(snapshot.mode);
   closeLeaderboard();
   elements.mainMenuContent.hidden = true;
   elements.resultContent.hidden = false;
@@ -2660,15 +2658,17 @@ async function refreshProfileSession() {
   invalidatePetShopMutation();
   invalidateThemeShopMutation();
   try {
-    profileSession = normalizeProfileSession(await profileClient.getSession());
+    const body = await profileClient.getSession();
+    profileSession = normalizeProfileSession(body);
+    achievementsPayload = body.achievementSnapshot ?? null;
   } catch {
     profileSession = normalizeProfileSession({ authenticated: false });
+    achievementsPayload = null;
   }
   renderUtilityRank();
   renderProfile();
   renderResultSaveState();
   renderAchievements();
-  void loadAchievements({ showLoading: false });
   if (hasConfirmedProfile() && pendingResult && !pendingResult.submitted) {
     void submitPendingResult();
   }
@@ -2691,7 +2691,7 @@ async function refreshTopScore(mode) {
   const revision = topScoreRevisions[mode] + 1;
   topScoreRevisions[mode] = revision;
   try {
-    const body = await profileClient.getLeaderboard(mode);
+    const body = await profileClient.getTopScores(mode);
     updateTopScore(mode, body.entries, revision);
   } catch {
     // Gameplay stays available if the shared leaderboard is temporarily offline.
@@ -2867,17 +2867,38 @@ async function submitPendingResult() {
     submittedResult.leaderboardTotalEntries = body.totalEntries;
     submittedResult.coinsEarned = Number.isInteger(body.coinsEarned) ? body.coinsEarned : 0;
     if (Number.isInteger(body.coinBalance) && body.coinBalance >= 0) {
+      const nextProfile = profileSession.profile === null ? null : {
+        ...profileSession.profile,
+        coins: body.coinBalance,
+        totalPlayMs: Number.isInteger(body.totalPlayMs)
+          ? body.totalPlayMs
+          : profileSession.profile.totalPlayMs
+      };
       profileSession = normalizeProfileSession({
         ...profileSession,
-        coinBalance: body.coinBalance
+        profile: nextProfile,
+        coinBalance: body.coinBalance,
+        ranks: {
+          ...profileSession.ranks,
+          [body.mode]: {
+            rank: body.playerRank ?? null,
+            totalEntries: body.totalEntries ?? 0,
+            topPercent: body.topPercent ?? null,
+            entries: body.entries ?? []
+          }
+        }
       });
       renderUtilityRank();
+      renderProfile();
+    }
+    if (body.achievementSnapshot?.authenticated === true) {
+      achievementsPayload = body.achievementSnapshot;
+      renderAchievements();
     }
     topScoreRevisions[body.mode] += 1;
     updateTopScore(body.mode, body.entries);
     if (pendingResult === submittedResult) {
       renderResultSaveState();
-      await refreshProfileSession();
     }
   } catch (error) {
     submittedResult.submitting = false;
@@ -2972,9 +2993,9 @@ async function handleGoogleCredential(response) {
   if (!credential) return;
   elements.profileAuthStatus.textContent = "Signing in…";
   try {
-    profileSession = normalizeProfileSession(
-      await profileClient.loginWithGoogleCredential(credential)
-    );
+    const body = await profileClient.loginWithGoogleCredential(credential);
+    profileSession = normalizeProfileSession(body);
+    achievementsPayload = body.achievementSnapshot ?? null;
     renderUtilityRank();
     renderProfile();
     renderResultSaveState();
@@ -3120,12 +3141,11 @@ async function logoutProfile() {
     const body = await profileClient.logout();
     globalThis.google?.accounts?.id?.disableAutoSelect?.();
     profileSession = normalizeProfileSession(body);
-    achievementsPayload = null;
+    achievementsPayload = body.achievementSnapshot ?? null;
     renderUtilityRank();
     renderProfile();
     renderResultSaveState();
     renderAchievements();
-    void loadAchievements({ showLoading: false });
     void renderGoogleButtons();
   } catch (error) {
     elements.profileStatus.textContent = error.message;

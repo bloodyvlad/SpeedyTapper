@@ -864,3 +864,18 @@ Decision: Give only the introductory instruction rows a restrained theme-aware t
 Consequences: New players retain stable instructional copy with a modest glow, while returning players see more of the playful slogan library without navigating away. The timer performs no background or gameplay work, direct interaction is accessible beyond touch, and slogan changes cannot move the controls below. Physical-iPhone Safari/PWA review remains required for glow restraint, touch behavior, timer suspension, and service-worker upgrade behavior.
 
 Revisit when: Slogans gain localization, animation transitions, per-player preferences, reduced-motion behavior beyond static replacement, or server-authored campaigns.
+
+## D-064 — Keep gameplay API traffic bounded and move migrations to deployment bootstrap
+
+- Date: 2026-07-18
+- Status: Accepted
+
+Context: Production load probes showed that proof replay itself remained inexpensive, but Hostinger's dynamic PHP path degraded sharply under modest concurrency. Every request also opened MySQL, inspected all migrations, and upserted the season. A normal run caused redundant leaderboard, session, and achievement requests around the two authoritative start/finish mutations. Personalized top-score reads used session/profile work and a window-ranked query even when the HUD needed only the public leader.
+
+Decision: Preserve the existing chronological proof, server clock, one-time run, economy, and moderation rules. Gate production migration checks behind an untracked `server/.migrations-pending` file created only in the staged release artifact. The first API request that sees it runs the advisory-locked migration sequence, ensures the configured season, and removes the marker; normal requests perform neither operation. Local and shell-capable environments continue to run the migration CLI explicitly.
+
+Add a session-free `GET /api/top-scores` endpoint backed by a mode-specific ordered `LIMIT 5` query and five-second browser/ten-second shared caching. Keep personalized leaderboard windows on the existing endpoint, but use the same indexed top-five path for signed-out reads. Ranked start and finish capture the player/session binding, apply finish throttling before proof parsing, close the PHP session, and then use a lightweight nickname-confirmation lookup before database work. One Arcade run therefore uses one start mutation and one finish mutation; the finish response includes rank, balance, total verified time, and the current achievement snapshot so the browser does not immediately refetch them. Initial menu state uses one session response plus the cacheable public top-score read.
+
+Consequences: Request count and per-request schema/profile work drop substantially without weakening score verification or changing gameplay. Different players no longer pay pet/theme hydration during ranked authentication, and same-session PHP locks do not cover proof replay or ranking queries. The small public cache may show a leader up to roughly ten seconds late, while a submitted result still receives exact uncached context. This is capacity hardening, not evidence that shared Hostinger PHP can sustain 1,000 concurrent active players; production load must be repeated after deployment, and a dedicated runtime/database remains the next step if tail latency is still unacceptable.
+
+Revisit when: Deployment gains a shell migration hook, public leaderboard invalidation needs event-driven freshness, Hostinger exposes worker/database limits, or measured concurrency justifies a dedicated API service, Redis, queueing, or managed database.

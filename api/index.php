@@ -7,12 +7,12 @@ use SpeedyTapper\AchievementService;
 use SpeedyTapper\App;
 use SpeedyTapper\Config;
 use SpeedyTapper\Database;
+use SpeedyTapper\DeploymentBootstrap;
 use SpeedyTapper\GoogleClientIdentityVerifier;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\LeaderboardModerationService;
-use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\PetShopService;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\RunSubmissionService;
@@ -32,13 +32,12 @@ try {
     $request = HttpRequest::fromGlobals();
     $config = Config::load($projectRoot);
     $database = Database::connect($config);
-    (new MigrationRunner($database, $projectRoot . '/server/migrations'))->run();
     $leaderboard = new LeaderboardRepository(
         $database,
         $config->seasonId,
         $config->seasonName,
     );
-    $leaderboard->ensureSeason();
+    DeploymentBootstrap::migrateIfMarked($database, $projectRoot, $leaderboard);
     $achievements = new AchievementService($database);
     $pets = new PetShopService($database, $achievements);
     $themes = new ThemeShopService($database);

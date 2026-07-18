@@ -19,7 +19,7 @@ npm run check:php
 
 Run `php server/bin/purge-run-attempts.php --apply` from a daily Hostinger cron job. It deletes only bounded batches of unranked stale attempt metadata (7-day abandoned/expired retention and 30-day rejected retention); dry-run is the default, and completed/ranked/reviewed runs are never eligible.
 
-The API automatically applies pending migrations before dispatch, serialized with a database-scoped advisory lock. The CLI uses the same runner for explicit maintenance. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; `010` keeps the selected pet while persisting whether it is shown; and `011` adds database roles, paginated web moderation, immutable account reward-reset audits, and economy generations. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+Production artifacts contain an untracked `server/.migrations-pending` marker. Only an API request that sees that marker runs the shared migration runner, ensures the configured season, and removes the marker after success. Ordinary requests do not inspect `schema_migrations` or write the season row. The database advisory lock still serializes concurrent first requests. Local and shell-capable environments run `php server/bin/migrate.php` explicitly. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; `010` keeps the selected pet while persisting whether it is shown; and `011` adds database roles, paginated web moderation, immutable account reward-reset audits, and economy generations. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
 
 Migration `012` extends that sequence with the authoritative theme catalog, paid ownership/selection, `theme_purchase` ledger events, and theme-aware reset audits. It does not clear leaderboard results.
 
@@ -27,7 +27,7 @@ Migration `013` gives the original migration-011 bootstrap administrator zero-pr
 
 ## API contract
 
-All responses are JSON with `Cache-Control: no-store`. Mutations accept same-origin JSON and require the `X-SpeedyTapper-CSRF` token returned by the session endpoint. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services supplies the `credential` ID token, which is verified server-side by `google/apiclient` against the configured Web client ID. Login regenerates the cookie session ID and rotates CSRF state. Ranked attempts can only be issued after sign-in and nickname confirmation; a signed-out run is local practice and cannot be promoted later.
+All private and personalized responses are JSON with `Cache-Control: no-store`. The public `GET /api/top-scores` response permits a short five-second browser cache and ten-second shared cache. Mutations accept same-origin JSON and require the `X-SpeedyTapper-CSRF` token returned by the session endpoint. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services supplies the `credential` ID token, which is verified server-side by `google/apiclient` against the configured Web client ID. Login regenerates the cookie session ID and rotates CSRF state. Ranked attempts can only be issued after sign-in and nickname confirmation; a signed-out run is local practice and cannot be promoted later. PHP session locks are released before ranked proof or leaderboard database work.
 
 ### `GET /api/session`
 
@@ -55,7 +55,7 @@ Always public. The Google client ID is intentionally public configuration.
     }
 ```
 
-When signed out, `authenticated` is false and `profile` and `ranks` are null.
+The response also includes `achievementSnapshot`, allowing the menu to render claim status without a second API request. When signed out, `authenticated` is false and `profile` and `ranks` are null.
 
 ### `POST /api/auth/google`
 
@@ -104,9 +104,13 @@ Returns the top five and, when signed in and ranked, the player's best result wi
 }
 ```
 
+### `GET /api/top-scores?mode=normal|zen`
+
+Returns only the public top-five entries and never opens a PHP session or reads a player profile. The mode-specific ordered query is index-bounded, and the response is cacheable for five seconds in a browser and ten seconds in a shared cache. Gameplay uses this endpoint only to seed the HUD's best score; the full leaderboard view continues to use the personalized endpoint above.
+
 ### `POST /api/runs`
 
-Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260716-1" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260718-1" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -120,7 +124,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260716-1",
+  "buildId": "20260718-1",
   "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [
@@ -132,7 +136,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 }
 ```
 
-Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Active ranked proofs are Arcade-only and require the third life loss. The server refuses both ranked Zen ticket creation and Zen result submission; Zen runs locally as endless no-decoy practice and never enter the proof, leaderboard, achievement, or coin paths. The validator retains support for historical three-minute Zen proofs only so existing audit data and deterministic legacy checks remain interpretable. The server clock must cover an Arcade proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, and `verifiedResult`. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
+Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Active ranked proofs are Arcade-only and require the third life loss. The server refuses both ranked Zen ticket creation and Zen result submission; Zen runs locally as endless no-decoy practice and never enter the proof, leaderboard, achievement, or coin paths. The validator retains support for historical three-minute Zen proofs only so existing audit data and deterministic legacy checks remain interpretable. The server clock must cover an Arcade proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, `verifiedResult`, and the current achievement snapshot. The browser patches its current profile/rank state from this response instead of immediately requesting session, achievements, and leaderboard again. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
 
 ### `GET /api/achievements` and `POST /api/achievements/claim`
 

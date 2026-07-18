@@ -28,6 +28,21 @@ test("profile client keeps authenticated requests same-origin and uncached", asy
   assert.equal(calls[0][1].cache, "no-store");
 });
 
+test("public top scores omit credentials and permit short HTTP caching", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      return response({ mode: "normal", entries: [] });
+    }
+  });
+
+  await client.getTopScores("normal");
+  assert.equal(calls[0][0], "/api/top-scores?mode=normal");
+  assert.equal(calls[0][1].credentials, "omit");
+  assert.equal("cache" in calls[0][1], false);
+});
+
 test("Google login initializes CSRF and sends only the credential as JSON", async () => {
   const calls = [];
   const client = createProfileClient({
@@ -66,7 +81,7 @@ test("verified run submissions contain proof rather than authoritative score agg
     mode: "normal",
     proofVersion: 1,
     ruleset: "reaction-proof-v2",
-    buildId: "20260716-1",
+    buildId: "20260718-1",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -90,11 +105,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("normal", "20260716-1");
+  await client.startRun("normal", "20260718-1");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260716-1" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260718-1" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
