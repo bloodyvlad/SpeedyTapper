@@ -58,6 +58,8 @@ $config = new Config(
     seasonId: 'season-1',
     seasonName: 'Season 1',
     storeKitEnvironment: 'Sandbox',
+    storeKitAppAppleId: '6792328590',
+    storeKitEnvironments: ['Sandbox', 'Production'],
     storeKitProducts: $products,
     storeKitRetentionHmacKey: str_repeat('r', 32),
     storeKitRootCertificatePaths: [$fixture . '/root.pem'],
@@ -66,7 +68,26 @@ $config = new Config(
     storeKitPrivateKeyPath: $fixture . '/leaf-key.pem',
 );
 
-$client = new AppStoreServerApiClient($config);
+$client = new AppStoreServerApiClient($config, 'Sandbox');
+$productionClient = new AppStoreServerApiClient($config, 'Production');
+$baseUrlMethod = new ReflectionMethod($client, 'baseUrl');
+$assert(
+    $baseUrlMethod->invoke($client) === 'https://api.storekit-sandbox.apple.com'
+    && $baseUrlMethod->invoke($productionClient) === 'https://api.storekit.apple.com',
+    'Sandbox and Production clients use distinct Apple API origins concurrently.',
+);
+$invalidTestTokenRejected = false;
+try {
+    $client->testNotificationStatus('invalid token');
+} catch (InvalidArgumentException) {
+    $invalidTestTokenRejected = true;
+}
+$assert(
+    $invalidTestTokenRejected
+    && method_exists($client, 'requestTestNotification')
+    && method_exists($client, 'testNotificationStatus'),
+    'Environment-bound test-notification request/status helpers reject unsafe tokens.',
+);
 $jwtMethod = new ReflectionMethod($client, 'jwt');
 $before = time();
 $jwt = $jwtMethod->invoke($client);

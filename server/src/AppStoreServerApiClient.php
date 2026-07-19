@@ -8,11 +8,40 @@ use OpenSSLAsymmetricKey;
 
 final class AppStoreServerApiClient
 {
-    public function __construct(private readonly Config $config)
+    public function __construct(
+        private readonly Config $config,
+        private readonly string $environment,
+    )
     {
         if (!$config->storeKitServerApiIsConfigured()) {
             throw new \InvalidArgumentException('App Store Server API configuration is incomplete.');
         }
+        if (!$config->acceptsStoreKitEnvironment($environment)) {
+            throw new \InvalidArgumentException('App Store Server API environment is not accepted.');
+        }
+    }
+
+    public function requestTestNotification(): string
+    {
+        $response = $this->request('POST', '/inApps/v1/notifications/test');
+        $token = $response['testNotificationToken'] ?? null;
+        if (!is_string($token) || $token === '' || strlen($token) > 256) {
+            throw new \RuntimeException('Apple returned no test-notification token.');
+        }
+        return $token;
+    }
+
+    public function testNotificationStatus(string $token): array
+    {
+        if ($token === '' || strlen($token) > 256
+            || preg_match('/^[A-Za-z0-9._-]+$/D', $token) !== 1
+        ) {
+            throw new \InvalidArgumentException('App Store test-notification token is invalid.');
+        }
+        return $this->request(
+            'GET',
+            '/inApps/v1/notifications/test/' . rawurlencode($token),
+        );
     }
 
     public function getTransactionInfo(string $transactionId): string
@@ -64,10 +93,7 @@ final class AppStoreServerApiClient
 
     private function request(string $method, string $path, ?array $body = null): array
     {
-        $base = $this->config->storeKitEnvironment === 'Sandbox'
-            ? 'https://api.storekit-sandbox.apple.com'
-            : 'https://api.storekit.apple.com';
-        $url = $base . $path;
+        $url = $this->baseUrl() . $path;
         $encodedBody = $body === null ? null : json_encode($body, JSON_THROW_ON_ERROR);
 
         for ($attempt = 1; $attempt <= 3; $attempt++) {
@@ -111,6 +137,13 @@ final class AppStoreServerApiClient
             throw new \RuntimeException('Apple API request failed with error ' . $code . '.');
         }
         throw new \RuntimeException('Apple API request failed.');
+    }
+
+    private function baseUrl(): string
+    {
+        return $this->environment === 'Sandbox'
+            ? 'https://api.storekit-sandbox.apple.com'
+            : 'https://api.storekit.apple.com';
     }
 
     private function jwt(): string

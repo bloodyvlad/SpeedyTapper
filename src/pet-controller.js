@@ -1,4 +1,4 @@
-import { getPet, isPetId, isSpecialPetId } from "./pet-catalog.js?v=20260719-2";
+import { getPet, isPetId, isSpecialPetId } from "./pet-catalog.js?v=20260719-3";
 
 export const LEGACY_MISHA_NICKNAME = "misha_boy";
 export const PET_IDLE_DELAY_MS = 5_000;

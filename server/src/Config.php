@@ -24,6 +24,7 @@ final readonly class Config
         public ?string $storeKitIssuerId = null,
         public ?string $storeKitKeyId = null,
         public ?string $storeKitPrivateKeyPath = null,
+        public array $storeKitEnvironments = [],
     ) {
     }
 
@@ -102,13 +103,41 @@ final readonly class Config
             throw new ApiException(503, 'StoreKit bundle configuration is invalid.');
         }
         $storeKitEnvironment = $optional('SPEEDYTAPPER_STOREKIT_ENVIRONMENT');
-        if ($storeKitEnvironment !== null && !in_array(
-            $storeKitEnvironment,
-            ['Sandbox', 'Production'],
-            true,
-        )) {
+        $configuredEnvironments = $local['SPEEDYTAPPER_STOREKIT_ENVIRONMENTS'] ?? null;
+        $environmentsValue = getenv('SPEEDYTAPPER_STOREKIT_ENVIRONMENTS');
+        if ($environmentsValue !== false) {
+            $configuredEnvironments = explode(',', $environmentsValue);
+        }
+        if ($configuredEnvironments === null && $storeKitEnvironment !== null) {
+            $configuredEnvironments = [$storeKitEnvironment];
+        }
+        if (is_string($configuredEnvironments)) {
+            $configuredEnvironments = explode(',', $configuredEnvironments);
+        }
+        if ($configuredEnvironments === null) {
+            $configuredEnvironments = [];
+        }
+        if (!is_array($configuredEnvironments)) {
             throw new ApiException(503, 'StoreKit environment configuration is invalid.');
         }
+        $storeKitEnvironments = array_values(array_unique(array_map(
+            static function (mixed $environment): string {
+                if (!is_string($environment)
+                    || !in_array(trim($environment), ['Sandbox', 'Production'], true)
+                ) {
+                    throw new ApiException(503, 'StoreKit environment configuration is invalid.');
+                }
+                return trim($environment);
+            },
+            $configuredEnvironments,
+        )));
+        if ($storeKitEnvironment !== null && !in_array($storeKitEnvironment, $storeKitEnvironments, true)) {
+            throw new ApiException(503, 'StoreKit environment configuration is invalid.');
+        }
+        // Keep the singular property as a compatibility/default value for
+        // older configuration consumers. Runtime verification always uses
+        // the explicit accepted-environment list.
+        $storeKitEnvironment ??= $storeKitEnvironments[0] ?? null;
         $storeKitAppAppleId = $optional('SPEEDYTAPPER_STOREKIT_APP_APPLE_ID');
         if ($storeKitAppAppleId !== null && preg_match('/^[1-9][0-9]{4,19}$/D', $storeKitAppAppleId) !== 1) {
             throw new ApiException(503, 'StoreKit app identifier configuration is invalid.');
@@ -170,13 +199,29 @@ final readonly class Config
             storeKitIssuerId: $optional('SPEEDYTAPPER_STOREKIT_ISSUER_ID'),
             storeKitKeyId: $optional('SPEEDYTAPPER_STOREKIT_KEY_ID'),
             storeKitPrivateKeyPath: $optional('SPEEDYTAPPER_STOREKIT_PRIVATE_KEY_PATH'),
+            storeKitEnvironments: $storeKitEnvironments,
         );
+    }
+
+    /** @return list<string> */
+    public function acceptedStoreKitEnvironments(): array
+    {
+        if ($this->storeKitEnvironments !== []) {
+            return array_values($this->storeKitEnvironments);
+        }
+        return $this->storeKitEnvironment === null ? [] : [$this->storeKitEnvironment];
+    }
+
+    public function acceptsStoreKitEnvironment(string $environment): bool
+    {
+        return in_array($environment, $this->acceptedStoreKitEnvironments(), true);
     }
 
     public function storeKitIsConfigured(): bool
     {
-        return $this->storeKitEnvironment !== null
-            && ($this->storeKitEnvironment !== 'Production' || $this->storeKitAppAppleId !== null)
+        $environments = $this->acceptedStoreKitEnvironments();
+        return $environments !== []
+            && (!in_array('Production', $environments, true) || $this->storeKitAppAppleId !== null)
             && $this->storeKitProducts !== []
             && $this->storeKitRetentionHmacKey !== null
             && strlen($this->storeKitRetentionHmacKey) >= 32

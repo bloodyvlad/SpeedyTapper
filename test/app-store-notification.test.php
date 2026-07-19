@@ -12,18 +12,20 @@ require dirname(__DIR__) . '/server/autoload.php';
 
 final class RecordingStoreKitProcessor implements StoreKitNotificationProcessor
 {
-    /** @var list<array{signedTransaction: string, notificationType: string, notificationSignedDateMs: ?int}> */
+    /** @var list<array{signedTransaction: string, notificationType: string, notificationSignedDateMs: ?int, expectedEnvironment: ?string}> */
     public array $calls = [];
 
     public function processNotificationTransaction(
         string $signedTransaction,
         string $notificationType,
         ?int $notificationSignedDateMs = null,
+        ?string $expectedEnvironment = null,
     ): array {
         $this->calls[] = compact(
             'signedTransaction',
             'notificationType',
             'notificationSignedDateMs',
+            'expectedEnvironment',
         );
         return [
             'transactionId' => 'transaction-' . count($this->calls),
@@ -127,6 +129,7 @@ $database = new PDO('sqlite::memory:', null, null, [
 $database->exec(<<<'SQL'
 CREATE TABLE storekit_notifications (
     notification_uuid TEXT PRIMARY KEY,
+    apple_notification_uuid TEXT NOT NULL,
     transaction_id TEXT NULL,
     notification_type TEXT NOT NULL,
     subtype TEXT NULL,
@@ -147,6 +150,8 @@ $config = new Config(
     seasonId: 'season-1',
     seasonName: 'Season 1',
     storeKitEnvironment: 'Sandbox',
+    storeKitAppAppleId: '6792328590',
+    storeKitEnvironments: ['Sandbox', 'Production'],
     storeKitRootCertificatePaths: [$fixture . '/root.pem'],
 );
 $processor = new RecordingStoreKitProcessor();
@@ -185,7 +190,8 @@ $assert(
     && $active['duplicate'] === false
     && $active['transactionId'] === 'transaction-1'
     && $processor->calls[0]['notificationType'] === 'ONE_TIME_CHARGE'
-    && $processor->calls[0]['notificationSignedDateMs'] === $nowMs,
+    && $processor->calls[0]['notificationSignedDateMs'] === $nowMs
+    && $processor->calls[0]['expectedEnvironment'] === 'Sandbox',
     'A verified one-time charge dispatches its nested transaction with the outer lifecycle watermark.',
 );
 $duplicate = $notifications->receive($activeJws);
@@ -221,6 +227,13 @@ $assert(
     $unsupported['status'] === 'ignored' && count($processor->calls) === $beforeConsumption,
     'A valid unsupported notification type is retained without transaction mutation.',
 );
+$testDelivery = $notifications->receive($makeJws($notification('TEST', null)));
+$assert(
+    $testDelivery['status'] === 'ignored'
+    && $testDelivery['transactionId'] === null
+    && count($processor->calls) === $beforeConsumption,
+    'Apple Notifications V2 TEST delivery is durably accepted without mutating purchases.',
+);
 
 $rejects(
     static fn () => $notifications->receive($makeJws($notification(
@@ -248,14 +261,57 @@ $rejects(
     400,
     'A signed notification for another bundle is rejected.',
 );
+$productionPayload = $notification(
+    'ONE_TIME_CHARGE',
+    'signed-production-transaction',
+    ['data' => ['environment' => 'Production', 'appAppleId' => 6792328590]],
+);
+$production = $notifications->receive($makeJws($productionPayload));
+$assert(
+    $production['status'] === 'processed'
+    && $processor->calls[array_key_last($processor->calls)]['expectedEnvironment'] === 'Production',
+    'A Production V2 notification is accepted concurrently and dispatches its signed environment.',
+);
 $rejects(
     static fn () => $notifications->receive($makeJws($notification(
         'ONE_TIME_CHARGE',
-        'signed-inner-transaction',
+        'signed-production-transaction',
         ['data' => ['environment' => 'Production']],
     ))),
     400,
-    'A signed notification for another environment is rejected.',
+    'A Production notification without the signed Apple App ID is rejected.',
+);
+$rejects(
+    static fn () => $notifications->receive($makeJws($notification(
+        'ONE_TIME_CHARGE',
+        'signed-production-transaction',
+        ['data' => ['environment' => 'Production', 'appAppleId' => 6792328591]],
+    ))),
+    400,
+    'A Production notification with the wrong signed Apple App ID is rejected.',
+);
+$rejects(
+    static fn () => $notifications->receive($makeJws($notification(
+        'ONE_TIME_CHARGE',
+        'signed-sandbox-transaction',
+        ['data' => ['appAppleId' => 6792328591]],
+    ))),
+    400,
+    'A Sandbox notification rejects a wrong Apple App ID when Apple includes one.',
+);
+
+$sharedUuid = '20000000-0000-4000-8000-000000000001';
+$sandboxShared = $notification('DID_RENEW', null, [
+    'notificationUUID' => $sharedUuid,
+]);
+$productionShared = $notification('DID_RENEW', null, [
+    'notificationUUID' => $sharedUuid,
+    'data' => ['environment' => 'Production', 'appAppleId' => 6792328590],
+]);
+$assert(
+    $notifications->receive($makeJws($sandboxShared))['duplicate'] === false
+    && $notifications->receive($makeJws($productionShared))['duplicate'] === false,
+    'The same Apple notification UUID is independently idempotent in Sandbox and Production.',
 );
 
 fwrite(STDOUT, "App Store notification tests passed ({$assertions} assertions).\n");

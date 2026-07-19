@@ -11,5 +11,6 @@ interface StoreKitNotificationProcessor
         string $signedTransaction,
         string $notificationType,
         ?int $notificationSignedDateMs = null,
+        ?string $expectedEnvironment = null,
     ): array;
 }

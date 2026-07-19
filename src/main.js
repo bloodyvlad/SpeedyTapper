@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260719-2";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260719-2";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260719-3";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260719-3";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260719-2";
+} from "./input-timing.js?v=20260719-3";
 import {
   getPet,
   isPetId,
@@ -16,22 +16,22 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260719-2";
-import { createPetController } from "./pet-controller.js?v=20260719-2";
-import { createSoundController } from "./sound-controller.js?v=20260719-2";
-import { createMusicController } from "./music-controller.js?v=20260719-2";
+} from "./pet-catalog.js?v=20260719-3";
+import { createPetController } from "./pet-controller.js?v=20260719-3";
+import { createSoundController } from "./sound-controller.js?v=20260719-3";
+import { createMusicController } from "./music-controller.js?v=20260719-3";
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   createProfileClient,
   ProfileApiError
-} from "./profile-client.js?v=20260719-2";
+} from "./profile-client.js?v=20260719-3";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260719-2";
+} from "./theme-catalog.js?v=20260719-3";
 
 const INTRO_HINTS = Object.freeze([
   "– Tap your color",
@@ -70,7 +70,7 @@ const MOTIVATIONAL_HINT_TONES = Object.freeze(["cyan", "pink", "gold", "green", 
 const MOTIVATIONAL_HINT_TILTS = Object.freeze([-3, 2, -2, 3, -1, 1]);
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260719-2";
+const APP_BUILD_ID = "20260719-3";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";

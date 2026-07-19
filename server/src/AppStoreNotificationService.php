@@ -36,23 +36,6 @@ final class AppStoreNotificationService
             throw new ApiException(400, 'The App Store notification signature could not be verified.');
         }
 
-        $notificationUuid = $this->notificationUuid($payload['notificationUUID'] ?? null);
-        $payloadHash = hash('sha256', $signedPayload, true);
-        $existing = $this->findNotification($notificationUuid);
-        if (is_array($existing)) {
-            if (!hash_equals((string) $existing['payload_hash'], $payloadHash)) {
-                throw new ApiException(409, 'The App Store notification identifier conflicts with retained evidence.');
-            }
-            return [
-                'notificationUUID' => $notificationUuid,
-                'status' => (string) $existing['processing_status'],
-                'duplicate' => true,
-                'transactionId' => is_string($existing['transaction_id'] ?? null)
-                    ? $existing['transaction_id']
-                    : null,
-            ];
-        }
-
         $notificationType = $this->notificationType($payload['notificationType'] ?? null);
         $subtype = $this->optionalToken($payload['subtype'] ?? null, 64);
         $signedDateMs = $this->positiveInteger($payload['signedDate'] ?? null, 'signed date');
@@ -63,7 +46,24 @@ final class AppStoreNotificationService
         if (!is_array($data) || array_is_list($data)) {
             throw new ApiException(400, 'The App Store notification data is missing.');
         }
-        $this->validateApp($data);
+        $environment = $this->validateApp($data);
+        $notificationUuid = $this->notificationUuid($payload['notificationUUID'] ?? null);
+        $notificationStorageId = $this->notificationStorageId($environment, $notificationUuid);
+        $payloadHash = hash('sha256', $signedPayload, true);
+        $existing = $this->findNotification($notificationStorageId);
+        if (is_array($existing)) {
+            if (!hash_equals((string) $existing['payload_hash'], $payloadHash)) {
+                throw new ApiException(409, 'The App Store notification identifier conflicts with retained evidence.');
+            }
+            return [
+                'notificationUUID' => $notificationUuid,
+                'status' => (string) $existing['processing_status'],
+                'duplicate' => true,
+                'transactionId' => is_string($existing['transaction_id'] ?? null)
+                    ? StoreKitTransaction::appleIdFromStorage($existing['transaction_id'])
+                    : null,
+            ];
+        }
 
         $transactionResult = null;
         $status = 'ignored';
@@ -76,6 +76,7 @@ final class AppStoreNotificationService
                 $signedTransaction,
                 $notificationType,
                 $signedDateMs,
+                $environment,
             );
             $status = $transactionResult['status'] === 'ignored' ? 'ignored' : 'processed';
         } elseif ($notificationType === 'CONSUMPTION_REQUEST') {
@@ -87,27 +88,31 @@ final class AppStoreNotificationService
         try {
             $statement = $this->database->prepare(
                 'INSERT INTO storekit_notifications '
-                . '(notification_uuid, transaction_id, notification_type, subtype, environment, '
+                . '(notification_uuid, apple_notification_uuid, transaction_id, notification_type, subtype, environment, '
                 . 'signed_date_ms, payload_hash, processing_status) VALUES '
-                . '(:notification_uuid, :transaction_id, :notification_type, :subtype, :environment, '
+                . '(:notification_uuid, :apple_notification_uuid, :transaction_id, :notification_type, :subtype, :environment, '
                 . ':signed_date_ms, :payload_hash, :processing_status)'
             );
-            $statement->bindValue(':notification_uuid', $notificationUuid);
+            $statement->bindValue(':notification_uuid', $notificationStorageId);
+            $statement->bindValue(':apple_notification_uuid', $notificationUuid);
+            $transactionStorageId = isset($transactionResult['transactionId'])
+                ? StoreKitTransaction::storageIdFor($environment, $transactionResult['transactionId'])
+                : null;
             $statement->bindValue(
                 ':transaction_id',
-                $transactionResult['transactionId'] ?? null,
-                isset($transactionResult['transactionId']) ? PDO::PARAM_STR : PDO::PARAM_NULL,
+                $transactionStorageId,
+                $transactionStorageId === null ? PDO::PARAM_NULL : PDO::PARAM_STR,
             );
             $statement->bindValue(':notification_type', $notificationType);
             $statement->bindValue(':subtype', $subtype, $subtype === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-            $statement->bindValue(':environment', $this->config->storeKitEnvironment);
+            $statement->bindValue(':environment', $environment);
             $statement->bindValue(':signed_date_ms', $signedDateMs, PDO::PARAM_INT);
             $statement->bindValue(':payload_hash', $payloadHash, PDO::PARAM_LOB);
             $statement->bindValue(':processing_status', $status);
             $statement->execute();
         } catch (PDOException $error) {
             if ($error->getCode() !== '23000') throw $error;
-            $winner = $this->findNotification($notificationUuid);
+            $winner = $this->findNotification($notificationStorageId);
             if (!is_array($winner) || !hash_equals((string) $winner['payload_hash'], $payloadHash)) {
                 throw new ApiException(409, 'The App Store notification identifier conflicts with retained evidence.');
             }
@@ -116,7 +121,7 @@ final class AppStoreNotificationService
                 'status' => (string) $winner['processing_status'],
                 'duplicate' => true,
                 'transactionId' => is_string($winner['transaction_id'] ?? null)
-                    ? $winner['transaction_id']
+                    ? StoreKitTransaction::appleIdFromStorage($winner['transaction_id'])
                     : null,
             ];
         }
@@ -129,16 +134,17 @@ final class AppStoreNotificationService
         ];
     }
 
-    private function validateApp(array $data): void
+    private function validateApp(array $data): string
     {
         if (($data['bundleId'] ?? null) !== $this->config->storeKitBundleId) {
             throw new ApiException(400, 'The App Store notification bundle does not match PimPoPom.');
         }
-        if (($data['environment'] ?? null) !== $this->config->storeKitEnvironment) {
+        $environment = $data['environment'] ?? null;
+        if (!is_string($environment) || !$this->config->acceptsStoreKitEnvironment($environment)) {
             throw new ApiException(400, 'The App Store notification environment is not accepted here.');
         }
         $appAppleId = $data['appAppleId'] ?? null;
-        if ($this->config->storeKitEnvironment === 'Production') {
+        if ($environment === 'Production') {
             if (!is_int($appAppleId) && !is_string($appAppleId)) {
                 throw new ApiException(400, 'The App Store app identifier is missing.');
             }
@@ -150,6 +156,7 @@ final class AppStoreNotificationService
         ) {
             throw new ApiException(400, 'The App Store app identifier does not match PimPoPom.');
         }
+        return $environment;
     }
 
     private function findNotification(string $notificationUuid): array|false
@@ -171,6 +178,14 @@ final class AppStoreNotificationService
             throw new ApiException(400, 'The App Store notification identifier is invalid.');
         }
         return strtolower($value);
+    }
+
+    private function notificationStorageId(string $environment, string $notificationUuid): string
+    {
+        if (!$this->config->acceptsStoreKitEnvironment($environment)) {
+            throw new ApiException(400, 'The App Store notification environment is not accepted here.');
+        }
+        return $environment . ':' . $notificationUuid;
     }
 
     private function notificationType(mixed $value): string

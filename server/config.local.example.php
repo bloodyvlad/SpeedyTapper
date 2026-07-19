@@ -14,8 +14,10 @@ return [
     'SPEEDYTAPPER_SEASON_ID' => 'season-1',
     'SPEEDYTAPPER_SEASON_NAME' => 'Season 1',
     'SPEEDYTAPPER_STOREKIT_BUNDLE_ID' => 'com.otcsoftware.pimpopom',
-    'SPEEDYTAPPER_STOREKIT_ENVIRONMENT' => 'Sandbox',
-    'SPEEDYTAPPER_STOREKIT_APP_APPLE_ID' => '',
+    // Both Apple environments are accepted concurrently. The older singular
+    // SPEEDYTAPPER_STOREKIT_ENVIRONMENT remains a one-environment fallback.
+    'SPEEDYTAPPER_STOREKIT_ENVIRONMENTS' => ['Sandbox', 'Production'],
+    'SPEEDYTAPPER_STOREKIT_APP_APPLE_ID' => '6792328590',
     'SPEEDYTAPPER_STOREKIT_PRODUCTS_JSON' => json_encode([
         'com.otcsoftware.pimpopom.coins.50.v1' => [
             'type' => 'consumable', 'coins' => 50, 'capability' => 'ad_free',

@@ -506,7 +506,7 @@ $throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot clai
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
 $compatibleBuildProofs = [];
-foreach (['20260718-1', '20260719-1'] as $compatibleBuildId) {
+foreach (['20260718-1', '20260719-1', '20260719-2'] as $compatibleBuildId) {
     $compatibleBuildPayload = $singleHitPayload;
     $compatibleBuildPayload['buildId'] = $compatibleBuildId;
     $compatibleBuildProofs[$compatibleBuildId] = RunProof::fromArray($compatibleBuildPayload);

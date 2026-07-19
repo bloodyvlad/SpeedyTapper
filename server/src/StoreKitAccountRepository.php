@@ -98,7 +98,11 @@ final class StoreKitAccountRepository
      * PimPoPom profile. Deleted bindings remain tombstoned and cannot be
      * transferred by replaying a Family Sharing JWS on another profile.
      */
-    public function bindFamilyBeneficiary(string $appTransactionId, string $playerId): void
+    public function bindFamilyBeneficiary(
+        string $environment,
+        string $appTransactionId,
+        string $playerId,
+    ): void
     {
         if (!$this->database->inTransaction()) {
             throw new \LogicException('Family Sharing binding requires an active transaction.');
@@ -114,20 +118,24 @@ final class StoreKitAccountRepository
             throw new ApiException(401, 'Sign in with Google to continue.');
         }
 
+        $this->requireEnvironment($environment);
         $pseudonym = $this->familyPseudonym($appTransactionId);
         $statement = $this->database->prepare(
             'SELECT player_id, account_deleted_at FROM player_storekit_family_bindings '
-            . 'WHERE app_transaction_pseudonym = :app_transaction_pseudonym FOR UPDATE'
+            . 'WHERE environment = :environment '
+            . 'AND app_transaction_pseudonym = :app_transaction_pseudonym FOR UPDATE'
         );
+        $statement->bindValue(':environment', $environment);
         $statement->bindValue(':app_transaction_pseudonym', $pseudonym, PDO::PARAM_LOB);
         $statement->execute();
         $existing = $statement->fetch();
         if (!is_array($existing)) {
             $insert = $this->database->prepare(
                 'INSERT INTO player_storekit_family_bindings '
-                . '(app_transaction_pseudonym, player_id) '
-                . 'VALUES (:app_transaction_pseudonym, :player_id)'
+                . '(environment, app_transaction_pseudonym, player_id) '
+                . 'VALUES (:environment, :app_transaction_pseudonym, :player_id)'
             );
+            $insert->bindValue(':environment', $environment);
             $insert->bindValue(':app_transaction_pseudonym', $pseudonym, PDO::PARAM_LOB);
             $insert->bindValue(':player_id', $playerId);
             $insert->execute();
@@ -141,15 +149,22 @@ final class StoreKitAccountRepository
         }
     }
 
-    public function playerIdForFamilyAppTransaction(string $appTransactionId, bool $forUpdate = false): ?string
+    public function playerIdForFamilyAppTransaction(
+        string $environment,
+        string $appTransactionId,
+        bool $forUpdate = false,
+    ): ?string
     {
+        $this->requireEnvironment($environment);
         $pseudonym = $this->familyPseudonym($appTransactionId);
         $statement = $this->database->prepare(
             'SELECT player_id FROM player_storekit_family_bindings '
-            . 'WHERE app_transaction_pseudonym = :app_transaction_pseudonym '
+            . 'WHERE environment = :environment '
+            . 'AND app_transaction_pseudonym = :app_transaction_pseudonym '
             . 'AND account_deleted_at IS NULL LIMIT 1'
             . ($forUpdate ? ' FOR UPDATE' : '')
         );
+        $statement->bindValue(':environment', $environment);
         $statement->bindValue(':app_transaction_pseudonym', $pseudonym, PDO::PARAM_LOB);
         $statement->execute();
         $playerId = $statement->fetchColumn();
@@ -162,6 +177,13 @@ final class StoreKitAccountRepository
             throw new ApiException(503, 'StoreKit retention configuration is incomplete.');
         }
         return StoreKitPseudonym::appTransaction($this->retentionHmacKey, $appTransactionId);
+    }
+
+    private function requireEnvironment(string $environment): void
+    {
+        if (!in_array($environment, ['Sandbox', 'Production'], true)) {
+            throw new ApiException(400, 'The signed App Store environment is invalid.');
+        }
     }
 
     /** @return array{earned: int, purchased: int, earnedDebt: int, refundDebt: int, total: int} */

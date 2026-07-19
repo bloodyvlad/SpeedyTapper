@@ -127,6 +127,22 @@ $assert(
     ) === $products,
     'The deployable configuration example cannot drift from the exact server product catalog.',
 );
+$dualEnvironmentMigration = (string) file_get_contents(
+    dirname(__DIR__) . '/server/migrations/017_storekit_dual_environment.sql',
+);
+$assert(
+    str_contains($dualEnvironmentMigration, 'apple_transaction_id')
+    && str_contains($dualEnvironmentMigration, 'apple_notification_uuid')
+    && str_contains($dualEnvironmentMigration, "CONCAT(environment, ':', transaction_id)")
+    && str_contains($dualEnvironmentMigration, 'PRIMARY KEY (environment, app_transaction_pseudonym)')
+    && str_contains($dualEnvironmentMigration, 'information_schema.TABLE_CONSTRAINTS')
+    && str_contains($dualEnvironmentMigration, 'information_schema.COLUMNS')
+    && str_contains($dualEnvironmentMigration, 'information_schema.STATISTICS')
+    && str_contains($dualEnvironmentMigration, 'DROP TEMPORARY TABLE IF EXISTS')
+    && str_contains($dualEnvironmentMigration, 'WHERE apple_transaction_id IS NULL')
+    && str_contains($dualEnvironmentMigration, 'WHERE apple_notification_uuid IS NULL'),
+    'The forward migration scopes transactions, notifications, and Family Sharing by environment.',
+);
 $rejectsApi(
     static fn () => new StoreKitProductCatalog(array_slice($products, 0, 4, true)),
     503,
@@ -154,11 +170,18 @@ $config = new Config(
     seasonId: 'season-1',
     seasonName: 'Season 1',
     storeKitEnvironment: 'Sandbox',
+    storeKitAppAppleId: '6792328590',
+    storeKitEnvironments: ['Sandbox', 'Production'],
     storeKitProducts: $products,
     storeKitRetentionHmacKey: $retentionKey,
     storeKitRootCertificatePaths: [__DIR__ . '/fixtures/apple-jws/root.pem'],
 );
 $token = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+$assert(
+    $config->acceptedStoreKitEnvironments() === ['Sandbox', 'Production']
+    && $config->storeKitIsConfigured(),
+    'StoreKit can be configured for Sandbox and Production concurrently.',
+);
 $basePayload = [
     'transactionId' => '2000000000000050',
     'originalTransactionId' => '2000000000000050',
@@ -263,12 +286,15 @@ CREATE TABLE player_storekit_bindings (
     app_account_token TEXT NOT NULL UNIQUE
 );
 CREATE TABLE player_storekit_family_bindings (
-    app_transaction_pseudonym BLOB PRIMARY KEY,
+    environment TEXT NOT NULL,
+    app_transaction_pseudonym BLOB NOT NULL,
     player_id TEXT NULL REFERENCES players(id) ON DELETE SET NULL,
-    account_deleted_at TEXT NULL
+    account_deleted_at TEXT NULL,
+    PRIMARY KEY (environment, app_transaction_pseudonym)
 );
 CREATE TABLE storekit_transactions (
     transaction_id TEXT PRIMARY KEY,
+    apple_transaction_id TEXT NOT NULL,
     original_transaction_id TEXT NOT NULL,
     app_transaction_id TEXT NULL,
     app_transaction_pseudonym BLOB NULL,
@@ -443,7 +469,7 @@ $database->prepare(
 $accounts = new StoreKitAccountRepository($database, $retentionKey);
 $wallets = new CoinWalletRepository($database);
 $database->beginTransaction();
-$accounts->bindFamilyBeneficiary('family-member-app-transaction-1', $playerId);
+$accounts->bindFamilyBeneficiary('Sandbox', 'family-member-app-transaction-1', $playerId);
 $database->commit();
 $familyBinding = $database->query(
     'SELECT app_transaction_pseudonym, player_id, account_deleted_at '
@@ -466,7 +492,7 @@ $database->prepare(
 $familyTransferRejected = false;
 $database->beginTransaction();
 try {
-    $accounts->bindFamilyBeneficiary('family-member-app-transaction-1', $otherPlayerId);
+    $accounts->bindFamilyBeneficiary('Sandbox', 'family-member-app-transaction-1', $otherPlayerId);
     $database->commit();
 } catch (ApiException $error) {
     if ($database->inTransaction()) $database->rollBack();
@@ -520,7 +546,7 @@ $assert(
     $detached['status'] === 'recorded'
     && $scalar(
         $database,
-        "SELECT player_id FROM storekit_transactions WHERE transaction_id = 'family-notification-first'",
+        "SELECT player_id FROM storekit_transactions WHERE transaction_id = 'Sandbox:family-notification-first'",
     ) === null,
     'A notification-first Family Shared entitlement is retained without guessing a beneficiary.',
 );
@@ -537,11 +563,11 @@ $assert(
     && $attached['duplicate'] === false
     && $scalar(
         $database,
-        "SELECT player_id FROM storekit_transactions WHERE transaction_id = 'family-notification-first'",
+        "SELECT player_id FROM storekit_transactions WHERE transaction_id = 'Sandbox:family-notification-first'",
     ) === $playerId
     && (int) $scalar(
         $database,
-        "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = 'family-notification-first'",
+        "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = 'Sandbox:family-notification-first'",
     ) === 1,
     'A later authenticated restore attaches the Family Shared entitlement to one stable profile.',
 );
@@ -597,7 +623,7 @@ $assert(
     && $lateAttached['wallet']['purchased'] === 50
     && (int) $scalar(
         $database,
-        "SELECT COUNT(*) FROM purchased_coin_lots WHERE transaction_id = 'late-binding-purchase'",
+        "SELECT COUNT(*) FROM purchased_coin_lots WHERE transaction_id = 'Sandbox:late-binding-purchase'",
     ) === 1,
     'Detached verified purchase evidence credits once when its signed account token is later bound.',
 );
@@ -605,10 +631,10 @@ $assert(
 $recorded = $invoke($service, 'record', $purchase, 'fixture-active-1100', $playerId, true);
 $assert($recorded['status'] === 'active' && $recorded['duplicate'] === false, 'A first verified purchase is active.');
 $assert($recorded['wallet']['purchased'] === 50 && $recorded['wallet']['earned'] === 0, 'A coin pack enters only the purchased wallet.');
-$assert((int) $scalar($database, "SELECT available_coins FROM purchased_coin_lots WHERE transaction_id = '2000000000000050'") === 50, 'The purchase creates a FIFO lot with all 50 coins available.');
+$assert((int) $scalar($database, "SELECT available_coins FROM purchased_coin_lots WHERE transaction_id = 'Sandbox:2000000000000050'") === 50, 'The purchase creates a FIFO lot with all 50 coins available.');
 $assert((int) $scalar(
     $database,
-    "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = '2000000000000050'",
+    "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = 'Sandbox:2000000000000050'",
 ) === 1, 'A coin pack contributes an account-bound ad-free entitlement source.');
 $duplicate = $invoke($service, 'record', $purchase, 'fixture-active-1100', $playerId, true);
 $assert($duplicate['duplicate'] === true && $duplicate['wallet']['purchased'] === 50, 'Replaying a transaction ID is idempotent and cannot mint coins twice.');
@@ -639,13 +665,13 @@ $allocations = $database->query(
 $assert(
     $allocations === [
         ['source' => 'earned', 'lot_transaction_id' => null, 'amount' => 20],
-        ['source' => 'purchased', 'lot_transaction_id' => '2000000000000050', 'amount' => 10],
+        ['source' => 'purchased', 'lot_transaction_id' => 'Sandbox:2000000000000050', 'amount' => 10],
     ],
     'The cosmetic debit records its exact earned/purchased split and Apple lot.',
 );
 
 $refund = new StoreKitTransaction(
-    transactionId: $purchase->transactionId,
+    transactionId: $purchase->appleTransactionId,
     originalTransactionId: $purchase->originalTransactionId,
     appTransactionId: $purchase->appTransactionId,
     productId: $purchase->productId,
@@ -673,7 +699,7 @@ $assert($refunded['wallet'] === [
 $assert((int) $scalar($database, "SELECT COUNT(*) FROM player_pets WHERE pet_id = 'foka'") === 0, 'A cosmetic funded by the refunded Apple transaction is revoked.');
 $refundedLot = $database->query(
     "SELECT available_coins, spent_coins, reversed_coins, status FROM purchased_coin_lots "
-    . "WHERE transaction_id = '2000000000000050'"
+    . "WHERE transaction_id = 'Sandbox:2000000000000050'"
 )->fetch();
 $assert($refundedLot === [
     'available_coins' => 0,
@@ -683,11 +709,11 @@ $assert($refundedLot === [
 ], 'Refund removes all unspent and cosmetic-funded value from the exact purchased lot.');
 $assert((int) $scalar(
     $database,
-    "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = '2000000000000050'",
+    "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = 'Sandbox:2000000000000050'",
 ) === 0, 'Refund revokes the coin pack ad-free entitlement source.');
 
 $reversal = new StoreKitTransaction(
-    transactionId: $purchase->transactionId,
+    transactionId: $purchase->appleTransactionId,
     originalTransactionId: $purchase->originalTransactionId,
     appTransactionId: $purchase->appTransactionId,
     productId: $purchase->productId,
@@ -715,7 +741,7 @@ $assert($restored['wallet'] === [
 $assert((int) $scalar($database, "SELECT COUNT(*) FROM player_pets WHERE pet_id = 'foka'") === 1, 'Refund reversal restores the revoked cosmetic.');
 $restoredLot = $database->query(
     "SELECT available_coins, spent_coins, reversed_coins, status FROM purchased_coin_lots "
-    . "WHERE transaction_id = '2000000000000050'"
+    . "WHERE transaction_id = 'Sandbox:2000000000000050'"
 )->fetch();
 $assert($restoredLot === [
     'available_coins' => 40,
@@ -725,11 +751,11 @@ $assert($restoredLot === [
 ], 'Refund reversal restores the paid lot and reapplies only the cosmetic debit.');
 $assert((int) $scalar(
     $database,
-    "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = '2000000000000050'",
+    "SELECT active FROM player_entitlement_sources WHERE source_transaction_id = 'Sandbox:2000000000000050'",
 ) === 1, 'Refund reversal restores the ad-free entitlement source.');
 
 $staleRefund = new StoreKitTransaction(
-    transactionId: $refund->transactionId,
+    transactionId: $refund->appleTransactionId,
     originalTransactionId: $refund->originalTransactionId,
     appTransactionId: $refund->appTransactionId,
     productId: $refund->productId,
@@ -747,7 +773,7 @@ $staleRefund = new StoreKitTransaction(
 );
 $stale = $invoke($service, 'refund', $staleRefund, 'fixture-stale-refund-2500', 'REFUND', $playerId);
 $assert($stale['duplicate'] === true && $stale['status'] === 'reinstated', 'An older signed refund cannot roll back a newer reversal.');
-$assert((int) $scalar($database, "SELECT signed_date_ms FROM storekit_transactions WHERE transaction_id = '2000000000000050'") === 3_000, 'A stale transition cannot lower the signed-date watermark.');
+$assert((int) $scalar($database, "SELECT signed_date_ms FROM storekit_transactions WHERE transaction_id = 'Sandbox:2000000000000050'") === 3_000, 'A stale transition cannot lower the signed-date watermark.');
 $assert($accounts->walletSummary($playerId)['total'] === 40, 'A stale transition does not alter spendable value.');
 
 $outerNewerRefund = $invoke(
@@ -764,12 +790,12 @@ $assert(
     && $outerNewerRefund['duplicate'] === false
     && (int) $scalar(
         $database,
-        "SELECT lifecycle_signed_date_ms FROM storekit_transactions WHERE transaction_id = '2000000000000050'",
+        "SELECT lifecycle_signed_date_ms FROM storekit_transactions WHERE transaction_id = 'Sandbox:2000000000000050'",
     ) === 4_000,
     'The outer notification signed date, not the nested transaction date, orders lifecycle snapshots.',
 );
 $innerNewerOuterStale = new StoreKitTransaction(
-    transactionId: $reversal->transactionId,
+    transactionId: $reversal->appleTransactionId,
     originalTransactionId: $reversal->originalTransactionId,
     appTransactionId: $reversal->appTransactionId,
     productId: $reversal->productId,
@@ -942,7 +968,7 @@ $assert(
 );
 $chainDebt = $database->query(
     "SELECT amount, settled_amount, released_at FROM storekit_cosmetic_restore_debts "
-    . "WHERE refund_transaction_id = 'chain-purchase-x'"
+    . "WHERE refund_transaction_id = 'Sandbox:chain-purchase-x'"
 )->fetch();
 $assert(
     $chainDebt === ['amount' => 70, 'settled_amount' => 0, 'released_at' => null],
@@ -955,7 +981,7 @@ $assert(
     $accounts->walletSummary($chainPlayerId)['refundDebt'] === 20
     && (int) $scalar(
         $database,
-        "SELECT refund_debt_settled_coins FROM purchased_coin_lots WHERE transaction_id = 'chain-purchase-y'",
+        "SELECT refund_debt_settled_coins FROM purchased_coin_lots WHERE transaction_id = 'Sandbox:chain-purchase-y'",
     ) === 50,
     'Purchase Y settles 50 coins of X debt and retains exact lot provenance.',
 );
@@ -971,7 +997,7 @@ $refundX2 = $makeTransaction('chain-purchase-x', $chainToken, 5_000, 4_900);
 $invoke($service, 'refund', $refundX2, 'chain-x-refund-5000', 'REFUND', $chainPlayerId);
 $chainYLot = $database->query(
     "SELECT refund_debt_settled_coins, reversed_coins, status FROM purchased_coin_lots "
-    . "WHERE transaction_id = 'chain-purchase-y'"
+    . "WHERE transaction_id = 'Sandbox:chain-purchase-y'"
 )->fetch();
 $assert(
     $accounts->walletSummary($chainPlayerId)['refundDebt'] === 0
@@ -994,7 +1020,7 @@ $invoke($service, 'restore', $restoreY, 'chain-y-reversal-7000');
 $chainWallet = $accounts->walletSummary($chainPlayerId);
 $chainYLot = $database->query(
     "SELECT available_coins, refund_debt_settled_coins, reversed_coins, status "
-    . "FROM purchased_coin_lots WHERE transaction_id = 'chain-purchase-y'"
+    . "FROM purchased_coin_lots WHERE transaction_id = 'Sandbox:chain-purchase-y'"
 )->fetch();
 $assert(
     $chainWallet['total'] === 0
@@ -1012,6 +1038,67 @@ $assert(
     $duplicateRestoreY['duplicate'] === true
     && $accounts->walletSummary($chainPlayerId)['refundDebt'] === 20,
     'Replaying the crossed refund reversal is idempotent.',
+);
+
+$dualPlayerId = '66666666-6666-4666-8666-666666666666';
+$dualToken = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+$database->prepare(
+    'INSERT INTO players (id, nickname) VALUES (:player_id, :nickname)'
+)->execute(['player_id' => $dualPlayerId, 'nickname' => 'Dual environment tester']);
+$database->prepare(
+    'INSERT INTO player_storekit_bindings (player_id, app_account_token) VALUES (:player_id, :token)'
+)->execute(['player_id' => $dualPlayerId, 'token' => $dualToken]);
+$dualBase = [
+    ...$basePayload,
+    'transactionId' => 'same-id-in-both-environments',
+    'originalTransactionId' => 'same-id-in-both-environments',
+    'appAccountToken' => $dualToken,
+];
+$dualSandbox = StoreKitTransaction::fromVerifiedPayload(
+    $dualBase,
+    $config,
+    $catalog,
+    $dualToken,
+);
+$dualProduction = StoreKitTransaction::fromVerifiedPayload(
+    [...$dualBase, 'environment' => 'Production'],
+    $config,
+    $catalog,
+    $dualToken,
+);
+$invoke($service, 'record', $dualSandbox, 'dual-sandbox-jws', $dualPlayerId, true);
+$invoke($service, 'record', $dualProduction, 'dual-production-jws', $dualPlayerId, true);
+$dualReplay = $invoke(
+    $service,
+    'record',
+    $dualProduction,
+    'dual-production-jws',
+    $dualPlayerId,
+    true,
+);
+$assert(
+    (int) $scalar(
+        $database,
+        "SELECT COUNT(*) FROM storekit_transactions WHERE apple_transaction_id = 'same-id-in-both-environments'",
+    ) === 2
+    && $accounts->walletSummary($dualPlayerId)['purchased'] === 100
+    && $dualReplay['duplicate'] === true,
+    'Sandbox and Production scope the same Apple transaction ID independently and each credit only once.',
+);
+
+$database->beginTransaction();
+$accounts->bindFamilyBeneficiary('Production', 'family-member-app-transaction-1', $otherPlayerId);
+$database->commit();
+$assert(
+    $accounts->playerIdForFamilyAppTransaction(
+        'Sandbox',
+        'family-member-app-transaction-1',
+    ) === $playerId
+    && $accounts->playerIdForFamilyAppTransaction(
+        'Production',
+        'family-member-app-transaction-1',
+    ) === $otherPlayerId,
+    'Family Sharing appTransactionId bindings are isolated by signed environment.',
 );
 
 fwrite(STDOUT, "StoreKit domain tests passed ({$assertions} assertions).\n");

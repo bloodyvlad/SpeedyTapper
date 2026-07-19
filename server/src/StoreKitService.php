@@ -59,6 +59,7 @@ final class StoreKitService implements StoreKitNotificationProcessor
         string $signedTransaction,
         string $notificationType,
         ?int $notificationSignedDateMs = null,
+        ?string $expectedEnvironment = null,
     ): array {
         $this->requireConfigured();
         $payload = $this->verify($signedTransaction);
@@ -73,12 +74,16 @@ final class StoreKitService implements StoreKitNotificationProcessor
             $this->catalog,
             $expectedToken,
         );
+        if ($expectedEnvironment !== null && !hash_equals($expectedEnvironment, $transaction->environment)) {
+            throw new ApiException(400, 'The App Store notification environments do not match.');
+        }
         $lifecycleSignedDateMs = $notificationSignedDateMs ?? $transaction->signedDateMs;
         if ($lifecycleSignedDateMs < 1) {
             throw new ApiException(400, 'The App Store lifecycle signed date is invalid.');
         }
         if ($transaction->ownershipType === 'FAMILY_SHARED') {
             $playerId = $this->accounts->playerIdForFamilyAppTransaction(
+                $transaction->environment,
                 (string) $transaction->appTransactionId,
             );
         }
@@ -117,7 +122,7 @@ final class StoreKitService implements StoreKitNotificationProcessor
                 $lifecycleSignedDateMs,
             ),
             default => [
-                'transactionId' => $transaction->transactionId,
+                'transactionId' => $transaction->appleTransactionId,
                 'status' => 'ignored',
                 'duplicate' => false,
             ],
@@ -172,6 +177,7 @@ final class StoreKitService implements StoreKitNotificationProcessor
         ): array {
             if ($transaction->ownershipType === 'FAMILY_SHARED' && $playerId !== null) {
                 $this->accounts->bindFamilyBeneficiary(
+                    $transaction->environment,
                     (string) $transaction->appTransactionId,
                     $playerId,
                 );
@@ -393,6 +399,7 @@ final class StoreKitService implements StoreKitNotificationProcessor
         ): array {
             if ($transaction->ownershipType === 'FAMILY_SHARED' && $resolvedPlayerId !== null) {
                 $this->accounts->bindFamilyBeneficiary(
+                    $transaction->environment,
                     (string) $transaction->appTransactionId,
                     $resolvedPlayerId,
                 );
@@ -540,6 +547,7 @@ final class StoreKitService implements StoreKitNotificationProcessor
         ): array {
             if ($transaction->ownershipType === 'FAMILY_SHARED' && $resolvedPlayerId !== null) {
                 $this->accounts->bindFamilyBeneficiary(
+                    $transaction->environment,
                     (string) $transaction->appTransactionId,
                     $resolvedPlayerId,
                 );
@@ -870,17 +878,18 @@ final class StoreKitService implements StoreKitNotificationProcessor
         $lifecycleSignedDateMs ??= $transaction->signedDateMs;
         $statement = $this->database->prepare(
             'INSERT INTO storekit_transactions '
-            . '(transaction_id, original_transaction_id, app_transaction_id, app_transaction_pseudonym, player_id, '
+            . '(transaction_id, apple_transaction_id, original_transaction_id, app_transaction_id, app_transaction_pseudonym, player_id, '
             . 'account_token_pseudonym, product_id, product_type, ownership_type, environment, bundle_id, '
             . 'app_apple_id, signed_quantity, purchase_date_ms, signed_date_ms, lifecycle_signed_date_ms, revocation_date_ms, '
             . 'revocation_reason, status, transition_version, payload_hash) VALUES '
-            . '(:transaction_id, :original_transaction_id, :app_transaction_id, :app_transaction_pseudonym, :player_id, '
+            . '(:transaction_id, :apple_transaction_id, :original_transaction_id, :app_transaction_id, :app_transaction_pseudonym, :player_id, '
             . ':account_token_pseudonym, :product_id, :product_type, :ownership_type, :environment, :bundle_id, '
             . ':app_apple_id, :signed_quantity, :purchase_date_ms, :signed_date_ms, :lifecycle_signed_date_ms, :revocation_date_ms, '
             . ':revocation_reason, :status, :transition_version, :payload_hash)'
         );
         $values = [
             'transaction_id' => $transaction->transactionId,
+            'apple_transaction_id' => $transaction->appleTransactionId,
             'original_transaction_id' => $transaction->originalTransactionId,
             'app_transaction_id' => $transaction->appTransactionId,
             'player_id' => $playerId,
@@ -1042,12 +1051,23 @@ final class StoreKitService implements StoreKitNotificationProcessor
                         $this->accounts->familyPseudonym($transaction->appTransactionId),
                     ));
         if (
-            !hash_equals((string) $stored['original_transaction_id'], $transaction->originalTransactionId)
+            !hash_equals(
+                (string) ($stored['apple_transaction_id'] ?? StoreKitTransaction::appleIdFromStorage(
+                    (string) ($stored['transaction_id'] ?? ''),
+                )),
+                $transaction->appleTransactionId,
+            )
+            || !hash_equals((string) $stored['original_transaction_id'], $transaction->originalTransactionId)
             || !hash_equals((string) $stored['product_id'], $transaction->productId)
             || !hash_equals((string) $stored['product_type'], $transaction->productType)
             || !hash_equals((string) $stored['ownership_type'], $transaction->ownershipType)
             || !hash_equals((string) $stored['bundle_id'], $transaction->bundleId)
             || !hash_equals((string) $stored['environment'], $transaction->environment)
+            || ($this->config->storeKitAppAppleId !== null
+                && !hash_equals(
+                    $this->config->storeKitAppAppleId,
+                    (string) ($stored['app_apple_id'] ?? ''),
+                ))
             || (int) $stored['signed_quantity'] !== $transaction->quantity
             || (int) $stored['purchase_date_ms'] !== $transaction->purchaseDateMs
             || !$appTransactionMatches
@@ -1211,7 +1231,7 @@ final class StoreKitService implements StoreKitNotificationProcessor
     private function payload(?string $playerId, string $transactionId, string $status, bool $duplicate): array
     {
         return [
-            'transactionId' => $transactionId,
+            'transactionId' => StoreKitTransaction::appleIdFromStorage($transactionId),
             'status' => $status,
             'duplicate' => $duplicate,
             'wallet' => $playerId === null ? null : $this->accounts->walletSummary($playerId),
