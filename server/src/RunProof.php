@@ -12,7 +12,12 @@ namespace SpeedyTapper;
  */
 final readonly class RunProof
 {
-    public const BUILD_ID = '20260719-1';
+    public const BUILD_ID = '20260719-2';
+    public const SUPPORTED_BUILD_IDS = [
+        '20260718-1',
+        '20260719-1',
+        self::BUILD_ID,
+    ];
     public const RULESET = 'reaction-proof-v2';
     public const PROOF_VERSION = 1;
     public const MAX_EVENTS = 10_000;
@@ -57,7 +62,8 @@ final readonly class RunProof
             throw new ApiException(400, 'Mode must be normal or zen.');
         }
 
-        if (($input['buildId'] ?? null) !== self::BUILD_ID) {
+        $buildId = $input['buildId'] ?? null;
+        if (!self::isSupportedBuildId($buildId)) {
             throw new ApiException(409, 'This game build is no longer eligible for verified results.');
         }
         if (($input['ruleset'] ?? null) !== self::RULESET) {
@@ -83,11 +89,16 @@ final readonly class RunProof
         return new self(
             runId: strtolower($rawRunId),
             mode: $mode,
-            buildId: self::BUILD_ID,
+            buildId: $buildId,
             ruleset: self::RULESET,
             proofVersion: self::PROOF_VERSION,
             events: $normalized,
         );
+    }
+
+    public static function isSupportedBuildId(mixed $buildId): bool
+    {
+        return is_string($buildId) && in_array($buildId, self::SUPPORTED_BUILD_IDS, true);
     }
 
     public function eventCount(): int

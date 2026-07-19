@@ -30,7 +30,7 @@ final class RunAttemptService
         if ($mode !== 'normal') {
             throw new ApiException(400, 'Ranked mode must be normal.');
         }
-        if (!is_string($buildId) || !hash_equals(RunProofValidator::BUILD_ID, $buildId)) {
+        if (!RunProof::isSupportedBuildId($buildId)) {
             throw new ApiException(409, 'This game version is out of date. Refresh before starting a ranked run.');
         }
         self::assertBindingHash($sessionBindingHash);
@@ -99,7 +99,7 @@ final class RunAttemptService
             return [
                 'runId' => $runId,
                 'mode' => $mode,
-                'buildId' => RunProofValidator::BUILD_ID,
+                'buildId' => $buildId,
                 'ruleset' => RunProofValidator::RULESET_ID,
                 'proofVersion' => RunProofValidator::PROOF_VERSION,
             ];

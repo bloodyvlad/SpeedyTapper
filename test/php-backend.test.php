@@ -505,6 +505,20 @@ $throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot clai
 
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
+$compatibleBuildPayload = $singleHitPayload;
+$compatibleBuildPayload['buildId'] = '20260718-1';
+$compatibleBuildProof = RunProof::fromArray($compatibleBuildPayload);
+$assert(
+    $compatibleBuildProof->buildId === '20260718-1'
+        && (new RunProofValidator())->validate($compatibleBuildProof)->score === $singleHit->score,
+    'An explicitly compatible native build keeps its ticket-bound build ID and replays under the unchanged ruleset.',
+);
+$unsupportedBuildPayload = $singleHitPayload;
+$unsupportedBuildPayload['buildId'] = 'future-build';
+$throwsApi(
+    static fn () => RunProof::fromArray($unsupportedBuildPayload),
+    'An unlisted build cannot submit a ranked proof.',
+);
 $sameTracePayload = $singleHitPayload;
 $sameTracePayload['runId'] = 'a4249615-4e43-4de1-b704-87d61647d7d7';
 $sameTrace = RunProof::fromArray($sameTracePayload);

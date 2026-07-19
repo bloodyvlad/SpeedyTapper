@@ -53,7 +53,7 @@ final class RunProofValidator
     public function validate(RunProof $proof): ScoreSubmission
     {
         if (
-            $proof->buildId !== RunProof::BUILD_ID
+            !RunProof::isSupportedBuildId($proof->buildId)
             || $proof->ruleset !== RunProof::RULESET
             || $proof->proofVersion !== RunProof::PROOF_VERSION
         ) {

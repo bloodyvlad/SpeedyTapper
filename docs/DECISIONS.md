@@ -904,3 +904,16 @@ Expose the server-generated StoreKit binding in authenticated session/profile st
 Consequences: The backend can conserve paid value across mixed-source purchases, refunds, crossed refund/reversal delivery, moderation, and retries without treating browser state as payment evidence. Family Sharing cannot mint consumable currency, and one refunded ad-free source cannot revoke another. Deletion invalidates every browser login while keeping narrowly scoped, non-public payment evidence for Apple accounting. StoreKit is not released merely because these migrations and endpoints exist: App Store Connect configuration, notification/reconciliation operations, native purchase/restore integration, and end-to-end Sandbox/device testing remain required, and the current UI stays a placeholder.
 
 Revisit when: Pricing or the product catalog changes, Apple policy requires a different consumable entitlement treatment, family entitlements need transfer or recovery after deletion, payment-evidence retention receives a fixed legal schedule, moderation must affect purchased value, or the purchase/restore UI is ready for release review.
+
+## D-066 — Preserve ranked play across explicitly compatible asset releases
+
+- Date: 2026-07-19
+- Status: Accepted
+
+Context: The installed native build identifies itself as `20260718-1`, while subsequent browser/backend releases advanced the app-shell build ID without changing `reaction-proof-v2`. Strictly equating a ranked protocol client with the latest asset release made an otherwise valid native build unable to obtain a run ticket and exposed users to a misleading refresh instruction that cannot update a TestFlight binary.
+
+Decision: Keep `20260719-2` as the current release identifier, but accept only the explicit compatible IDs `20260718-1`, `20260719-1`, and `20260719-2` for `reaction-proof-v2` version 1. Preserve the requesting build ID in the issued attempt, echo it in the ticket, and require the submitted proof to match that stored attempt exactly. Continue rejecting every unknown build, ruleset, and proof version. Adding or removing a compatible build is a reviewed server change; it is never inferred from version order or a client claim.
+
+Consequences: The current native/TestFlight app and immediately preceding installed PWA can start and finish ranked runs after this deployment without weakening one-time ticket, player/session, proof, server-clock, trace-clone, or ruleset validation. Routine CSS, image, audio, StoreKit-configuration, and app-shell releases no longer strand those unchanged protocol clients. A future gameplay/proof change must use a new ruleset or proof version and must not be placed in this compatibility window merely to avoid an app update.
+
+Revisit when: A supported build contains a client vulnerability, gameplay semantics diverge, a new proof version ships, minimum native-version policy is introduced, or telemetry confirms that a retired installed build can be removed safely.
