@@ -6,7 +6,8 @@ namespace SpeedyTapper;
 
 final class SessionStore
 {
-    private const PLAYER_KEY = 'speedytapper_player_id';
+    private const AUTH_ID_KEY = 'speedytapper_session_auth_id';
+    private const LEGACY_PLAYER_KEY = 'speedytapper_player_id';
     private const CSRF_KEY = 'speedytapper_csrf_token';
     private const RUN_BINDING_KEY = 'speedytapper_run_binding';
     private const GOOGLE_AUTHENTICATED_AT_KEY = 'speedytapper_google_authenticated_at';
@@ -15,7 +16,10 @@ final class SessionStore
     private const FINISH_RATE_WINDOW_SECONDS = 60;
     private bool $started;
 
-    public function __construct(private readonly bool $secure)
+    public function __construct(
+        private readonly bool $secure,
+        private readonly SessionRegistry $registry,
+    )
     {
         $this->started = session_status() === PHP_SESSION_ACTIVE;
         if ($this->started) return;
@@ -42,19 +46,44 @@ final class SessionStore
             return null;
         }
         $this->start();
-        $value = $_SESSION[self::PLAYER_KEY] ?? null;
-        return is_string($value) && preg_match('/^[0-9a-f-]{36}$/', $value) ? $value : null;
+        $authId = $this->storedAuthId();
+        if ($authId === null) {
+            $this->clearAuthenticationState();
+            return null;
+        }
+        $playerId = $this->registry->resolve($authId);
+        if ($playerId === null) {
+            $this->clearAuthenticationState();
+        }
+        return $playerId;
     }
 
     public function login(string $playerId): void
     {
+        $playerId = strtolower(trim($playerId));
+        if (!Uuid::isValidV4($playerId)) {
+            throw new \InvalidArgumentException('Session player ID must be a version 4 UUID.');
+        }
         $this->start();
-        $finishRequests = ($_SESSION[self::PLAYER_KEY] ?? null) === $playerId
+        $previousAuthId = $this->storedAuthId();
+        $previousPlayerId = $previousAuthId === null
+            ? null
+            : $this->registry->resolve($previousAuthId);
+        $finishRequests = $previousPlayerId === $playerId
             ? ($_SESSION[self::FINISH_RATE_KEY] ?? [])
             : [];
-        session_regenerate_id(true);
+        if (!session_regenerate_id(true)) {
+            throw new ApiException(503, 'The authenticated session could not be rotated.');
+        }
+        $authId = self::base64Url(random_bytes(32));
+        try {
+            $this->registry->rotate($previousAuthId, $authId, $playerId);
+        } catch (\Throwable $error) {
+            $this->clearAuthenticationState();
+            throw $error;
+        }
         $_SESSION = [
-            self::PLAYER_KEY => $playerId,
+            self::AUTH_ID_KEY => $authId,
             self::CSRF_KEY => self::base64Url(random_bytes(32)),
             self::RUN_BINDING_KEY => self::base64Url(random_bytes(32)),
             self::GOOGLE_AUTHENTICATED_AT_KEY => time(),
@@ -68,6 +97,15 @@ final class SessionStore
             return;
         }
         $this->start();
+        $authId = $this->storedAuthId();
+        $registryError = null;
+        try {
+            if ($authId !== null) {
+                $this->registry->revoke($authId);
+            }
+        } catch (\Throwable $error) {
+            $registryError = $error;
+        }
         $_SESSION = [];
         if (ini_get('session.use_cookies')) {
             $parameters = session_get_cookie_params();
@@ -82,6 +120,9 @@ final class SessionStore
         }
         session_destroy();
         $this->started = false;
+        if ($registryError !== null) {
+            throw $registryError;
+        }
     }
 
     public function csrfToken(): string
@@ -150,7 +191,7 @@ final class SessionStore
         ) {
             throw new ApiException(
                 403,
-                'Sign in with Google again before changing leaderboard records.',
+                'Sign in with Google again before making this sensitive account change.',
             );
         }
     }
@@ -175,6 +216,25 @@ final class SessionStore
             $_SESSION[self::RUN_BINDING_KEY] = $binding;
         }
         return $binding;
+    }
+
+    private function storedAuthId(): ?string
+    {
+        $value = $_SESSION[self::AUTH_ID_KEY] ?? null;
+        return is_string($value) && preg_match('/^[A-Za-z0-9_-]{43}$/D', $value) === 1
+            ? $value
+            : null;
+    }
+
+    private function clearAuthenticationState(): void
+    {
+        unset(
+            $_SESSION[self::AUTH_ID_KEY],
+            $_SESSION[self::LEGACY_PLAYER_KEY],
+            $_SESSION[self::RUN_BINDING_KEY],
+            $_SESSION[self::GOOGLE_AUTHENTICATED_AT_KEY],
+            $_SESSION[self::FINISH_RATE_KEY],
+        );
     }
 
     private static function base64Url(string $bytes): string

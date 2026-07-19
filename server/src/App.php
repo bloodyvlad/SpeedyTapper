@@ -16,6 +16,10 @@ final class App
         private readonly AchievementService $achievements,
         private readonly RunSubmissionService $runs,
         private readonly LeaderboardModerationService $moderation,
+        private readonly StoreKitAccountRepository $storeKitAccounts,
+        private readonly StoreKitService $storeKit,
+        private readonly AppStoreNotificationService $appStoreNotifications,
+        private readonly AccountDeletionService $accountDeletion,
         private readonly SessionStore $session,
         private readonly GoogleIdentityVerifier $google,
     ) {
@@ -60,6 +64,51 @@ final class App
             JsonResponse::send(200, $this->sessionPayload());
         }
 
+        if ($request->method === 'POST' && in_array(
+            $request->path,
+            ['/api/storekit/transactions', '/api/mobile/v1/storekit/transactions'],
+            true,
+        )) {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $body = $request->json();
+            $unknown = array_diff(array_keys($body), ['signedTransaction', 'appAccountToken']);
+            if ($unknown !== []) {
+                throw new ApiException(400, 'StoreKit requests contain unsupported client fields.');
+            }
+            JsonResponse::send(200, $this->storeKit->submit(
+                $profile['id'],
+                $body['signedTransaction'] ?? null,
+                $body['appAccountToken'] ?? null,
+            ));
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/app-store/notifications/v2') {
+            $body = $request->json();
+            $unknown = array_diff(array_keys($body), ['signedPayload']);
+            if ($unknown !== []) {
+                throw new ApiException(400, 'The App Store notification request is invalid.');
+            }
+            JsonResponse::send(200, $this->appStoreNotifications->receive($body['signedPayload'] ?? null));
+        }
+
+        if ($request->method === 'DELETE' && in_array(
+            $request->path,
+            ['/api/profile', '/api/account', '/api/mobile/v1/account'],
+            true,
+        )) {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $confirmation = $request->json()['confirmation'] ?? null;
+            if (!is_string($confirmation) || !hash_equals('DELETE MY ACCOUNT', $confirmation)) {
+                throw new ApiException(400, 'Explicit account-deletion confirmation is required.');
+            }
+            $this->session->requireRecentGoogleAuthentication();
+            $result = $this->accountDeletion->delete($profile['id']);
+            $this->session->logout();
+            JsonResponse::send(200, [...$result, 'authenticated' => false]);
+        }
+
         if ($request->path === '/api/profile' && ($request->method === 'GET' || $request->method === 'PATCH')) {
             $profile = $this->requirePlayer();
             if ($request->method === 'PATCH') {
@@ -70,6 +119,7 @@ final class App
             $mode = $this->modeFromQuery($request);
             JsonResponse::send(200, [
                 'profile' => $profile,
+                ...$this->storeKitAccounts->state($profile['id']),
                 'ranks' => $this->leaderboard->rankings($profile['id']),
                 'leaderboard' => $this->leaderboard->payload($mode, $profile['id']),
             ]);
@@ -347,6 +397,11 @@ final class App
             'googleClientId' => $this->config->googleClientId,
             'season' => ['id' => $this->config->seasonId, 'name' => $this->config->seasonName],
             'profile' => $profile,
+            ...($profile === null ? [
+                'wallet' => null,
+                'adFree' => false,
+                'storeKit' => null,
+            ] : $this->storeKitAccounts->state($profile['id'])),
             'ranks' => $profile === null ? null : $this->leaderboard->rankings($profile['id']),
             'achievementSnapshot' => $profile === null
                 ? $this->achievements->payload(null)

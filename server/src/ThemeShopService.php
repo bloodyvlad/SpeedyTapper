@@ -10,7 +10,10 @@ use Throwable;
 
 final class ThemeShopService
 {
-    public function __construct(private readonly PDO $database)
+    public function __construct(
+        private readonly PDO $database,
+        private readonly CoinWalletRepository $wallets,
+    )
     {
     }
 
@@ -59,7 +62,7 @@ final class ThemeShopService
     {
         $this->database->beginTransaction();
         try {
-            $player = $this->lockPlayer($playerId);
+            $player = $this->wallets->lock($playerId);
             $ownership = $theme['priceCoins'] === 0
                 ? ['price_paid' => 0]
                 : $this->findOwnership($playerId, $theme['id']);
@@ -69,41 +72,27 @@ final class ThemeShopService
 
             if ($purchased) {
                 $pricePaid = $theme['priceCoins'];
-                if ($coinBalance < $pricePaid) {
-                    $missing = $pricePaid - $coinBalance;
-                    throw new ApiException(
-                        409,
-                        sprintf(
-                            'You need %d more %s to buy %s.',
-                            $missing,
-                            $missing === 1 ? 'coin' : 'coins',
-                            $theme['name'],
-                        ),
-                    );
-                }
-
-                $debit = $this->database->prepare(
-                    'UPDATE players SET coins = coins - :price, updated_at = UTC_TIMESTAMP(3) '
-                    . 'WHERE id = :player_id AND coins >= :minimum_balance'
+                $spend = $this->wallets->spend(
+                    $playerId,
+                    $pricePaid,
+                    'theme_purchase',
+                    'theme:' . $playerId . ':' . $theme['id'] . ':g' . $player['economy_generation'],
+                    'theme_purchase',
+                    'theme-shop',
+                    'Purchased theme ' . $theme['id'] . '.',
+                    $player,
                 );
-                $debit->execute([
-                    'price' => $pricePaid,
-                    'minimum_balance' => $pricePaid,
-                    'player_id' => $playerId,
-                ]);
-                if ($debit->rowCount() !== 1) {
-                    throw new ApiException(409, 'Your coin balance changed. Try again.');
-                }
-                $coinBalance -= $pricePaid;
+                $coinBalance = $spend['coins'];
 
                 $insert = $this->database->prepare(
-                    'INSERT INTO player_themes (player_id, theme_id, price_paid) '
-                    . 'VALUES (:player_id, :theme_id, :price_paid)'
+                    'INSERT INTO player_themes (player_id, theme_id, price_paid, purchase_event_id) '
+                    . 'VALUES (:player_id, :theme_id, :price_paid, :purchase_event_id)'
                 );
                 $insert->execute([
                     'player_id' => $playerId,
                     'theme_id' => $theme['id'],
                     'price_paid' => $pricePaid,
+                    'purchase_event_id' => $spend['eventId'],
                 ]);
             }
 
@@ -116,18 +105,6 @@ final class ThemeShopService
                 'player_id' => $playerId,
                 'theme_id' => $theme['id'],
             ]);
-
-            if ($purchased) {
-                $this->insertPurchaseLedger(
-                    $playerId,
-                    (int) $player['economy_generation'],
-                    $theme['id'],
-                    $pricePaid,
-                    $coinBalance,
-                    (int) $player['coin_debt'],
-                    (int) $player['total_play_ms'],
-                );
-            }
 
             $this->database->commit();
             return [
@@ -146,51 +123,6 @@ final class ThemeShopService
             $this->rollBack();
             throw $error;
         }
-    }
-
-    /** @return array{coins: int, coin_debt: int, total_play_ms: int, economy_generation: int} */
-    private function lockPlayer(string $playerId): array
-    {
-        $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_play_ms, economy_generation '
-            . 'FROM players WHERE id = :player_id FOR UPDATE'
-        );
-        $statement->execute(['player_id' => $playerId]);
-        $player = $statement->fetch();
-        if (!is_array($player)) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
-        }
-        return $player;
-    }
-
-    private function insertPurchaseLedger(
-        string $playerId,
-        int $economyGeneration,
-        string $themeId,
-        int $pricePaid,
-        int $coinBalance,
-        int $coinDebt,
-        int $totalPlayMs,
-    ): void {
-        $statement = $this->database->prepare(
-            'INSERT INTO coin_ledger '
-            . '(event_id, event_key, player_id, economy_generation, event_type, play_ms_delta, coin_delta, '
-            . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
-            . "VALUES (:event_id, :event_key, :player_id, :economy_generation, 'theme_purchase', 0, :coin_delta, "
-            . ":coin_balance_after, :coin_debt_after, :total_play_ms_after, 'eligible', "
-            . "'theme-shop', :reason)"
-        );
-        $statement->execute([
-            'event_id' => Uuid::v4(),
-            'event_key' => 'theme:' . $playerId . ':' . $themeId . ':g' . $economyGeneration,
-            'player_id' => $playerId,
-            'economy_generation' => $economyGeneration,
-            'coin_delta' => -$pricePaid,
-            'coin_balance_after' => $coinBalance,
-            'coin_debt_after' => $coinDebt,
-            'total_play_ms_after' => $totalPlayMs,
-            'reason' => 'Purchased theme ' . $themeId . '.',
-        ]);
     }
 
     private function findOwnership(string $playerId, string $themeId): array|false

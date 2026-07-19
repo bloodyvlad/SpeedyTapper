@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
 use SpeedyTapper\AchievementService;
+use SpeedyTapper\AccountDeletionService;
+use SpeedyTapper\AppStoreNotificationService;
+use SpeedyTapper\AppleJwsVerifier;
 use SpeedyTapper\App;
 use SpeedyTapper\Config;
+use SpeedyTapper\CoinWalletRepository;
 use SpeedyTapper\Database;
 use SpeedyTapper\DeploymentBootstrap;
 use SpeedyTapper\GoogleClientIdentityVerifier;
@@ -19,6 +23,10 @@ use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProofValidator;
 use SpeedyTapper\SessionStore;
+use SpeedyTapper\SessionRegistry;
+use SpeedyTapper\StoreKitAccountRepository;
+use SpeedyTapper\StoreKitProductCatalog;
+use SpeedyTapper\StoreKitService;
 use SpeedyTapper\ThemeShopService;
 
 $projectRoot = dirname(__DIR__);
@@ -38,9 +46,24 @@ try {
         $config->seasonName,
     );
     DeploymentBootstrap::migrateIfMarked($database, $projectRoot, $leaderboard);
-    $achievements = new AchievementService($database);
-    $pets = new PetShopService($database, $achievements);
-    $themes = new ThemeShopService($database);
+    $wallets = new CoinWalletRepository($database);
+    $storeKitAccounts = new StoreKitAccountRepository(
+        $database,
+        $config->storeKitRetentionHmacKey ?? '',
+    );
+    $storeKitCatalog = new StoreKitProductCatalog($config->storeKitProducts);
+    $appleJws = AppleJwsVerifier::fromPemFiles($config->storeKitRootCertificatePaths);
+    $storeKit = new StoreKitService(
+        $database,
+        $config,
+        $storeKitCatalog,
+        $appleJws,
+        $storeKitAccounts,
+        $wallets,
+    );
+    $achievements = new AchievementService($database, $wallets);
+    $pets = new PetShopService($database, $achievements, $wallets);
+    $themes = new ThemeShopService($database, $wallets);
     $app = new App(
         config: $config,
         players: new PlayerRepository($database, $pets, $themes),
@@ -54,9 +77,22 @@ try {
             $leaderboard,
             new RunProofValidator(),
             $achievements,
+            $wallets,
         ),
         moderation: new LeaderboardModerationService($database),
-        session: new SessionStore($request->isSecure()),
+        storeKitAccounts: $storeKitAccounts,
+        storeKit: $storeKit,
+        appStoreNotifications: new AppStoreNotificationService(
+            $database,
+            $config,
+            $appleJws,
+            $storeKit,
+        ),
+        accountDeletion: new AccountDeletionService(
+            $database,
+            $config->storeKitRetentionHmacKey ?? '',
+        ),
+        session: new SessionStore($request->isSecure(), new SessionRegistry($database)),
         google: new GoogleClientIdentityVerifier($config->googleClientId),
     );
     $app->dispatch($request);

@@ -15,6 +15,15 @@ final readonly class Config
         public string $googleClientId,
         public string $seasonId,
         public string $seasonName,
+        public string $storeKitBundleId = 'com.otcsoftware.pimpopom',
+        public ?string $storeKitEnvironment = null,
+        public ?string $storeKitAppAppleId = null,
+        public array $storeKitProducts = [],
+        public ?string $storeKitRetentionHmacKey = null,
+        public array $storeKitRootCertificatePaths = [],
+        public ?string $storeKitIssuerId = null,
+        public ?string $storeKitKeyId = null,
+        public ?string $storeKitPrivateKeyPath = null,
     ) {
     }
 
@@ -62,6 +71,14 @@ final readonly class Config
             }
             return trim($candidate);
         };
+        $optional = static function (string $key) use ($local): ?string {
+            $environmentValue = getenv($key);
+            $candidate = $environmentValue !== false ? $environmentValue : ($local[$key] ?? null);
+            if (!is_string($candidate) || trim($candidate) === '') {
+                return null;
+            }
+            return trim($candidate);
+        };
 
         $port = filter_var($value('SPEEDYTAPPER_DB_PORT', '3306'), FILTER_VALIDATE_INT, [
             'options' => ['min_range' => 1, 'max_range' => 65535],
@@ -79,6 +96,62 @@ final readonly class Config
             throw new ApiException(503, 'Server configuration is invalid.');
         }
 
+        $storeKitBundleId = $optional('SPEEDYTAPPER_STOREKIT_BUNDLE_ID')
+            ?? 'com.otcsoftware.pimpopom';
+        if (!hash_equals('com.otcsoftware.pimpopom', $storeKitBundleId)) {
+            throw new ApiException(503, 'StoreKit bundle configuration is invalid.');
+        }
+        $storeKitEnvironment = $optional('SPEEDYTAPPER_STOREKIT_ENVIRONMENT');
+        if ($storeKitEnvironment !== null && !in_array(
+            $storeKitEnvironment,
+            ['Sandbox', 'Production'],
+            true,
+        )) {
+            throw new ApiException(503, 'StoreKit environment configuration is invalid.');
+        }
+        $storeKitAppAppleId = $optional('SPEEDYTAPPER_STOREKIT_APP_APPLE_ID');
+        if ($storeKitAppAppleId !== null && preg_match('/^[1-9][0-9]{4,19}$/D', $storeKitAppAppleId) !== 1) {
+            throw new ApiException(503, 'StoreKit app identifier configuration is invalid.');
+        }
+
+        $productsJson = $optional('SPEEDYTAPPER_STOREKIT_PRODUCTS_JSON');
+        $storeKitProducts = [];
+        if ($productsJson !== null) {
+            try {
+                $decodedProducts = json_decode($productsJson, true, 16, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                throw new ApiException(503, 'StoreKit product configuration is invalid.');
+            }
+            if (!is_array($decodedProducts) || array_is_list($decodedProducts)) {
+                throw new ApiException(503, 'StoreKit product configuration is invalid.');
+            }
+            $storeKitProducts = $decodedProducts;
+        }
+
+        $rootCertificatePaths = $local['SPEEDYTAPPER_STOREKIT_ROOT_CERTIFICATE_PATHS'] ?? null;
+        $rootPathsEnvironment = getenv('SPEEDYTAPPER_STOREKIT_ROOT_CERTIFICATE_PATHS');
+        if ($rootPathsEnvironment !== false) {
+            $rootCertificatePaths = array_values(array_filter(array_map(
+                'trim',
+                explode(',', $rootPathsEnvironment),
+            )));
+        }
+        if ($rootCertificatePaths === null) {
+            $rootCertificatePaths = [
+                $projectRoot . '/server/certs/AppleRootCA-G2.pem',
+                $projectRoot . '/server/certs/AppleRootCA-G3.pem',
+            ];
+        }
+        if (!is_array($rootCertificatePaths) || array_is_list($rootCertificatePaths) === false) {
+            throw new ApiException(503, 'StoreKit trust-root configuration is invalid.');
+        }
+        $rootCertificatePaths = array_values(array_map(static function (mixed $path): string {
+            if (!is_string($path) || trim($path) === '') {
+                throw new ApiException(503, 'StoreKit trust-root configuration is invalid.');
+            }
+            return trim($path);
+        }, $rootCertificatePaths));
+
         return new self(
             databaseHost: $value('SPEEDYTAPPER_DB_HOST', 'localhost'),
             databasePort: $port,
@@ -88,6 +161,33 @@ final readonly class Config
             googleClientId: $value('SPEEDYTAPPER_GOOGLE_CLIENT_ID'),
             seasonId: $seasonId,
             seasonName: $seasonName,
+            storeKitBundleId: $storeKitBundleId,
+            storeKitEnvironment: $storeKitEnvironment,
+            storeKitAppAppleId: $storeKitAppAppleId,
+            storeKitProducts: $storeKitProducts,
+            storeKitRetentionHmacKey: $optional('SPEEDYTAPPER_STOREKIT_RETENTION_HMAC_KEY'),
+            storeKitRootCertificatePaths: $rootCertificatePaths,
+            storeKitIssuerId: $optional('SPEEDYTAPPER_STOREKIT_ISSUER_ID'),
+            storeKitKeyId: $optional('SPEEDYTAPPER_STOREKIT_KEY_ID'),
+            storeKitPrivateKeyPath: $optional('SPEEDYTAPPER_STOREKIT_PRIVATE_KEY_PATH'),
         );
+    }
+
+    public function storeKitIsConfigured(): bool
+    {
+        return $this->storeKitEnvironment !== null
+            && ($this->storeKitEnvironment !== 'Production' || $this->storeKitAppAppleId !== null)
+            && $this->storeKitProducts !== []
+            && $this->storeKitRetentionHmacKey !== null
+            && strlen($this->storeKitRetentionHmacKey) >= 32
+            && $this->storeKitRootCertificatePaths !== [];
+    }
+
+    public function storeKitServerApiIsConfigured(): bool
+    {
+        return $this->storeKitIsConfigured()
+            && $this->storeKitIssuerId !== null
+            && $this->storeKitKeyId !== null
+            && $this->storeKitPrivateKeyPath !== null;
     }
 }

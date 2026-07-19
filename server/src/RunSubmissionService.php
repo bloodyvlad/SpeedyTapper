@@ -20,6 +20,7 @@ final class RunSubmissionService
         private readonly LeaderboardRepository $leaderboard,
         private readonly RunProofValidator $validator,
         private readonly AchievementService $achievements,
+        private readonly CoinWalletRepository $wallets,
     ) {
     }
 
@@ -61,7 +62,7 @@ final class RunSubmissionService
 
         $this->database->beginTransaction();
         try {
-            $player = $this->lockPlayer($playerId);
+            $player = $this->wallets->lock($playerId);
             $attempt = $this->lockAttempt($proof->runId);
             $this->assertAttemptOwnership($attempt, $playerId, $sessionBindingHash, $proof);
 
@@ -129,11 +130,24 @@ final class RunSubmissionService
             $progression = $verificationStatus === 'verified'
                 ? CoinProgression::accrue((int) $player['coin_time_remainder_ms'], $creditedPlayMs)
                 : CoinProgression::accrue((int) $player['coin_time_remainder_ms'], 0);
-            $wallet = CoinEconomy::applyCredit(
-                (int) $player['coins'],
-                (int) $player['coin_debt'],
-                $progression->coinsEarned,
-            );
+            $wallet = $verificationStatus === 'verified'
+                ? $this->wallets->creditEarned($playerId, $progression->coinsEarned, $player)
+                : CoinEconomy::summary(
+                    (int) $player['earned_coins'],
+                    (int) $player['purchased_coins'],
+                    (int) $player['earned_coin_debt'],
+                    (int) $player['refund_coin_debt'],
+                );
+            if ($verificationStatus === 'verified' && ($wallet['refundDebtPaid'] ?? 0) > 0) {
+                $this->wallets->allocateRefundDebtPayment(
+                    $playerId,
+                    'earned_credit',
+                    'run:' . $score->runId,
+                    null,
+                    (int) $wallet['refundDebtPaid'],
+                    (int) $player['economy_generation'],
+                );
+            }
             $coinDebt = $wallet['debt'];
             $coinBalance = $wallet['coins'];
             $totalCoinsCollected = (int) $player['total_coins_collected']
@@ -148,14 +162,11 @@ final class RunSubmissionService
 
             if ($verificationStatus === 'verified') {
                 $updatePlayer = $this->database->prepare(
-                    'UPDATE players SET coins = :coins, coin_debt = :coin_debt, '
-                    . 'total_coins_collected = :total_coins_collected, '
+                    'UPDATE players SET total_coins_collected = :total_coins_collected, '
                     . 'coin_time_remainder_ms = :coin_time_remainder_ms, total_play_ms = :total_play_ms, '
                     . 'updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
                 );
                 $updatePlayer->execute([
-                    'coins' => $coinBalance,
-                    'coin_debt' => $coinDebt,
                     'total_coins_collected' => $totalCoinsCollected,
                     'coin_time_remainder_ms' => $progression->remainderMs,
                     'total_play_ms' => $totalPlayMs,
@@ -192,6 +203,7 @@ final class RunSubmissionService
                 $progression->remainderMs,
                 $coinBalance,
                 $coinDebt,
+                $wallet,
                 $totalPlayMs,
                 $coinStatus,
             );
@@ -222,21 +234,6 @@ final class RunSubmissionService
             $this->rollBack();
             throw $error;
         }
-    }
-
-    private function lockPlayer(string $playerId): array
-    {
-        $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms, '
-            . 'economy_generation '
-            . 'FROM players WHERE id = :player_id FOR UPDATE'
-        );
-        $statement->execute(['player_id' => $playerId]);
-        $player = $statement->fetch();
-        if (!is_array($player)) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
-        }
-        return $player;
     }
 
     private function lockAttempt(string $runId): array
@@ -434,18 +431,21 @@ final class RunSubmissionService
         int $remainderAfter,
         int $coinBalance,
         int $coinDebt,
+        array $wallet,
         int $totalPlayMs,
         string $coinStatus,
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO coin_ledger '
             . '(event_id, event_key, player_id, economy_generation, run_id, event_type, play_ms_delta, coin_delta, '
-            . 'remainder_before_ms, remainder_after_ms, coin_balance_after, coin_debt_after, '
-            . 'total_play_ms_after, '
+            . 'remainder_before_ms, remainder_after_ms, earned_delta, purchased_delta, '
+            . 'coin_balance_after, earned_balance_after, purchased_balance_after, coin_debt_after, '
+            . 'earned_debt_after, refund_debt_after, total_play_ms_after, '
             . 'coin_status, actor, reason) VALUES '
             . '(:event_id, :event_key, :player_id, :economy_generation, :run_id, \'run_credit\', :play_ms_delta, :coin_delta, '
-            . ':remainder_before_ms, :remainder_after_ms, :coin_balance_after, :coin_debt_after, '
-            . ':total_play_ms_after, '
+            . ':remainder_before_ms, :remainder_after_ms, :earned_delta, 0, '
+            . ':coin_balance_after, :earned_balance_after, :purchased_balance_after, :coin_debt_after, '
+            . ':earned_debt_after, :refund_debt_after, :total_play_ms_after, '
             . ':coin_status, \'verification-server\', :reason)'
         );
         $statement->execute([
@@ -458,8 +458,13 @@ final class RunSubmissionService
             'coin_delta' => $coinsEarned,
             'remainder_before_ms' => $remainderBefore,
             'remainder_after_ms' => $remainderAfter,
+            'earned_delta' => $coinsEarned,
             'coin_balance_after' => $coinBalance,
+            'earned_balance_after' => $wallet['earnedCoins'],
+            'purchased_balance_after' => $wallet['purchasedCoins'],
             'coin_debt_after' => $coinDebt,
+            'earned_debt_after' => $wallet['earnedDebt'],
+            'refund_debt_after' => $wallet['refundDebt'],
             'total_play_ms_after' => $totalPlayMs,
             'coin_status' => $coinStatus,
             'reason' => match ($coinStatus) {

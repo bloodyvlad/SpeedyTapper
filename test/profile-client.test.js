@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createProfileClient, ProfileApiError } from "../src/profile-client.js";
+import {
+  ACCOUNT_DELETION_CONFIRMATION,
+  createProfileClient,
+  ProfileApiError
+} from "../src/profile-client.js";
 
 function response(body, { ok = true, status = 200 } = {}) {
   return {
@@ -81,7 +85,7 @@ test("verified run submissions contain proof rather than authoritative score agg
     mode: "normal",
     proofVersion: 1,
     ruleset: "reaction-proof-v2",
-    buildId: "20260718-1",
+    buildId: "20260719-1",
     events: [[2, 100, 101, 0, 0], [2, 200, 201, 0, 0], [2, 300, 301, 0, 0], [5, 300, 301]]
   };
 
@@ -105,11 +109,11 @@ test("run lifecycle uses server-issued start and explicit abandon endpoints", as
     }
   });
 
-  await client.startRun("normal", "20260718-1");
+  await client.startRun("normal", "20260719-1");
   await client.abandonRun("4f27f9de-37de-4c31-8090-279a037bf76a");
 
   assert.equal(calls[1][0], "/api/runs");
-  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260718-1" });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { mode: "normal", buildId: "20260719-1" });
   assert.equal(calls[2][0], "/api/runs/abandon");
 });
 
@@ -124,6 +128,40 @@ test("profile context requests are mode-specific", async () => {
 
   await client.getProfile("zen");
   assert.equal(calls[0][0], "/api/profile?mode=zen");
+});
+
+test("account deletion requires the exact phrase, uses DELETE, and discards the old CSRF session", async () => {
+  const calls = [];
+  const client = createProfileClient({
+    fetchImpl: async (...args) => {
+      calls.push(args);
+      if (args[0] === "/api/session") {
+        return response({
+          authenticated: calls.length > 2 ? false : true,
+          csrfToken: `csrf-token-${calls.length}-with-more-than-thirty-two-characters`
+        });
+      }
+      return response({ authenticated: false });
+    }
+  });
+
+  await client.getSession();
+  await assert.rejects(client.deleteAccount("delete my account"), /DELETE MY ACCOUNT/);
+  await client.deleteAccount(ACCOUNT_DELETION_CONFIRMATION);
+  await client.loginWithGoogleCredential("header.payload.signature");
+
+  assert.equal(calls[1][0], "/api/profile");
+  assert.equal(calls[1][1].method, "DELETE");
+  assert.equal(calls[1][1].credentials, "same-origin");
+  assert.deepEqual(JSON.parse(calls[1][1].body), {
+    confirmation: ACCOUNT_DELETION_CONFIRMATION
+  });
+  assert.equal(calls[2][0], "/api/session", "The deleted PHP session's CSRF token must not be reused.");
+  assert.equal(calls[3][0], "/api/auth/google");
+  assert.equal(
+    calls[3][1].headers["X-SpeedyTapper-CSRF"],
+    "csrf-token-3-with-more-than-thirty-two-characters"
+  );
 });
 
 test("pet catalog reads plus selection and visibility mutations use dedicated same-origin routes", async () => {

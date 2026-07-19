@@ -59,6 +59,22 @@ final class MigrationRunner
                     $onApplied($name);
                 }
             }
+        } catch (Throwable $error) {
+            // MySQL commits most DDL implicitly, but a migration may also open
+            // an explicit transaction for its data changes. Never return a
+            // pooled/persistent connection with that transaction still live
+            // after a failed statement or callback.
+            if ($this->database->inTransaction()) {
+                try {
+                    $this->database->rollBack();
+                } catch (Throwable $rollbackError) {
+                    error_log(
+                        'SpeedyTapper migration rollback failed: '
+                        . $rollbackError->getMessage()
+                    );
+                }
+            }
+            throw $error;
         } finally {
             $this->releaseLock($lockName);
         }

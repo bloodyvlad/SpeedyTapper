@@ -18,6 +18,7 @@ use SpeedyTapper\RunProofValidator;
 use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
+use SpeedyTapper\SessionRegistry;
 use SpeedyTapper\ThemeCatalog;
 use SpeedyTapper\Uuid;
 
@@ -171,6 +172,98 @@ $assert(
     'Debt-free credits become spendable coins.',
 );
 $assert(CoinEconomy::fromNet(-4) === ['coins' => 0, 'debt' => 4], 'Negative entitlement becomes coin debt.');
+$assert(
+    CoinEconomy::applyEarnedCredit(0, 9, 4, 0, 6) === [
+        'earnedCoins' => 2,
+        'purchasedCoins' => 9,
+        'earnedDebt' => 0,
+        'refundDebt' => 0,
+        'earnedDebtPaid' => 4,
+        'refundDebtPaid' => 0,
+    ],
+    'Earned credits repay refund debt, then earned debt, before becoming spendable.',
+);
+$assert(
+    CoinEconomy::applyEarnedCredit(5, 0, 0, 3, 2) === [
+        'earnedCoins' => 5,
+        'purchasedCoins' => 0,
+        'earnedDebt' => 0,
+        'refundDebt' => 1,
+        'earnedDebtPaid' => 0,
+        'refundDebtPaid' => 2,
+    ],
+    'Future earned credits clear StoreKit refund debt before becoming spendable.',
+);
+$assert(
+    CoinEconomy::applyPurchasedCredit(0, 0, 3, 5, 8) === [
+        'earnedCoins' => 0,
+        'purchasedCoins' => 3,
+        'earnedDebt' => 3,
+        'refundDebt' => 0,
+        'refundDebtPaid' => 5,
+    ],
+    'Purchased credits repay only refund debt before becoming spendable.',
+);
+$assert(
+    CoinEconomy::spendEarnedFirst(4, 7, 0, 0, 9) === [
+        'earnedCoins' => 0,
+        'purchasedCoins' => 2,
+        'earnedDebt' => 0,
+        'refundDebt' => 0,
+        'earnedSpent' => 4,
+        'purchasedSpent' => 5,
+    ],
+    'Purchases consume earned coins before paid coins.',
+);
+$assert(
+    CoinEconomy::applyPurchasedReversal(11, 3, 0, 0, 8) === [
+        'earnedCoins' => 11,
+        'purchasedCoins' => 0,
+        'earnedDebt' => 0,
+        'refundDebt' => 5,
+        'purchasedCoinsReversed' => 3,
+        'refundDebtAdded' => 5,
+    ],
+    'A paid-value reversal preserves earned coins and records the uncovered refund debt.',
+);
+$assert(
+    CoinEconomy::summary(7, 0, 0, 3) === [
+        'earnedCoins' => 7,
+        'purchasedCoins' => 0,
+        'earnedDebt' => 0,
+        'refundDebt' => 3,
+        'coins' => 7,
+        'debt' => 3,
+        'net' => 4,
+    ],
+    'Compatibility totals preserve independent provenance even when coins and debt coexist.',
+);
+$assert(
+    CoinEconomy::fromEarnedNet(-4, 10) === [
+        'earnedCoins' => 0,
+        'purchasedCoins' => 10,
+        'earnedDebt' => 4,
+        'refundDebt' => 0,
+    ],
+    'Earned recomputation never nets moderation debt against purchased value.',
+);
+$throwsInvalidArgument = static function (callable $callback, string $message) use ($assert): void {
+    try {
+        $callback();
+    } catch (InvalidArgumentException) {
+        $assert(true, $message);
+        return;
+    }
+    $assert(false, $message);
+};
+$throwsInvalidArgument(
+    static fn () => CoinEconomy::spendEarnedFirst(2, 3, 0, 0, 6),
+    'Spending more than the two spendable provenance buckets is rejected.',
+);
+$throwsInvalidArgument(
+    static fn () => CoinEconomy::summary(1, 0, 1, 0),
+    'A single provenance cannot hold both spendable coins and its matching debt.',
+);
 
 $unrankedAttemptService = (new ReflectionClass(RunAttemptService::class))->newInstanceWithoutConstructor();
 try {
@@ -475,8 +568,17 @@ $throwsApi(
 );
 
 session_id('speedytappersecuritytest' . bin2hex(random_bytes(4)));
-$rateSession = new SessionStore(false);
 $ratePlayerId = '0e15330a-720c-42d2-88c4-18b881388b8a';
+$rateDatabase = new PDO('sqlite::memory:');
+$rateDatabase->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$rateDatabase->exec('CREATE TABLE players (id TEXT PRIMARY KEY)');
+$rateDatabase->exec(
+    'CREATE TABLE player_sessions ('
+    . 'session_auth_hash BLOB PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
+$rateDatabase->prepare('INSERT INTO players (id) VALUES (:id)')->execute(['id' => $ratePlayerId]);
+$rateSession = new SessionStore(false, new SessionRegistry($rateDatabase));
 $rateSession->login($ratePlayerId);
 for ($attempt = 0; $attempt < 20; $attempt++) {
     $rateSession->requireRunFinishCapacity();
@@ -695,15 +797,16 @@ $assert(
         && str_contains($moderationService, 'deleteAndReset')
         && str_contains($moderationService, 'account_reward_resets')
         && str_contains($moderationService, 'economy_generation = :economy_generation')
-        && str_contains($moderationService, 'DELETE FROM player_pets')
-        && str_contains($moderationService, 'DELETE FROM player_themes')
-        && str_contains($moderationService, 'DELETE FROM player_theme_selection')
+        && str_contains($moderationService, 'removeUnpaidCosmetics')
+        && str_contains($moderationService, "allocation.source = 'purchased'")
+        && !str_contains($moderationService, 'purchased_coins = 0')
+        && !str_contains($moderationService, 'refund_coin_debt = 0')
         && str_contains($moderationService, "rejection_code = 'admin-reward-reset'")
         && str_contains($moderationService, 'total_coins_collected = 0')
         && str_contains($moderationService, "'admin_reward_reset'")
         && str_contains($moderationService, "'delete_reset'")
         && str_contains($moderationService, 'achievementsPreserved'),
-    'Any role-authorized administrator can moderate an exact target through the two-stage audited reward-reset workflow.',
+    'Role-authorized moderation can target any exact result while preserving purchased value and paid-funded cosmetics.',
 );
 $purgeCli = file_get_contents(dirname(__DIR__) . '/server/bin/purge-run-attempts.php');
 $assert(
@@ -718,8 +821,9 @@ $petShopService = file_get_contents(dirname(__DIR__) . '/server/src/PetShopServi
 $assert(
     is_string($petShopService)
         && str_contains($petShopService, 'beginTransaction')
-        && str_contains($petShopService, 'FOR UPDATE')
-        && str_contains($petShopService, 'coins >= :minimum_balance')
+        && str_contains($petShopService, 'CoinWalletRepository')
+        && str_contains($petShopService, 'wallets->lock')
+        && str_contains($petShopService, 'wallets->spend')
         && str_contains($petShopService, 'INSERT INTO player_pets')
         && str_contains($petShopService, 'unlockBuyPetInTransaction')
         && str_contains($petShopService, 'pet_purchase')
@@ -734,19 +838,21 @@ $themeShopService = file_get_contents(dirname(__DIR__) . '/server/src/ThemeShopS
 $assert(
     is_string($themeShopService)
         && str_contains($themeShopService, 'beginTransaction')
-        && str_contains($themeShopService, 'FOR UPDATE')
-        && str_contains($themeShopService, 'coins >= :minimum_balance')
+        && str_contains($themeShopService, 'CoinWalletRepository')
+        && str_contains($themeShopService, 'wallets->lock')
+        && str_contains($themeShopService, 'wallets->spend')
         && str_contains($themeShopService, 'INSERT INTO player_themes')
         && str_contains($themeShopService, 'player_theme_selection')
         && str_contains($themeShopService, 'theme_purchase')
-        && str_contains($themeShopService, "'theme:' . \$playerId . ':' . \$themeId . ':g' . \$economyGeneration")
+        && str_contains($themeShopService, "'theme:' . \$playerId")
+        && str_contains($themeShopService, "\$player['economy_generation']")
         && !str_contains($themeShopService, 'unlockBuyPetInTransaction')
         && str_contains($themeShopService, 'rollBack'),
     'Paid themes use an atomic generation-qualified purchase and selection transaction without pet achievements.',
 );
 $assert(
     preg_match(
-        '~INSERT INTO player_pets.*?unlockBuyPetInTransaction.*?player_pet_selection.*?insertPurchaseLedger.*?commit\(\)~s',
+        '~wallets->spend.*?INSERT INTO player_pets.*?unlockBuyPetInTransaction.*?player_pet_selection.*?commit\(\)~s',
         $petShopService,
     ) === 1,
     'Buy a pet unlocks only inside the successful debit, ownership, selection, ledger, and commit path.',
@@ -761,7 +867,8 @@ $assert(
         && str_contains($achievementService, "verification_status = 'verified'")
         && str_contains($achievementService, "acquisition_source = 'purchase'")
         && str_contains($achievementService, 'achievement_reward')
-        && str_contains($achievementService, 'CoinEconomy::applyCredit'),
+        && str_contains($achievementService, 'wallets->creditEarned')
+        && str_contains($achievementService, 'allocateRefundDebtPayment'),
     'Achievement unlocks use verified runs and durable moderation-safe rewards.',
 );
 $assert(
@@ -771,8 +878,8 @@ $assert(
 );
 $assert(
     str_contains($schema, 'event_key VARCHAR(128)')
-        && str_contains($petShopService, "':g' . \$economyGeneration")
-        && str_contains($achievementService, "':g' . \$economyGeneration"),
+        && str_contains($petShopService, "':g' . \$player['economy_generation']")
+        && str_contains($achievementService, "':g' . \$player['economy_generation']"),
     'Generation-qualified repurchase and reward keys fit the expanded immutable ledger key.',
 );
 
@@ -788,8 +895,10 @@ $assert(
 $moderationService = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardModerationService.php');
 $assert(
     is_string($moderationService)
-        && str_contains($moderationService, "event_type IN ('pet_purchase','theme_purchase','achievement_reward')")
-        && str_contains($moderationService, 'CoinEconomy::fromNet')
+        && str_contains($moderationService, "ledger.event_type = 'achievement_reward'")
+        && str_contains($moderationService, "allocation.source = 'earned'")
+        && str_contains($moderationService, 'earned_refund_settlement')
+        && str_contains($moderationService, 'CoinEconomy::fromEarnedNet')
         && str_contains($moderationService, "=== 'zen' ? 0 : self::DODGE_POINTS")
         && str_contains($moderationService, 'coin_debt_after'),
     'Moderation preserves purchases and rewards while reconciling spendable coins or debt.',
@@ -824,12 +933,54 @@ $assert(
     is_string($deploymentBootstrap)
         && str_contains($deploymentBootstrap, "server/.migrations-pending")
         && str_contains($deploymentBootstrap, 'MigrationRunner')
+        && str_contains($deploymentBootstrap, "'.claimed-'")
+        && str_contains($deploymentBootstrap, 'rename($markerPath, $claimPath)')
+        && str_contains($deploymentBootstrap, 'restoreClaim($claimPath, $markerPath)')
         && str_contains($deploymentBootstrap, 'ensureSeason')
         && str_contains($apiBootstrap, 'DeploymentBootstrap::migrateIfMarked')
         && !str_contains($apiBootstrap, 'new MigrationRunner')
         && !str_contains($apiBootstrap, '$leaderboard->ensureSeason()'),
-    'Normal API requests skip migration and season writes unless a deployment artifact marker exists.',
+    'Normal API requests skip migration and season writes while bootstrap atomically claims only its deployment marker.',
 );
+$migrationRunnerSource = file_get_contents(dirname(__DIR__) . '/server/src/MigrationRunner.php');
+$assert(
+    is_string($migrationRunnerSource)
+        && str_contains($migrationRunnerSource, '$this->database->inTransaction()')
+        && str_contains($migrationRunnerSource, '$this->database->rollBack()')
+        && str_contains($migrationRunnerSource, 'throw $error;'),
+    'A failed migration rolls back any transaction it left active before releasing the advisory lock.',
+);
+$bootstrapMarkerDirectory = sys_get_temp_dir()
+    . '/speedytapper-bootstrap-marker-'
+    . bin2hex(random_bytes(8));
+mkdir($bootstrapMarkerDirectory, 0700, true);
+$bootstrapMarkerPath = $bootstrapMarkerDirectory . '/.migrations-pending';
+$bootstrapClaimPath = $bootstrapMarkerPath . '.claimed-test';
+$restoreBootstrapClaim = (new ReflectionClass(\SpeedyTapper\DeploymentBootstrap::class))
+    ->getMethod('restoreClaim');
+try {
+    file_put_contents($bootstrapClaimPath, 'older-release');
+    file_put_contents($bootstrapMarkerPath, 'newer-release');
+    $restoreBootstrapClaim->invoke(null, $bootstrapClaimPath, $bootstrapMarkerPath);
+    $assert(
+        file_get_contents($bootstrapMarkerPath) === 'newer-release'
+            && !is_file($bootstrapClaimPath),
+        'A failed older migration claim cannot delete the pending marker from a newer deployment.',
+    );
+
+    unlink($bootstrapMarkerPath);
+    file_put_contents($bootstrapClaimPath, 'retry-release');
+    $restoreBootstrapClaim->invoke(null, $bootstrapClaimPath, $bootstrapMarkerPath);
+    $assert(
+        file_get_contents($bootstrapMarkerPath) === 'retry-release'
+            && !is_file($bootstrapClaimPath),
+        'A failed migration restores its claim for a later request when no newer marker exists.',
+    );
+} finally {
+    if (is_file($bootstrapClaimPath)) unlink($bootstrapClaimPath);
+    if (is_file($bootstrapMarkerPath)) unlink($bootstrapMarkerPath);
+    rmdir($bootstrapMarkerDirectory);
+}
 $leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
 $assert(
     is_string($leaderboardRepository)

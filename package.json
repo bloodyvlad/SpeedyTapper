@@ -9,7 +9,7 @@
     "dev:php": "php -S 0.0.0.0:4173 -t . server/dev-router.php",
     "test": "node --test",
     "check": "node --check src/config.js && node --check src/early-bootstrap.js && node --check src/game-engine.js && node --check src/input-timing.js && node --check src/main.js && node --check src/music-controller.js && node --check src/pet-catalog.js && node --check src/pet-controller.js && node --check src/profile-client.js && node --check src/service-worker-registration.js && node --check src/sound-controller.js && node --check src/theme-audio.js && node --check src/theme-catalog.js && node --check lib/leaderboard-model.js && node --check api/leaderboard.js && node --check scripts/dev-server.mjs && node --test && npm run check:php",
-    "check:php": "composer validate --strict --no-check-publish && composer audit --locked --no-dev && find api server -type f -name '*.php' -print0 | xargs -0 -n1 php -l && php test/php-backend.test.php"
+    "check:php": "composer validate --strict --no-check-publish && composer audit --locked --no-dev && find api server test -type f -name '*.php' -print0 | xargs -0 -n1 php -l && php test/php-backend.test.php && php test/session-registry.test.php && php test/apple-jws-verifier.test.php && php test/app-store-api-client.test.php && php test/app-store-notification.test.php && php test/storekit-domain.test.php && php test/moderation-paid-value.test.php && php test/account-deletion.test.php"
   },
   "engines": {
     "node": ">=20"

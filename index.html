@@ -10,11 +10,11 @@
     <meta name="apple-mobile-web-app-title" content="PimPoPom" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="PimPoPom is a fast color-reaction game." />
-    <script src="./src/early-bootstrap.js?v=20260718-1"></script>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260718-1" />
+    <script src="./src/early-bootstrap.js?v=20260719-1"></script>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260719-1" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260718-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260719-1" />
     <title>PimPoPom</title>
   </head>
   <body>
@@ -684,6 +684,48 @@
                 Leaderboard Admin
               </button>
               <button class="secondary-button profile-logout" id="profile-logout" type="button">Log out</button>
+              <section class="profile-danger-zone" id="profile-danger-zone" aria-label="Account deletion">
+                <button
+                  class="profile-delete-reveal"
+                  id="profile-delete-reveal"
+                  type="button"
+                  aria-controls="profile-delete-form"
+                  aria-expanded="false"
+                >
+                  Delete account
+                </button>
+                <form class="profile-delete-form" id="profile-delete-form" hidden>
+                  <h3 id="profile-delete-title">Delete account permanently?</h3>
+                  <p>
+                    This removes your PimPoPom identity, nickname, public results, coins, pets,
+                    themes, achievements, and active sessions. This cannot be undone.
+                  </p>
+                  <p>
+                    Detached, pseudonymized App Store transaction and refund evidence may be
+                    retained only for payment reconciliation and legal accounting. It is not
+                    public and cannot restore your profile.
+                  </p>
+                  <label for="profile-delete-confirmation">
+                    Type <strong>DELETE MY ACCOUNT</strong> to continue.
+                  </label>
+                  <input
+                    id="profile-delete-confirmation"
+                    name="confirmation"
+                    type="text"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    enterkeyhint="done"
+                  />
+                  <div class="profile-delete-actions">
+                    <button class="secondary-button" id="profile-delete-cancel" type="button">Cancel</button>
+                    <button class="danger-button" id="profile-delete-submit" type="submit" disabled>
+                      Permanently delete
+                    </button>
+                  </div>
+                  <p class="form-status" id="profile-delete-status" aria-live="polite"></p>
+                </form>
+              </section>
             </div>
           </section>
         </div>
@@ -820,7 +862,7 @@
       </section>
     </div>
 
-    <script src="./src/service-worker-registration.js?v=20260718-1"></script>
-    <script type="module" src="./src/main.js?v=20260718-1"></script>
+    <script src="./src/service-worker-registration.js?v=20260719-1"></script>
+    <script type="module" src="./src/main.js?v=20260719-1"></script>
   </body>
 </html>

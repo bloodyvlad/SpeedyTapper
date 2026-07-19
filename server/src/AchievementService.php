@@ -12,8 +12,10 @@ final class AchievementService
 {
     private ?bool $petOwnershipAvailable = null;
 
-    public function __construct(private readonly PDO $database)
-    {
+    public function __construct(
+        private readonly PDO $database,
+        private readonly CoinWalletRepository $wallets,
+    ) {
     }
 
     public function payload(?string $playerId): array
@@ -24,7 +26,7 @@ final class AchievementService
 
         $this->database->beginTransaction();
         try {
-            $player = $this->lockPlayer($playerId);
+            $player = $this->wallets->lock($playerId);
             $this->syncHistoricalEligibility(
                 $playerId,
                 (int) $player['total_coins_collected'],
@@ -95,7 +97,7 @@ final class AchievementService
     {
         $this->database->beginTransaction();
         try {
-            $player = $this->lockPlayer($playerId);
+            $player = $this->wallets->lock($playerId);
             $this->syncHistoricalEligibility(
                 $playerId,
                 (int) $player['total_coins_collected'],
@@ -115,23 +117,27 @@ final class AchievementService
             if ($rewardCoins !== $definition['rewardCoins']) {
                 throw new \RuntimeException('Stored achievement reward does not match the catalog.');
             }
-            $wallet = CoinEconomy::applyCredit(
-                (int) $player['coins'],
-                (int) $player['coin_debt'],
-                $rewardCoins,
-            );
+            $wallet = $this->wallets->creditEarned($playerId, $rewardCoins, $player);
+            if (($wallet['refundDebtPaid'] ?? 0) > 0) {
+                $this->wallets->allocateRefundDebtPayment(
+                    $playerId,
+                    'earned_credit',
+                    'achievement:' . $playerId . ':' . $definition['id']
+                        . ':g' . $player['economy_generation'],
+                    null,
+                    (int) $wallet['refundDebtPaid'],
+                    (int) $player['economy_generation'],
+                );
+            }
             $coinDebt = $wallet['debt'];
             $coinBalance = $wallet['coins'];
             $totalCoinsCollected = (int) $player['total_coins_collected'] + $rewardCoins;
 
             $updatePlayer = $this->database->prepare(
-                'UPDATE players SET coins = :coins, coin_debt = :coin_debt, '
-                . 'total_coins_collected = :total_coins_collected, '
+                'UPDATE players SET total_coins_collected = :total_coins_collected, '
                 . 'updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
             );
             $updatePlayer->execute([
-                'coins' => $coinBalance,
-                'coin_debt' => $coinDebt,
                 'total_coins_collected' => $totalCoinsCollected,
                 'player_id' => $playerId,
             ]);
@@ -154,8 +160,7 @@ final class AchievementService
                 (int) $player['economy_generation'],
                 $definition['id'],
                 $rewardCoins,
-                $coinBalance,
-                $coinDebt,
+                $wallet,
                 (int) $player['total_play_ms'],
             );
 
@@ -292,35 +297,24 @@ final class AchievementService
         return $this->petOwnershipAvailable;
     }
 
-    private function lockPlayer(string $playerId): array
-    {
-        $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_coins_collected, total_play_ms, economy_generation '
-            . 'FROM players WHERE id = :player_id FOR UPDATE'
-        );
-        $statement->execute(['player_id' => $playerId]);
-        $player = $statement->fetch();
-        if (!is_array($player)) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
-        }
-        return $player;
-    }
-
     private function insertRewardLedger(
         string $playerId,
         int $economyGeneration,
         string $achievementId,
         int $rewardCoins,
-        int $coinBalance,
-        int $coinDebt,
+        array $wallet,
         int $totalPlayMs,
     ): void {
         $statement = $this->database->prepare(
             'INSERT INTO coin_ledger '
             . '(event_id, event_key, player_id, economy_generation, event_type, play_ms_delta, coin_delta, '
-            . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
+            . 'earned_delta, purchased_delta, coin_balance_after, earned_balance_after, '
+            . 'purchased_balance_after, coin_debt_after, earned_debt_after, refund_debt_after, '
+            . 'total_play_ms_after, coin_status, actor, reason) '
             . 'VALUES (:event_id, :event_key, :player_id, :economy_generation, \'achievement_reward\', 0, :coin_delta, '
-            . ':coin_balance_after, :coin_debt_after, :total_play_ms_after, \'eligible\', '
+            . ':earned_delta, 0, :coin_balance_after, :earned_balance_after, '
+            . ':purchased_balance_after, :coin_debt_after, :earned_debt_after, :refund_debt_after, '
+            . ':total_play_ms_after, \'eligible\', '
             . '\'achievement-service\', :reason)'
         );
         $statement->execute([
@@ -329,8 +323,13 @@ final class AchievementService
             'player_id' => $playerId,
             'economy_generation' => $economyGeneration,
             'coin_delta' => $rewardCoins,
-            'coin_balance_after' => $coinBalance,
-            'coin_debt_after' => $coinDebt,
+            'earned_delta' => $rewardCoins,
+            'coin_balance_after' => $wallet['coins'],
+            'earned_balance_after' => $wallet['earnedCoins'],
+            'purchased_balance_after' => $wallet['purchasedCoins'],
+            'coin_debt_after' => $wallet['debt'],
+            'earned_debt_after' => $wallet['earnedDebt'],
+            'refund_debt_after' => $wallet['refundDebt'],
             'total_play_ms_after' => $totalPlayMs,
             'reason' => 'Claimed achievement ' . $achievementId . '.',
         ]);

@@ -2953,6 +2953,95 @@ h1 {
   margin-top: 8px;
 }
 
+.profile-danger-zone {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 100, 123, 0.2);
+}
+
+.profile-delete-reveal {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(255, 100, 123, 0.32);
+  border-radius: 13px;
+  background: rgba(255, 72, 103, 0.06);
+  color: #ff9eac;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.profile-delete-reveal[hidden],
+.profile-delete-form[hidden] {
+  display: none;
+}
+
+.profile-delete-form {
+  padding: 13px;
+  border: 1px solid rgba(255, 100, 123, 0.36);
+  border-radius: 13px;
+  background: rgba(255, 72, 103, 0.07);
+}
+
+.profile-delete-form h3 {
+  margin: 0;
+  color: #ffd8de;
+  font-size: 0.9rem;
+}
+
+.profile-delete-form p {
+  margin: 8px 0 12px;
+  color: #c5aeb5;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.profile-delete-form label {
+  display: block;
+  margin-bottom: 7px;
+  color: #ffd8de;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.profile-delete-form input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 100, 123, 0.4);
+  border-radius: 11px;
+  outline: 0;
+  background: rgba(8, 9, 17, 0.48);
+  color: white;
+  font: inherit;
+  font-size: 16px;
+  user-select: text;
+}
+
+.profile-delete-form input:focus {
+  border-color: #ff647b;
+  box-shadow: 0 0 0 3px rgba(255, 100, 123, 0.16);
+}
+
+.profile-delete-actions {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: 8px;
+}
+
+.profile-delete-actions button {
+  min-height: 44px;
+  padding-inline: 10px;
+}
+
+.profile-delete-form .form-status {
+  min-height: 0;
+  margin: 9px 0 0;
+}
+
 .settings-section {
   min-width: 0;
 }
@@ -4141,11 +4230,22 @@ h1 {
 }
 
 :root[data-theme="light"] .score-form input,
+:root[data-theme="light"] .profile-form input,
+:root[data-theme="light"] .profile-delete-form input,
 :root[data-theme="light"] .admin-filters select,
 :root[data-theme="light"] .admin-moderation-form textarea {
   border-color: rgba(63, 108, 138, 0.22);
   background: white;
   color: #17263b;
+}
+
+:root[data-theme="light"] .profile-delete-form h3,
+:root[data-theme="light"] .profile-delete-form label {
+  color: #8c2739;
+}
+
+:root[data-theme="light"] .profile-delete-form p {
+  color: #714956;
 }
 
 :root[data-theme="light"] .copyright-footer {
@@ -4169,6 +4269,9 @@ h1 {
 :root[data-theme="pixel"] .speed-summary,
 :root[data-theme="pixel"] .result-save-panel,
 :root[data-theme="pixel"] .profile-panel,
+:root[data-theme="pixel"] .profile-delete-form,
+:root[data-theme="pixel"] .profile-delete-form input,
+:root[data-theme="pixel"] .profile-delete-reveal,
 :root[data-theme="pixel"] .score-form,
 :root[data-theme="pixel"] .leaderboard-panel,
 :root[data-theme="pixel"] .leaderboard-admin-panel,

@@ -416,7 +416,8 @@ final class LeaderboardModerationService
             $runId = is_array($run) ? (string) $run['run_id'] : null;
 
             $playerStatement = $this->database->prepare(
-                'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, '
+                'SELECT coins, coin_debt, earned_coins, purchased_coins, earned_coin_debt, '
+                . 'refund_coin_debt, total_coins_collected, coin_time_remainder_ms, '
                 . 'total_play_ms, economy_generation FROM players '
                 . 'WHERE id = :player_id FOR UPDATE'
             );
@@ -430,41 +431,25 @@ final class LeaderboardModerationService
                 throw new RuntimeException('Player economy generation cannot be advanced.');
             }
             $toGeneration = $fromGeneration + 1;
+            $resetId = Uuid::v4();
+            $refundDebtReopened = $this->syncEarnedRefundDebtSettlements(
+                $targetPlayerId,
+                'admin-reset:' . $resetId,
+                $toGeneration,
+                'revoked',
+            );
+            $refundDebtAfter = (int) $player['refund_coin_debt'] + $refundDebtReopened;
+            if ($refundDebtAfter < 0) {
+                throw new RuntimeException('Reward reset refund-debt provenance underflowed.');
+            }
 
-            $petStatement = $this->database->prepare(
-                'SELECT pet_id FROM player_pets WHERE player_id = :player_id '
-                . 'ORDER BY acquired_at, pet_id FOR UPDATE'
-            );
-            $petStatement->execute(['player_id' => $targetPlayerId]);
-            $petIds = array_values(array_map('strval', $petStatement->fetchAll(PDO::FETCH_COLUMN)));
-
-            $selectionDelete = $this->database->prepare(
-                'DELETE FROM player_pet_selection WHERE player_id = :player_id'
-            );
-            $selectionDelete->execute(['player_id' => $targetPlayerId]);
-            $selectionsRemoved = $selectionDelete->rowCount();
-            $petDelete = $this->database->prepare(
-                'DELETE FROM player_pets WHERE player_id = :player_id'
-            );
-            $petDelete->execute(['player_id' => $targetPlayerId]);
-            $petsRemoved = $petDelete->rowCount();
-
-            $themeStatement = $this->database->prepare(
-                'SELECT theme_id FROM player_themes WHERE player_id = :player_id '
-                . 'ORDER BY acquired_at, theme_id FOR UPDATE'
-            );
-            $themeStatement->execute(['player_id' => $targetPlayerId]);
-            $themeIds = array_values(array_map('strval', $themeStatement->fetchAll(PDO::FETCH_COLUMN)));
-            $themeSelectionDelete = $this->database->prepare(
-                'DELETE FROM player_theme_selection WHERE player_id = :player_id'
-            );
-            $themeSelectionDelete->execute(['player_id' => $targetPlayerId]);
-            $themeSelectionsRemoved = $themeSelectionDelete->rowCount();
-            $themeDelete = $this->database->prepare(
-                'DELETE FROM player_themes WHERE player_id = :player_id'
-            );
-            $themeDelete->execute(['player_id' => $targetPlayerId]);
-            $themesRemoved = $themeDelete->rowCount();
+            $removedCosmetics = $this->removeUnpaidCosmetics($targetPlayerId);
+            $petIds = $removedCosmetics['petIds'];
+            $petsRemoved = count($petIds);
+            $selectionsRemoved = $removedCosmetics['petSelectionsRemoved'];
+            $themeIds = $removedCosmetics['themeIds'];
+            $themesRemoved = count($themeIds);
+            $themeSelectionsRemoved = $removedCosmetics['themeSelectionsRemoved'];
 
             $abandonAttempts = $this->database->prepare(
                 "UPDATE run_attempts SET status = 'abandoned', rejection_code = 'admin-reward-reset', "
@@ -498,21 +483,23 @@ final class LeaderboardModerationService
                 ]);
             }
 
-            $coinsRemoved = (int) $player['coins'];
-            $debtCleared = (int) $player['coin_debt'];
+            $coinsRemoved = (int) $player['earned_coins'];
+            $debtCleared = (int) $player['earned_coin_debt'];
             $remainderRemoved = (int) $player['coin_time_remainder_ms'];
             $totalPlayRemoved = (int) $player['total_play_ms'];
             $totalCollectedRemoved = (int) $player['total_coins_collected'];
-            $resetId = Uuid::v4();
 
             $resetLedger = $this->database->prepare(
                 'INSERT INTO coin_ledger '
                 . '(event_id, event_key, player_id, economy_generation, run_id, event_type, '
                 . 'play_ms_delta, coin_delta, remainder_before_ms, remainder_after_ms, '
-                . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
+                . 'earned_delta, purchased_delta, coin_balance_after, earned_balance_after, '
+                . 'purchased_balance_after, coin_debt_after, earned_debt_after, refund_debt_after, '
+                . 'total_play_ms_after, coin_status, actor, reason) '
                 . 'VALUES (:event_id, :event_key, :player_id, :economy_generation, :run_id, '
                 . "'admin_reward_reset', :play_ms_delta, :coin_delta, :remainder_before_ms, 0, "
-                . "0, 0, 0, 'revoked', :actor, :reason)"
+                . ':earned_delta, 0, :coin_balance_after, 0, :purchased_balance_after, '
+                . ":coin_debt_after, 0, :refund_debt_after, 0, 'revoked', :actor, :reason)"
             );
             $resetLedger->execute([
                 'event_id' => Uuid::v4(),
@@ -521,19 +508,28 @@ final class LeaderboardModerationService
                 'economy_generation' => $fromGeneration,
                 'run_id' => $runId,
                 'play_ms_delta' => -$totalPlayRemoved,
-                'coin_delta' => -CoinEconomy::net($coinsRemoved, $debtCleared),
+                'coin_delta' => -$coinsRemoved + $debtCleared,
+                'earned_delta' => -$coinsRemoved + $debtCleared,
                 'remainder_before_ms' => $remainderRemoved,
+                'coin_balance_after' => (int) $player['purchased_coins'],
+                'purchased_balance_after' => (int) $player['purchased_coins'],
+                'coin_debt_after' => $refundDebtAfter,
+                'refund_debt_after' => $refundDebtAfter,
                 'actor' => $actor,
                 'reason' => $reason,
             ]);
 
             $updatePlayer = $this->database->prepare(
-                'UPDATE players SET coins = 0, coin_debt = 0, total_coins_collected = 0, '
+                'UPDATE players SET earned_coins = 0, earned_coin_debt = 0, '
+                . 'refund_coin_debt = :refund_coin_debt, coins = purchased_coins, '
+                . 'coin_debt = :coin_debt, total_coins_collected = 0, '
                 . 'coin_time_remainder_ms = 0, total_play_ms = 0, '
                 . 'economy_generation = :economy_generation, updated_at = UTC_TIMESTAMP(3) '
                 . 'WHERE id = :player_id'
             );
             $updatePlayer->execute([
+                'refund_coin_debt' => $refundDebtAfter,
+                'coin_debt' => $refundDebtAfter,
                 'economy_generation' => $toGeneration,
                 'player_id' => $targetPlayerId,
             ]);
@@ -576,6 +572,7 @@ final class LeaderboardModerationService
                 'toGeneration' => $toGeneration,
                 'coinsRemoved' => $coinsRemoved,
                 'debtCleared' => $debtCleared,
+                'refundDebtReopened' => $refundDebtReopened,
                 'remainderRemovedMs' => $remainderRemoved,
                 'totalPlayRemovedMs' => $totalPlayRemoved,
                 'totalCollectedRemoved' => $totalCollectedRemoved,
@@ -626,6 +623,74 @@ final class LeaderboardModerationService
             }
             throw $error;
         }
+    }
+
+    /**
+     * Remove only cosmetics whose active debit has no purchased-lot allocation.
+     * Mixed-funded and fully paid cosmetics are retained during moderation.
+     *
+     * @return array{petIds: list<string>, themeIds: list<string>, petSelectionsRemoved: int, themeSelectionsRemoved: int}
+     */
+    private function removeUnpaidCosmetics(string $playerId): array
+    {
+        $find = function (string $table, string $column) use ($playerId): array {
+            $statement = $this->database->prepare(
+                'SELECT owned.' . $column . ' FROM ' . $table . ' owned '
+                . 'WHERE owned.player_id = :player_id AND NOT EXISTS ('
+                . 'SELECT 1 FROM coin_spend_allocations allocation '
+                . 'WHERE allocation.spend_event_id = owned.purchase_event_id '
+                . "AND allocation.source = 'purchased' AND allocation.released_at IS NULL"
+                . ') ORDER BY owned.' . $column . ' FOR UPDATE'
+            );
+            $statement->execute(['player_id' => $playerId]);
+            return array_values(array_map('strval', $statement->fetchAll(PDO::FETCH_COLUMN)));
+        };
+        $delete = function (string $table, string $column, array $ids) use ($playerId): void {
+            if ($ids === []) return;
+            $placeholders = [];
+            $parameters = ['player_id' => $playerId];
+            foreach ($ids as $index => $id) {
+                $key = 'item_' . $index;
+                $placeholders[] = ':' . $key;
+                $parameters[$key] = $id;
+            }
+            $statement = $this->database->prepare(
+                'DELETE FROM ' . $table . ' WHERE player_id = :player_id AND '
+                . $column . ' IN (' . implode(',', $placeholders) . ')'
+            );
+            $statement->execute($parameters);
+        };
+
+        $selectedPet = $this->database->prepare(
+            'SELECT pet_id FROM player_pet_selection WHERE player_id = :player_id FOR UPDATE'
+        );
+        $selectedPet->execute(['player_id' => $playerId]);
+        $selectedPetId = $selectedPet->fetchColumn();
+        $petIds = $find('player_pets', 'pet_id');
+        $petSelectionsRemoved = is_string($selectedPetId) && in_array($selectedPetId, $petIds, true) ? 1 : 0;
+        $delete('player_pets', 'pet_id', $petIds);
+
+        $selectedTheme = $this->database->prepare(
+            'SELECT theme_id FROM player_theme_selection WHERE player_id = :player_id FOR UPDATE'
+        );
+        $selectedTheme->execute(['player_id' => $playerId]);
+        $selectedThemeId = $selectedTheme->fetchColumn();
+        $themeIds = $find('player_themes', 'theme_id');
+        $themeSelectionsRemoved = is_string($selectedThemeId)
+            && in_array($selectedThemeId, $themeIds, true) ? 1 : 0;
+        if ($themeSelectionsRemoved === 1) {
+            $this->database->prepare(
+                'DELETE FROM player_theme_selection WHERE player_id = :player_id'
+            )->execute(['player_id' => $playerId]);
+        }
+        $delete('player_themes', 'theme_id', $themeIds);
+
+        return compact(
+            'petIds',
+            'themeIds',
+            'petSelectionsRemoved',
+            'themeSelectionsRemoved',
+        );
     }
 
     /** @return array<string, mixed> */
@@ -956,7 +1021,8 @@ final class LeaderboardModerationService
         string $reason,
     ): array {
         $playerStatement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms, '
+            'SELECT coins, coin_debt, earned_coins, purchased_coins, earned_coin_debt, '
+            . 'refund_coin_debt, total_coins_collected, coin_time_remainder_ms, total_play_ms, '
             . 'economy_generation FROM players '
             . 'WHERE id = :player_id FOR UPDATE'
         );
@@ -965,7 +1031,23 @@ final class LeaderboardModerationService
         if (!is_array($player)) {
             throw new RuntimeException('Player was not found for coin reconciliation.');
         }
+        $oldWallet = CoinEconomy::summary(
+            (int) $player['earned_coins'],
+            (int) $player['purchased_coins'],
+            (int) $player['earned_coin_debt'],
+            (int) $player['refund_coin_debt'],
+        );
         $economyGeneration = (int) $player['economy_generation'];
+        $refundDebtDelta = $this->syncEarnedRefundDebtSettlements(
+            $playerId,
+            $runId,
+            $economyGeneration,
+            $coinStatus,
+        );
+        $player['refund_coin_debt'] = (int) $player['refund_coin_debt'] + $refundDebtDelta;
+        if ((int) $player['refund_coin_debt'] < 0) {
+            throw new RuntimeException('Refund-debt settlement moderation underflowed.');
+        }
 
         $eligible = $this->database->prepare(
             "SELECT COALESCE(SUM(CASE "
@@ -988,21 +1070,65 @@ final class LeaderboardModerationService
         $verifiedPlayMs = (int) ($playTime['verified_play_ms'] ?? 0);
 
         $economyStatement = $this->database->prepare(
-            "SELECT COALESCE(SUM(coin_delta), 0) AS economy_delta, "
-            . "COALESCE(SUM(CASE WHEN event_type = 'achievement_reward' THEN coin_delta ELSE 0 END), 0) "
-            . 'AS achievement_coins FROM coin_ledger '
-            . "WHERE player_id = :player_id AND economy_generation = :economy_generation "
-            . "AND event_type IN ('pet_purchase','theme_purchase','achievement_reward')"
+            'SELECT '
+            . '(SELECT COALESCE(SUM(ledger.earned_delta), 0) FROM coin_ledger ledger '
+            . 'WHERE ledger.player_id = :achievement_player_id '
+            . 'AND ledger.economy_generation = :achievement_generation '
+            . "AND ledger.event_type = 'achievement_reward' AND ledger.coin_status = 'eligible') "
+            . 'AS achievement_coins, '
+            . '(SELECT COALESCE(SUM(allocation.amount), 0) FROM coin_spend_allocations allocation '
+            . 'INNER JOIN coin_ledger spend_ledger ON spend_ledger.event_id = allocation.spend_event_id '
+            . 'WHERE allocation.player_id = :spend_player_id '
+            . "AND allocation.source = 'earned' AND allocation.released_at IS NULL "
+            . 'AND spend_ledger.economy_generation = :spend_generation) AS earned_spend, '
+            . '(SELECT COALESCE(SUM(allocation.amount - allocation.released_amount), 0) '
+            . 'FROM storekit_refund_debt_allocations allocation '
+            . 'WHERE allocation.player_id = :refund_player_id '
+            . "AND allocation.source_type = 'earned_credit' "
+            . 'AND allocation.source_economy_generation = :refund_generation '
+            . 'AND allocation.source_revoked_at IS NULL '
+            . 'AND allocation.released_amount < allocation.amount) AS earned_refund_settlement'
         );
         $economyStatement->execute([
-            'player_id' => $playerId,
-            'economy_generation' => $economyGeneration,
+            'achievement_player_id' => $playerId,
+            'achievement_generation' => $economyGeneration,
+            'spend_player_id' => $playerId,
+            'spend_generation' => $economyGeneration,
+            'refund_player_id' => $playerId,
+            'refund_generation' => $economyGeneration,
         ]);
         $economy = $economyStatement->fetch() ?: [];
-        $economyDelta = (int) ($economy['economy_delta'] ?? 0);
         $achievementCoins = (int) ($economy['achievement_coins'] ?? 0);
-        $netCoins = intdiv($totalPlayMs, 60_000) + $economyDelta;
-        $wallet = CoinEconomy::fromNet($netCoins);
+        $earnedSpend = (int) ($economy['earned_spend'] ?? 0);
+        $earnedRefundSettlement = (int) ($economy['earned_refund_settlement'] ?? 0);
+        $netCoins = intdiv($totalPlayMs, 60_000) + $achievementCoins
+            - $earnedSpend - $earnedRefundSettlement;
+        $earnedCreditIncrease = max(
+            0,
+            $netCoins - (
+                (int) $player['earned_coins'] - (int) $player['earned_coin_debt']
+            ),
+        );
+        $newRefundSettlement = $this->settleNewModeratedEarnedCredit(
+            $playerId,
+            $runId,
+            $economyGeneration,
+            $earnedCreditIncrease,
+            (int) $player['refund_coin_debt'],
+        );
+        $netCoins -= $newRefundSettlement;
+        $player['refund_coin_debt'] = (int) $player['refund_coin_debt'] - $newRefundSettlement;
+        $walletBuckets = CoinEconomy::fromEarnedNet(
+            $netCoins,
+            (int) $player['purchased_coins'],
+            (int) $player['refund_coin_debt'],
+        );
+        $wallet = CoinEconomy::summary(
+            $walletBuckets['earnedCoins'],
+            $walletBuckets['purchasedCoins'],
+            $walletBuckets['earnedDebt'],
+            $walletBuckets['refundDebt'],
+        );
         $coinBalance = $wallet['coins'];
         $coinDebt = $wallet['debt'];
         $remainderMs = $totalPlayMs % 60_000;
@@ -1013,13 +1139,19 @@ final class LeaderboardModerationService
         $oldTotalPlayMs = (int) $player['total_play_ms'];
 
         $update = $this->database->prepare(
-            'UPDATE players SET coins = :coins, coin_debt = :coin_debt, '
+            'UPDATE players SET earned_coins = :earned_coins, purchased_coins = :purchased_coins, '
+            . 'earned_coin_debt = :earned_coin_debt, refund_coin_debt = :refund_coin_debt, '
+            . 'coins = :coins, coin_debt = :coin_debt, '
             . 'total_coins_collected = :total_coins_collected, coin_time_remainder_ms = :remainder_ms, '
             . 'total_play_ms = :total_play_ms, updated_at = UTC_TIMESTAMP(3) WHERE id = :player_id'
         );
         $update->execute([
             'coins' => $coinBalance,
             'coin_debt' => $coinDebt,
+            'earned_coins' => $wallet['earnedCoins'],
+            'purchased_coins' => $wallet['purchasedCoins'],
+            'earned_coin_debt' => $wallet['earnedDebt'],
+            'refund_coin_debt' => $wallet['refundDebt'],
             'total_coins_collected' => $totalCoinsCollected,
             'remainder_ms' => $remainderMs,
             'total_play_ms' => $totalPlayMs,
@@ -1030,12 +1162,15 @@ final class LeaderboardModerationService
         $ledger = $this->database->prepare(
             'INSERT INTO coin_ledger '
             . '(event_id, event_key, player_id, economy_generation, run_id, event_type, play_ms_delta, coin_delta, '
-            . 'remainder_before_ms, remainder_after_ms, coin_balance_after, coin_debt_after, '
-            . 'total_play_ms_after, '
+            . 'remainder_before_ms, remainder_after_ms, earned_delta, purchased_delta, '
+            . 'coin_balance_after, earned_balance_after, purchased_balance_after, coin_debt_after, '
+            . 'earned_debt_after, refund_debt_after, total_play_ms_after, '
             . 'coin_status, actor, reason) VALUES '
             . '(:event_id, :event_key, :player_id, :economy_generation, :run_id, :event_type, :play_ms_delta, '
-            . ':coin_delta, :remainder_before_ms, :remainder_after_ms, :coin_balance_after, '
-            . ':coin_debt_after, :total_play_ms_after, :coin_status, :actor, :reason)'
+            . ':coin_delta, :remainder_before_ms, :remainder_after_ms, :earned_delta, 0, '
+            . ':coin_balance_after, :earned_balance_after, :purchased_balance_after, '
+            . ':coin_debt_after, :earned_debt_after, :refund_debt_after, '
+            . ':total_play_ms_after, :coin_status, :actor, :reason)'
         );
         $ledger->execute([
             'event_id' => Uuid::v4(),
@@ -1045,12 +1180,17 @@ final class LeaderboardModerationService
             'run_id' => $runId,
             'event_type' => $eventType,
             'play_ms_delta' => $totalPlayMs - $oldTotalPlayMs,
-            'coin_delta' => CoinEconomy::net($coinBalance, $coinDebt)
-                - CoinEconomy::net($oldCoinBalance, $oldCoinDebt),
+            'coin_delta' => $wallet['net'] - $oldWallet['net'],
+            'earned_delta' => ($wallet['earnedCoins'] - $wallet['earnedDebt'])
+                - ($oldWallet['earnedCoins'] - $oldWallet['earnedDebt']),
             'remainder_before_ms' => $oldRemainderMs,
             'remainder_after_ms' => $remainderMs,
             'coin_balance_after' => $coinBalance,
+            'earned_balance_after' => $wallet['earnedCoins'],
+            'purchased_balance_after' => $wallet['purchasedCoins'],
             'coin_debt_after' => $coinDebt,
+            'earned_debt_after' => $wallet['earnedDebt'],
+            'refund_debt_after' => $wallet['refundDebt'],
             'total_play_ms_after' => $totalPlayMs,
             'coin_status' => $coinStatus,
             'actor' => $actor,
@@ -1062,8 +1202,7 @@ final class LeaderboardModerationService
             'coinBalance' => $coinBalance,
             'oldCoinDebt' => $oldCoinDebt,
             'coinDebt' => $coinDebt,
-            'coinDelta' => CoinEconomy::net($coinBalance, $coinDebt)
-                - CoinEconomy::net($oldCoinBalance, $oldCoinDebt),
+            'coinDelta' => $wallet['net'] - $oldWallet['net'],
             'oldRemainderMs' => $oldRemainderMs,
             'remainderMs' => $remainderMs,
             'oldTotalPlayMs' => $oldTotalPlayMs,
@@ -1071,6 +1210,212 @@ final class LeaderboardModerationService
             'playMsDelta' => $totalPlayMs - $oldTotalPlayMs,
             'totalCoinsCollected' => $totalCoinsCollected,
         ];
+    }
+
+    /**
+     * Keep earned credits that settled StoreKit refund debt synchronized with
+     * moderation. Revocation reopens the exact target debt; reinstatement
+     * consumes the restored credit against that same target before it can
+     * become spendable.
+     */
+    private function syncEarnedRefundDebtSettlements(
+        string $playerId,
+        string $runId,
+        int $economyGeneration,
+        string $coinStatus,
+    ): int {
+        $runReference = 'run:' . $runId;
+        $statement = $this->database->prepare(
+            'SELECT allocation_id, source_reference, source_economy_generation, '
+            . 'refund_transaction_id, cosmetic_restore_debt_id, amount, released_amount, '
+            . 'source_revoked_at FROM storekit_refund_debt_allocations '
+            . 'WHERE player_id = :player_id AND source_type = \'earned_credit\' '
+            . 'AND released_amount < amount '
+            . 'AND (source_economy_generation <> :economy_generation '
+            . 'OR source_reference = :run_reference) FOR UPDATE'
+        );
+        $statement->execute([
+            'player_id' => $playerId,
+            'economy_generation' => $economyGeneration,
+            'run_reference' => $runReference,
+        ]);
+        $debtDelta = 0;
+        foreach ($statement->fetchAll() as $allocation) {
+            $sameGeneration = (int) $allocation['source_economy_generation'] === $economyGeneration;
+            $isCurrentRun = hash_equals((string) $allocation['source_reference'], $runReference);
+            $shouldBeActive = $sameGeneration && (!$isCurrentRun || $coinStatus === 'eligible');
+            $isActive = $allocation['source_revoked_at'] === null;
+            if ($shouldBeActive === $isActive) continue;
+
+            $amount = (int) $allocation['amount'] - (int) $allocation['released_amount'];
+            $componentId = $allocation['cosmetic_restore_debt_id'];
+            if ($shouldBeActive) {
+                $settledAmount = min(
+                    $amount,
+                    $this->moderatedRefundComponentOutstanding(
+                        (string) $allocation['refund_transaction_id'],
+                        is_string($componentId) ? $componentId : null,
+                    ),
+                );
+                if ($settledAmount > 0) {
+                    $this->changeModeratedRefundComponent(
+                        (string) $allocation['refund_transaction_id'],
+                        is_string($componentId) ? $componentId : null,
+                        -$settledAmount,
+                    );
+                }
+                $releasedAmount = $amount - $settledAmount;
+                $restore = $this->database->prepare(
+                    'UPDATE storekit_refund_debt_allocations SET source_revoked_at = NULL, '
+                    . 'released_amount = released_amount + :released_increment, '
+                    . 'released_at = CASE WHEN :release_completed = 1 '
+                    . 'THEN UTC_TIMESTAMP(3) ELSE NULL END WHERE allocation_id = :allocation_id '
+                    . 'AND source_revoked_at IS NOT NULL '
+                    . 'AND amount - released_amount >= :active_minimum'
+                );
+                $restore->bindValue(':released_increment', $releasedAmount, PDO::PARAM_INT);
+                $restore->bindValue(':release_completed', $settledAmount === 0 ? 1 : 0, PDO::PARAM_INT);
+                $restore->bindValue(':active_minimum', $amount, PDO::PARAM_INT);
+                $restore->bindValue(':allocation_id', $allocation['allocation_id']);
+                $restore->execute();
+                if ($restore->rowCount() !== 1) {
+                    throw new RuntimeException('Moderated refund settlement changed during restoration.');
+                }
+                $debtDelta -= $settledAmount;
+            } else {
+                $this->changeModeratedRefundComponent(
+                    (string) $allocation['refund_transaction_id'],
+                    is_string($componentId) ? $componentId : null,
+                    $amount,
+                );
+                $this->database->prepare(
+                    'UPDATE storekit_refund_debt_allocations SET source_revoked_at = UTC_TIMESTAMP(3) '
+                    . 'WHERE allocation_id = :allocation_id AND source_revoked_at IS NULL'
+                )->execute(['allocation_id' => $allocation['allocation_id']]);
+                $debtDelta += $amount;
+            }
+        }
+        return $debtDelta;
+    }
+
+    /**
+     * A moderation decision can turn previously withheld play into a new earned
+     * credit. Preserve the ordinary credit ordering by consuming outstanding
+     * StoreKit refund debt before any of that increase becomes spendable.
+     */
+    private function settleNewModeratedEarnedCredit(
+        string $playerId,
+        string $runId,
+        int $economyGeneration,
+        int $earnedCreditIncrease,
+        int $refundDebt,
+    ): int {
+        $settlement = min($earnedCreditIncrease, $refundDebt);
+        if ($settlement === 0) return 0;
+
+        (new CoinWalletRepository($this->database))->allocateRefundDebtPayment(
+            $playerId,
+            'earned_credit',
+            'run:' . $runId,
+            null,
+            $settlement,
+            $economyGeneration,
+        );
+        return $settlement;
+    }
+
+    /** Return the still-unpaid amount of one exact StoreKit refund component. */
+    private function moderatedRefundComponentOutstanding(
+        string $transactionId,
+        ?string $cosmeticDebtId,
+    ): int {
+        if ($cosmeticDebtId === null) {
+            $statement = $this->database->prepare(
+                'SELECT refund_debt_outstanding, base_refund_debt_outstanding '
+                . 'FROM storekit_transactions WHERE transaction_id = :transaction_id FOR UPDATE'
+            );
+            $statement->execute(['transaction_id' => $transactionId]);
+            $transaction = $statement->fetch();
+            if (!is_array($transaction)) {
+                throw new RuntimeException('Moderated refund debt transaction was not found.');
+            }
+            $outstanding = (int) $transaction['base_refund_debt_outstanding'];
+            if ($outstanding > (int) $transaction['refund_debt_outstanding']) {
+                throw new RuntimeException('Moderated base refund debt drifted from its aggregate.');
+            }
+            return $outstanding;
+        }
+
+        $statement = $this->database->prepare(
+            'SELECT debt.amount, debt.settled_amount, debt.released_at, '
+            . 'stored.refund_debt_outstanding FROM storekit_cosmetic_restore_debts debt '
+            . 'INNER JOIN storekit_transactions stored '
+            . 'ON stored.transaction_id = debt.refund_transaction_id '
+            . 'WHERE debt.debt_id = :debt_id AND debt.refund_transaction_id = :transaction_id FOR UPDATE'
+        );
+        $statement->execute([
+            'debt_id' => $cosmeticDebtId,
+            'transaction_id' => $transactionId,
+        ]);
+        $component = $statement->fetch();
+        if (!is_array($component)) {
+            throw new RuntimeException('Moderated cosmetic refund debt was not found.');
+        }
+        if ($component['released_at'] !== null) return 0;
+
+        $outstanding = (int) $component['amount'] - (int) $component['settled_amount'];
+        if ($outstanding < 0 || $outstanding > (int) $component['refund_debt_outstanding']) {
+            throw new RuntimeException('Moderated cosmetic refund debt drifted from its aggregate.');
+        }
+        return $outstanding;
+    }
+
+    /** Positive amount reopens debt; negative amount settles it again. */
+    private function changeModeratedRefundComponent(
+        string $transactionId,
+        ?string $cosmeticDebtId,
+        int $amount,
+    ): void {
+        if ($amount === 0) return;
+        if ($cosmeticDebtId === null) {
+            $statement = $this->database->prepare(
+                'UPDATE storekit_transactions SET refund_debt_outstanding = '
+                . 'refund_debt_outstanding + :total_delta, base_refund_debt_outstanding = '
+                . 'base_refund_debt_outstanding + :base_delta WHERE transaction_id = :transaction_id '
+                . 'AND refund_debt_outstanding + :total_guard >= 0 '
+                . 'AND base_refund_debt_outstanding + :base_guard >= 0'
+            );
+            $statement->bindValue(':total_delta', $amount, PDO::PARAM_INT);
+            $statement->bindValue(':base_delta', $amount, PDO::PARAM_INT);
+            $statement->bindValue(':total_guard', $amount, PDO::PARAM_INT);
+            $statement->bindValue(':base_guard', $amount, PDO::PARAM_INT);
+            $statement->bindValue(':transaction_id', $transactionId);
+            $statement->execute();
+        } else {
+            $debt = $this->database->prepare(
+                'UPDATE storekit_cosmetic_restore_debts SET settled_amount = settled_amount - :delta '
+                . 'WHERE debt_id = :debt_id AND settled_amount - :guard BETWEEN 0 AND amount'
+            );
+            $debt->bindValue(':delta', $amount, PDO::PARAM_INT);
+            $debt->bindValue(':guard', $amount, PDO::PARAM_INT);
+            $debt->bindValue(':debt_id', $cosmeticDebtId);
+            $debt->execute();
+            if ($debt->rowCount() !== 1) {
+                throw new RuntimeException('Moderated cosmetic refund debt drifted.');
+            }
+            $statement = $this->database->prepare(
+                'UPDATE storekit_transactions SET refund_debt_outstanding = '
+                . 'refund_debt_outstanding + :delta WHERE transaction_id = :transaction_id '
+                . 'AND refund_debt_outstanding + :guard >= 0'
+            );
+            $statement->bindValue(':delta', $amount, PDO::PARAM_INT);
+            $statement->bindValue(':guard', $amount, PDO::PARAM_INT);
+            $statement->bindValue(':transaction_id', $transactionId);
+            $statement->execute();
+        }
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException('Moderated refund debt transaction drifted.');
+        }
     }
 
     /**

@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260718-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260718-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260719-1";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260719-1";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260718-1";
+} from "./input-timing.js?v=20260719-1";
 import {
   getPet,
   isPetId,
@@ -16,18 +16,22 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260718-1";
-import { createPetController } from "./pet-controller.js?v=20260718-1";
-import { createSoundController } from "./sound-controller.js?v=20260718-1";
-import { createMusicController } from "./music-controller.js?v=20260718-1";
-import { createProfileClient, ProfileApiError } from "./profile-client.js?v=20260718-1";
+} from "./pet-catalog.js?v=20260719-1";
+import { createPetController } from "./pet-controller.js?v=20260719-1";
+import { createSoundController } from "./sound-controller.js?v=20260719-1";
+import { createMusicController } from "./music-controller.js?v=20260719-1";
+import {
+  ACCOUNT_DELETION_CONFIRMATION,
+  createProfileClient,
+  ProfileApiError
+} from "./profile-client.js?v=20260719-1";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260718-1";
+} from "./theme-catalog.js?v=20260719-1";
 
 const INTRO_HINTS = Object.freeze([
   "– Tap your color",
@@ -66,7 +70,7 @@ const MOTIVATIONAL_HINT_TONES = Object.freeze(["cyan", "pink", "gold", "green", 
 const MOTIVATIONAL_HINT_TILTS = Object.freeze([-3, 2, -2, 3, -1, 1]);
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260718-1";
+const APP_BUILD_ID = "20260719-1";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -160,6 +164,12 @@ const elements = {
   points: document.querySelector("#points"),
   profileAuthStatus: document.querySelector("#profile-auth-status"),
   profileBackButton: document.querySelector("#profile-back-button"),
+  profileDeleteCancel: document.querySelector("#profile-delete-cancel"),
+  profileDeleteConfirmation: document.querySelector("#profile-delete-confirmation"),
+  profileDeleteForm: document.querySelector("#profile-delete-form"),
+  profileDeleteReveal: document.querySelector("#profile-delete-reveal"),
+  profileDeleteStatus: document.querySelector("#profile-delete-status"),
+  profileDeleteSubmit: document.querySelector("#profile-delete-submit"),
   profileForm: document.querySelector("#profile-form"),
   profileGoogleSignin: document.querySelector("#profile-google-signin"),
   profileLogout: document.querySelector("#profile-logout"),
@@ -1680,6 +1690,7 @@ function openProfile(returnView = dialogView === "result" ? "result" : "menu") {
 function closeProfile() {
   profileRequestId += 1;
   elements.profileView.hidden = true;
+  resetAccountDeletionUi();
 }
 
 function returnFromProfile() {
@@ -2846,6 +2857,7 @@ async function submitPendingResult() {
       mode: submittedResult.mode,
       ...submittedResult.proof
     });
+    if (pendingResult !== submittedResult || !profileSession.authenticated) return;
     submittedResult.submitting = false;
     submittedResult.submitted = true;
     submittedResult.duplicate = body.duplicate === true;
@@ -3089,6 +3101,90 @@ function renderProfileRank() {
   );
 }
 
+function resetAccountDeletionUi({ focusReveal = false } = {}) {
+  elements.profileDeleteForm.reset();
+  elements.profileDeleteForm.hidden = true;
+  elements.profileDeleteReveal.hidden = false;
+  elements.profileDeleteReveal.setAttribute("aria-expanded", "false");
+  elements.profileDeleteConfirmation.disabled = false;
+  elements.profileDeleteCancel.disabled = false;
+  elements.profileDeleteSubmit.disabled = true;
+  elements.profileDeleteStatus.textContent = "";
+  elements.profileDeleteStatus.classList.remove("is-error");
+  if (focusReveal) elements.profileDeleteReveal.focus({ preventScroll: true });
+}
+
+function revealAccountDeletion() {
+  elements.profileDeleteReveal.hidden = true;
+  elements.profileDeleteReveal.setAttribute("aria-expanded", "true");
+  elements.profileDeleteForm.hidden = false;
+  elements.profileDeleteSubmit.disabled = true;
+  elements.profileDeleteStatus.textContent = "";
+  elements.profileDeleteStatus.classList.remove("is-error");
+  elements.profileDeleteConfirmation.focus({ preventScroll: true });
+}
+
+function updateAccountDeletionConfirmation() {
+  elements.profileDeleteSubmit.disabled =
+    elements.profileDeleteConfirmation.value !== ACCOUNT_DELETION_CONFIRMATION;
+}
+
+async function deleteProfileAccount(event) {
+  event.preventDefault();
+  const confirmation = elements.profileDeleteConfirmation.value;
+  if (confirmation !== ACCOUNT_DELETION_CONFIRMATION) {
+    elements.profileDeleteStatus.textContent = `Type ${ACCOUNT_DELETION_CONFIRMATION} exactly to continue.`;
+    elements.profileDeleteStatus.classList.add("is-error");
+    return;
+  }
+
+  elements.profileDeleteConfirmation.disabled = true;
+  elements.profileDeleteCancel.disabled = true;
+  elements.profileDeleteSubmit.disabled = true;
+  elements.profileDeleteStatus.classList.remove("is-error");
+  elements.profileDeleteStatus.textContent = "Deleting account…";
+
+  try {
+    const body = await profileClient.deleteAccount(confirmation);
+    globalThis.google?.accounts?.id?.disableAutoSelect?.();
+    runStartRequestId += 1;
+    profileRequestId += 1;
+    achievementsRequestId += 1;
+    leaderboardRequestId += 1;
+    adminRequestId += 1;
+    invalidatePetShopMutation();
+    invalidateThemeShopMutation();
+    currentRunTicket = null;
+    currentRunId = null;
+    pendingResult = null;
+    achievementClaimId = null;
+    adminEntries = [];
+    adminSelectedEntryId = null;
+    adminSelectedDetail = null;
+    profileSession = normalizeProfileSession({
+      authenticated: false,
+      googleClientId: body.googleClientId ?? profileSession.googleClientId,
+      profile: null,
+      ranks: {},
+      coinBalance: 0
+    });
+    achievementsPayload = null;
+    elements.profileNickname.value = "";
+    renderUtilityRank();
+    renderProfile();
+    renderResultSaveState();
+    renderAchievements();
+    showMainMenu();
+  } catch (error) {
+    elements.profileDeleteStatus.textContent = error.message;
+    elements.profileDeleteStatus.classList.add("is-error");
+    elements.profileDeleteConfirmation.disabled = false;
+    elements.profileDeleteCancel.disabled = false;
+    updateAccountDeletionConfirmation();
+    elements.profileDeleteConfirmation.focus({ preventScroll: true });
+  }
+}
+
 function renderProfile() {
   if (!elements.profileView) return;
   pets.setProfileSession(profileSession);
@@ -3096,6 +3192,7 @@ function renderProfile() {
   elements.profileSignedOut.hidden = profileSession.authenticated;
   elements.leaderboardAdminToggle.hidden = profileSession.profile?.isAdmin !== true;
   if (!profileSession.authenticated) {
+    resetAccountDeletionUi();
     elements.profileAuthStatus.textContent = profileSession.googleClientId
       ? ""
       : "Google sign-in is not configured yet.";
@@ -3386,6 +3483,10 @@ elements.profileBackButton.addEventListener("click", returnFromProfile);
 elements.profileMenuButton.addEventListener("click", showMainMenu);
 elements.profileForm.addEventListener("submit", saveProfileNickname);
 elements.profileLogout.addEventListener("click", logoutProfile);
+elements.profileDeleteReveal.addEventListener("click", revealAccountDeletion);
+elements.profileDeleteCancel.addEventListener("click", () => resetAccountDeletionUi({ focusReveal: true }));
+elements.profileDeleteConfirmation.addEventListener("input", updateAccountDeletionConfirmation);
+elements.profileDeleteForm.addEventListener("submit", deleteProfileAccount);
 elements.leaderboardAdminToggle.addEventListener("click", openLeaderboardAdmin);
 elements.leaderboardAdminBackButton.addEventListener("click", () => openProfile("menu"));
 elements.leaderboardAdminMenuButton.addEventListener("click", showMainMenu);

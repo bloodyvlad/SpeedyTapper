@@ -13,6 +13,7 @@ final class PetShopService
     public function __construct(
         private readonly PDO $database,
         private readonly AchievementService $achievements,
+        private readonly CoinWalletRepository $wallets,
     ) {
     }
 
@@ -96,7 +97,7 @@ final class PetShopService
     {
         $this->database->beginTransaction();
         try {
-            $player = $this->lockPlayer($playerId);
+            $player = $this->wallets->lock($playerId);
             $ownership = $this->findOwnership($playerId, $pet['id']);
             $purchased = !is_array($ownership);
             $pricePaid = 0;
@@ -104,42 +105,28 @@ final class PetShopService
 
             if ($purchased) {
                 $pricePaid = $pet['priceCoins'];
-                if ($coinBalance < $pricePaid) {
-                    $missing = $pricePaid - $coinBalance;
-                    throw new ApiException(
-                        409,
-                        sprintf(
-                            'You need %d more %s to buy %s.',
-                            $missing,
-                            $missing === 1 ? 'coin' : 'coins',
-                            $pet['name'],
-                        ),
-                    );
-                }
-
-                $debit = $this->database->prepare(
-                    'UPDATE players SET coins = coins - :price, updated_at = UTC_TIMESTAMP(3) '
-                    . 'WHERE id = :player_id AND coins >= :minimum_balance'
+                $spend = $this->wallets->spend(
+                    $playerId,
+                    $pricePaid,
+                    'pet_purchase',
+                    'pet:' . $playerId . ':' . $pet['id'] . ':g' . $player['economy_generation'],
+                    'pet_purchase',
+                    'pet-shop',
+                    'Purchased pet ' . $pet['id'] . '.',
+                    $player,
                 );
-                $debit->execute([
-                    'price' => $pricePaid,
-                    'minimum_balance' => $pricePaid,
-                    'player_id' => $playerId,
-                ]);
-                if ($debit->rowCount() !== 1) {
-                    throw new ApiException(409, 'Your coin balance changed. Try again.');
-                }
-                $coinBalance -= $pricePaid;
+                $coinBalance = $spend['coins'];
 
                 $insert = $this->database->prepare(
                     'INSERT INTO player_pets '
-                    . '(player_id, pet_id, price_paid, acquisition_source) '
-                    . "VALUES (:player_id, :pet_id, :price_paid, 'purchase')"
+                    . '(player_id, pet_id, price_paid, acquisition_source, purchase_event_id) '
+                    . "VALUES (:player_id, :pet_id, :price_paid, 'purchase', :purchase_event_id)"
                 );
                 $insert->execute([
                     'player_id' => $playerId,
                     'pet_id' => $pet['id'],
                     'price_paid' => $pricePaid,
+                    'purchase_event_id' => $spend['eventId'],
                 ]);
                 $this->achievements->unlockBuyPetInTransaction($playerId);
             }
@@ -154,18 +141,6 @@ final class PetShopService
                 'player_id' => $playerId,
                 'pet_id' => $pet['id'],
             ]);
-
-            if ($purchased) {
-                $this->insertPurchaseLedger(
-                    $playerId,
-                    (int) $player['economy_generation'],
-                    $pet['id'],
-                    $pricePaid,
-                    $coinBalance,
-                    (int) $player['coin_debt'],
-                    (int) $player['total_play_ms'],
-                );
-            }
 
             $this->database->commit();
             return [
@@ -184,51 +159,6 @@ final class PetShopService
             $this->rollBack();
             throw $error;
         }
-    }
-
-    /** @return array{coins: int, coin_debt: int, total_play_ms: int, economy_generation: int} */
-    private function lockPlayer(string $playerId): array
-    {
-        $statement = $this->database->prepare(
-            'SELECT coins, coin_debt, total_play_ms, economy_generation '
-            . 'FROM players WHERE id = :player_id FOR UPDATE'
-        );
-        $statement->execute(['player_id' => $playerId]);
-        $player = $statement->fetch();
-        if (!is_array($player)) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
-        }
-        return $player;
-    }
-
-    private function insertPurchaseLedger(
-        string $playerId,
-        int $economyGeneration,
-        string $petId,
-        int $pricePaid,
-        int $coinBalance,
-        int $coinDebt,
-        int $totalPlayMs,
-    ): void {
-        $statement = $this->database->prepare(
-            'INSERT INTO coin_ledger '
-            . '(event_id, event_key, player_id, economy_generation, event_type, play_ms_delta, coin_delta, '
-            . 'coin_balance_after, coin_debt_after, total_play_ms_after, coin_status, actor, reason) '
-            . 'VALUES (:event_id, :event_key, :player_id, :economy_generation, \'pet_purchase\', 0, :coin_delta, '
-            . ':coin_balance_after, :coin_debt_after, :total_play_ms_after, \'eligible\', '
-            . '\'pet-shop\', :reason)'
-        );
-        $statement->execute([
-            'event_id' => Uuid::v4(),
-            'event_key' => 'pet:' . $playerId . ':' . $petId . ':g' . $economyGeneration,
-            'player_id' => $playerId,
-            'economy_generation' => $economyGeneration,
-            'coin_delta' => -$pricePaid,
-            'coin_balance_after' => $coinBalance,
-            'coin_debt_after' => $coinDebt,
-            'total_play_ms_after' => $totalPlayMs,
-            'reason' => 'Purchased pet ' . $petId . '.',
-        ]);
     }
 
     private function findOwnership(string $playerId, string $petId): array|false

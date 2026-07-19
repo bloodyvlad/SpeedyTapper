@@ -7,6 +7,8 @@ export class ProfileApiError extends Error {
   }
 }
 
+export const ACCOUNT_DELETION_CONFIRMATION = "DELETE MY ACCOUNT";
+
 async function readJson(response) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -106,6 +108,15 @@ export function createProfileClient({ fetchImpl = globalThis.fetch } = {}) {
 
     updateNickname(nickname) {
       return mutation("/api/profile", "PATCH", { nickname });
+    },
+
+    async deleteAccount(confirmation) {
+      if (confirmation !== ACCOUNT_DELETION_CONFIRMATION) {
+        throw new TypeError(`Type ${ACCOUNT_DELETION_CONFIRMATION} to confirm account deletion.`);
+      }
+      const body = await mutation("/api/profile", "DELETE", { confirmation });
+      csrfToken = null;
+      return body;
     },
 
     getPets() {

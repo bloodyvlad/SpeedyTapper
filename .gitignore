@@ -9,3 +9,4 @@ __pycache__/
 .env*
 vendor/
 server/config.local.php
+*.p8

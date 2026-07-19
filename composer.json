@@ -7,6 +7,7 @@
     "php": "^8.2",
     "ext-intl": "*",
     "ext-json": "*",
+    "ext-curl": "*",
     "ext-mbstring": "*",
     "ext-openssl": "*",
     "ext-pdo": "*",

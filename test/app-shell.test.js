@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260718-1");
+  assert.equal(buildId, "20260719-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -602,10 +602,23 @@ test("Google-only profiles replace local names and submit completed runs automat
   assert.match(indexHtml, /id="result-google-signin"/);
   assert.match(indexHtml, /id="profile-nickname"/);
   assert.match(indexHtml, /id="profile-logout"/);
+  assert.match(indexHtml, /id="profile-delete-reveal"[^>]*>\s*Delete account/);
+  assert.match(indexHtml, /id="profile-delete-form" hidden/);
+  assert.match(indexHtml, /id="profile-delete-confirmation"/);
+  assert.match(indexHtml, /Type <strong>DELETE MY ACCOUNT<\/strong> to continue/);
+  assert.match(
+    indexHtml,
+    /id="profile-logout"[\s\S]*id="profile-danger-zone"/,
+    "Account deletion must remain the final, separated action in the signed-in Profile view."
+  );
   assert.match(mainSource, /https:\/\/accounts\.google\.com\/gsi\/client/);
   assert.match(mainSource, /profileClient\.loginWithGoogleCredential\(credential\)/);
   assert.match(mainSource, /profileClient\.updateNickname\(nickname\)/);
   assert.match(mainSource, /profileClient\.logout\(\)/);
+  assert.match(mainSource, /profileClient\.deleteAccount\(confirmation\)/);
+  assert.match(mainSource, /profileDeleteReveal\.addEventListener\("click", revealAccountDeletion\)/);
+  assert.match(mainSource, /profileDeleteForm\.addEventListener\("submit", deleteProfileAccount\)/);
+  assert.match(mainSource, /profileSession = normalizeProfileSession\(\{[\s\S]*authenticated: false,[\s\S]*profile: null/);
   assert.match(
     mainSource,
     /if \(mode === GAME_MODES\.NORMAL && hasConfirmedProfile\(\)\) \{[\s\S]*profileClient\.startRun\(mode, APP_BUILD_ID\)/
