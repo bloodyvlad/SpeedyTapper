@@ -505,13 +505,21 @@ $throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot clai
 
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
-$compatibleBuildPayload = $singleHitPayload;
-$compatibleBuildPayload['buildId'] = '20260718-1';
-$compatibleBuildProof = RunProof::fromArray($compatibleBuildPayload);
+$compatibleBuildProofs = [];
+foreach (['20260718-1', '20260719-1'] as $compatibleBuildId) {
+    $compatibleBuildPayload = $singleHitPayload;
+    $compatibleBuildPayload['buildId'] = $compatibleBuildId;
+    $compatibleBuildProofs[$compatibleBuildId] = RunProof::fromArray($compatibleBuildPayload);
+    $assert(
+        $compatibleBuildProofs[$compatibleBuildId]->buildId === $compatibleBuildId
+            && (new RunProofValidator())->validate($compatibleBuildProofs[$compatibleBuildId])->score === $singleHit->score,
+        'Each explicitly compatible build keeps its ticket-bound build ID and replays under the unchanged ruleset.',
+    );
+}
 $assert(
-    $compatibleBuildProof->buildId === '20260718-1'
-        && (new RunProofValidator())->validate($compatibleBuildProof)->score === $singleHit->score,
-    'An explicitly compatible native build keeps its ticket-bound build ID and replays under the unchanged ruleset.',
+    !hash_equals($parsedProof->proofHash(), $compatibleBuildProofs['20260718-1']->proofHash())
+        && hash_equals($parsedProof->traceHash(), $compatibleBuildProofs['20260718-1']->traceHash()),
+    'The proof hash binds a compatible build while cross-build trace-clone detection remains stable.',
 );
 $unsupportedBuildPayload = $singleHitPayload;
 $unsupportedBuildPayload['buildId'] = 'future-build';
