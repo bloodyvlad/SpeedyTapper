@@ -113,11 +113,11 @@ Before deployment:
 
 After deployment, record the commit SHA, build ID, artifact SHA-256, Hostinger addon document root, migration/season ID, and the immutable Vercel rollback URL. The HTML, stylesheet, and JavaScript module graph share one release version. The service worker bypasses the browser HTTP cache, removes older app caches, and performs a one-time reload when an installed iPhone switches releases.
 
-## Unreleased backend-first StoreKit and account-deletion candidate
+## Backend-first StoreKit and account-deletion foundation
 
-This section documents the unreleased StoreKit feature-branch backend, not behavior shipped from `main` or verified on Hostinger. The player-facing StoreKit purchase and restore UI remains a placeholder; this pass establishes the PHP/MySQL trust, accounting, notification, reconciliation, session, and deletion boundary first.
+This section documents the PHP/MySQL trust, accounting, notification, reconciliation, session, and deletion boundary included in the current code. Account deletion is available when this build is deployed. The player-facing StoreKit purchase and restore UI remains a placeholder, and StoreKit processing fails closed until the exact Apple product catalog, environment, identifiers, retention key, and private reconciliation key are configured and exercised end to end in Apple Sandbox on a device.
 
-The candidate accepts only this exact five-product allowlist. Prices are recommended US App Store price points; Apple remains authoritative for localized storefront presentation and the server never accepts a client-submitted price.
+The StoreKit backend accepts only this exact five-product allowlist. Prices are recommended US App Store price points; Apple remains authoritative for localized storefront presentation and the server never accepts a client-submitted price.
 
 | Product ID | Type | Server grant | Recommended price |
 | --- | --- | --- | ---: |

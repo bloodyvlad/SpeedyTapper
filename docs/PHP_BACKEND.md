@@ -25,13 +25,13 @@ Migration `012` extends that sequence with the authoritative theme catalog, paid
 
 Migration `013` gives the original migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme. It targets the internal UUID only through the durable `leaderboard_admin` role row whose `granted_by` value is `migration-011`; it never uses nickname, email, Google identity, score, or browser state. These ownership rows do not alter coins, selections, visibility, achievements, or `coin_ledger`, and an existing paid purchase is preserved. Default and Disco remain implicit free ownership. A destructive account reward reset removes the one-time grants and the migration runner does not apply them again.
 
-## Unreleased backend-first StoreKit and account-deletion candidate
+## Backend-first StoreKit and account-deletion foundation
 
-Everything in this section describes the unreleased StoreKit feature-branch backend, not the backend currently shipped from `main`. The player-facing StoreKit purchase and restore UI remains a placeholder. Do not advertise the products, paid balance, ad-free entitlement, restore flow, or deletion flow as released until the branch is merged, configured in App Store Connect, deployed, reconciled, and exercised end to end in Apple Sandbox on a device.
+This section describes the StoreKit and deletion boundary included in the current backend. Account deletion is active when this build is deployed. The player-facing StoreKit purchase and restore UI remains a placeholder; do not advertise products, paid balance, ad-free entitlement, or restore as released until Apple configuration is complete and the full purchase, notification, reconciliation, refund, reversal, restore, and Family Sharing flows have been exercised in Apple Sandbox on a physical device.
 
 ### Runtime, configuration, and migrations
 
-The candidate additionally requires PHP cURL; `composer.json` declares `ext-curl` because App Store Server API reconciliation uses the cURL extension. StoreKit remains disabled unless the bundle, Sandbox/Production environment, exact product map, at-least-32-byte retention HMAC key, and pinned Apple trust roots are configured. Production also requires the numeric Apple app ID. Reconciliation additionally requires the App Store Connect issuer ID, key ID, and private `.p8` path outside the web root.
+The StoreKit backend additionally requires PHP cURL; `composer.json` declares `ext-curl` because App Store Server API reconciliation uses the cURL extension. StoreKit remains disabled unless the bundle, Sandbox/Production environment, exact product map, at-least-32-byte retention HMAC key, and pinned Apple trust roots are configured. Production also requires the numeric Apple app ID. Reconciliation additionally requires the App Store Connect issuer ID, key ID, and private `.p8` path outside the web root.
 
 Migration `014_storekit_paid_value_and_account_deletion.sql`:
 
