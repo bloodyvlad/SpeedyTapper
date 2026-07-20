@@ -10,7 +10,11 @@ final class SessionStore
     private const LEGACY_PLAYER_KEY = 'speedytapper_player_id';
     private const CSRF_KEY = 'speedytapper_csrf_token';
     private const RUN_BINDING_KEY = 'speedytapper_run_binding';
-    private const GOOGLE_AUTHENTICATED_AT_KEY = 'speedytapper_google_authenticated_at';
+    private const PRIMARY_AUTHENTICATED_AT_KEY = 'speedytapper_primary_authenticated_at';
+    private const PRIMARY_AUTHENTICATED_PROVIDER_KEY = 'speedytapper_primary_authenticated_provider';
+    private const APPLE_CHALLENGE_KEY = 'speedytapper_apple_challenge';
+    private const GAME_CENTER_CHALLENGE_KEY = 'speedytapper_game_center_challenge';
+    private const AUTH_CHALLENGE_LIFETIME_SECONDS = 300;
     private const FINISH_RATE_KEY = 'speedytapper_finish_requests';
     private const FINISH_RATE_LIMIT = 20;
     private const FINISH_RATE_WINDOW_SECONDS = 60;
@@ -58,12 +62,13 @@ final class SessionStore
         return $playerId;
     }
 
-    public function login(string $playerId): void
+    public function login(string $playerId, string $provider = PlayerIdentityService::PROVIDER_GOOGLE): void
     {
         $playerId = strtolower(trim($playerId));
         if (!Uuid::isValidV4($playerId)) {
             throw new \InvalidArgumentException('Session player ID must be a version 4 UUID.');
         }
+        $provider = self::primaryProvider($provider);
         $this->start();
         $previousAuthId = $this->storedAuthId();
         $previousPlayerId = $previousAuthId === null
@@ -86,9 +91,21 @@ final class SessionStore
             self::AUTH_ID_KEY => $authId,
             self::CSRF_KEY => self::base64Url(random_bytes(32)),
             self::RUN_BINDING_KEY => self::base64Url(random_bytes(32)),
-            self::GOOGLE_AUTHENTICATED_AT_KEY => time(),
+            self::PRIMARY_AUTHENTICATED_AT_KEY => time(),
+            self::PRIMARY_AUTHENTICATED_PROVIDER_KEY => $provider,
             self::FINISH_RATE_KEY => is_array($finishRequests) ? $finishRequests : [],
         ];
+    }
+
+    public function markPrimaryAuthenticated(string $provider): void
+    {
+        $provider = self::primaryProvider($provider);
+        $this->start();
+        if ($this->storedAuthId() === null || $this->playerId() === null) {
+            throw new ApiException(401, 'Sign in again to continue.');
+        }
+        $_SESSION[self::PRIMARY_AUTHENTICATED_AT_KEY] = time();
+        $_SESSION[self::PRIMARY_AUTHENTICATED_PROVIDER_KEY] = $provider;
     }
 
     public function logout(): void
@@ -176,24 +193,134 @@ final class SessionStore
         $_SESSION[self::FINISH_RATE_KEY] = $requests;
     }
 
-    public function requireRecentGoogleAuthentication(int $maximumAgeSeconds = 900): void
+    public function requireRecentPrimaryAuthentication(int $maximumAgeSeconds = 900): void
     {
         if ($maximumAgeSeconds < 60 || $maximumAgeSeconds > 3600) {
             throw new \InvalidArgumentException('Recent-authentication window is invalid.');
         }
         $this->start();
-        $authenticatedAt = $_SESSION[self::GOOGLE_AUTHENTICATED_AT_KEY] ?? null;
+        $authenticatedAt = $_SESSION[self::PRIMARY_AUTHENTICATED_AT_KEY] ?? null;
+        $provider = $_SESSION[self::PRIMARY_AUTHENTICATED_PROVIDER_KEY] ?? null;
         $now = time();
         if (
             !is_int($authenticatedAt)
+            || !is_string($provider)
+            || !in_array(
+                $provider,
+                [PlayerIdentityService::PROVIDER_GOOGLE, PlayerIdentityService::PROVIDER_APPLE],
+                true,
+            )
             || $authenticatedAt > $now
             || $authenticatedAt < $now - $maximumAgeSeconds
         ) {
             throw new ApiException(
                 403,
-                'Sign in with Google again before making this sensitive account change.',
+                'Sign in again before making this sensitive account change.',
             );
         }
+    }
+
+    /**
+     * @return array{
+     *     challengeId: string,
+     *     nonce: string,
+     *     state: string,
+     *     intent: string,
+     *     audience: string,
+     *     expiresAt: string
+     * }
+     */
+    public function issueAppleChallenge(string $intent, string $audience): array
+    {
+        if (!in_array($intent, ['login', 'register', 'link', 'reauth'], true)) {
+            throw new ApiException(400, 'Apple sign-in intent is invalid.');
+        }
+        if ($audience === '' || strlen($audience) > 255) {
+            throw new \InvalidArgumentException('Apple sign-in audience is invalid.');
+        }
+        $this->start();
+        $challenge = [
+            'challengeId' => self::base64Url(random_bytes(32)),
+            'nonce' => self::base64Url(random_bytes(32)),
+            'state' => self::base64Url(random_bytes(32)),
+            'intent' => $intent,
+            'audience' => $audience,
+            'expiresAtUnix' => time() + self::AUTH_CHALLENGE_LIFETIME_SECONDS,
+        ];
+        $_SESSION[self::APPLE_CHALLENGE_KEY] = $challenge;
+        return [
+            'challengeId' => $challenge['challengeId'],
+            'nonce' => $challenge['nonce'],
+            'state' => $challenge['state'],
+            'intent' => $challenge['intent'],
+            'audience' => $challenge['audience'],
+            'expiresAt' => gmdate('Y-m-d\TH:i:s\Z', $challenge['expiresAtUnix']),
+        ];
+    }
+
+    /** @return array{nonce: string, intent: string, audience: string} */
+    public function consumeAppleChallenge(mixed $challengeId, mixed $state): array
+    {
+        $this->start();
+        $challenge = $_SESSION[self::APPLE_CHALLENGE_KEY] ?? null;
+        unset($_SESSION[self::APPLE_CHALLENGE_KEY]);
+        if (
+            !is_array($challenge)
+            || !is_string($challengeId)
+            || !is_string($state)
+            || !is_string($challenge['challengeId'] ?? null)
+            || !is_string($challenge['state'] ?? null)
+            || !is_string($challenge['nonce'] ?? null)
+            || !is_string($challenge['intent'] ?? null)
+            || !is_string($challenge['audience'] ?? null)
+            || !is_int($challenge['expiresAtUnix'] ?? null)
+            || $challenge['expiresAtUnix'] < time()
+            || !hash_equals($challenge['challengeId'], $challengeId)
+            || !hash_equals($challenge['state'], $state)
+        ) {
+            throw new ApiException(401, 'Apple sign-in challenge is invalid, expired, or already used.');
+        }
+        return [
+            'nonce' => $challenge['nonce'],
+            'intent' => $challenge['intent'],
+            'audience' => $challenge['audience'],
+        ];
+    }
+
+    /** @return array{challengeId: string, expiresAt: string} */
+    public function issueGameCenterChallenge(): array
+    {
+        $this->start();
+        $challenge = [
+            'challengeId' => self::base64Url(random_bytes(32)),
+            'issuedAtMilliseconds' => (int) floor(microtime(true) * 1_000),
+            'expiresAtUnix' => time() + self::AUTH_CHALLENGE_LIFETIME_SECONDS,
+        ];
+        $_SESSION[self::GAME_CENTER_CHALLENGE_KEY] = $challenge;
+        return [
+            'challengeId' => $challenge['challengeId'],
+            'expiresAt' => gmdate('Y-m-d\TH:i:s\Z', $challenge['expiresAtUnix']),
+        ];
+    }
+
+    /** @return array{issuedAtMilliseconds: int} */
+    public function consumeGameCenterChallenge(mixed $challengeId): array
+    {
+        $this->start();
+        $challenge = $_SESSION[self::GAME_CENTER_CHALLENGE_KEY] ?? null;
+        unset($_SESSION[self::GAME_CENTER_CHALLENGE_KEY]);
+        if (
+            !is_array($challenge)
+            || !is_string($challengeId)
+            || !is_string($challenge['challengeId'] ?? null)
+            || !is_int($challenge['issuedAtMilliseconds'] ?? null)
+            || !is_int($challenge['expiresAtUnix'] ?? null)
+            || $challenge['expiresAtUnix'] < time()
+            || !hash_equals($challenge['challengeId'], $challengeId)
+        ) {
+            throw new ApiException(401, 'Game Center link challenge is invalid, expired, or already used.');
+        }
+        return ['issuedAtMilliseconds' => $challenge['issuedAtMilliseconds']];
     }
 
     public function close(): void
@@ -232,9 +359,25 @@ final class SessionStore
             $_SESSION[self::AUTH_ID_KEY],
             $_SESSION[self::LEGACY_PLAYER_KEY],
             $_SESSION[self::RUN_BINDING_KEY],
-            $_SESSION[self::GOOGLE_AUTHENTICATED_AT_KEY],
+            $_SESSION[self::PRIMARY_AUTHENTICATED_AT_KEY],
+            $_SESSION[self::PRIMARY_AUTHENTICATED_PROVIDER_KEY],
+            $_SESSION[self::APPLE_CHALLENGE_KEY],
+            $_SESSION[self::GAME_CENTER_CHALLENGE_KEY],
             $_SESSION[self::FINISH_RATE_KEY],
         );
+    }
+
+    private static function primaryProvider(string $provider): string
+    {
+        $provider = strtolower(trim($provider));
+        if (!in_array(
+            $provider,
+            [PlayerIdentityService::PROVIDER_GOOGLE, PlayerIdentityService::PROVIDER_APPLE],
+            true,
+        )) {
+            throw new \InvalidArgumentException('Session authentication provider is invalid.');
+        }
+        return $provider;
     }
 
     private static function base64Url(string $bytes): string

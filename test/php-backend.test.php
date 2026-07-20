@@ -606,12 +606,20 @@ for ($attempt = 0; $attempt < 20; $attempt++) {
     $rateSession->requireRunFinishCapacity();
 }
 $rateSession->login($ratePlayerId);
-$rateSession->requireRecentGoogleAuthentication();
-$assert(true, 'A freshly verified Google login satisfies sensitive admin authentication.');
-$_SESSION['speedytapper_google_authenticated_at'] = time() - 901;
+$rateSession->requireRecentPrimaryAuthentication();
+$assert(true, 'A freshly verified primary login satisfies sensitive authentication.');
+$_SESSION['speedytapper_primary_authenticated_at'] = time() - 901;
 $throwsApi(
-    static fn () => $rateSession->requireRecentGoogleAuthentication(),
-    'A stale browser session must reauthenticate with Google before destructive moderation.',
+    static fn () => $rateSession->requireRecentPrimaryAuthentication(),
+    'A stale browser session must reauthenticate before a sensitive mutation.',
+);
+$rateSession->login($ratePlayerId, 'apple');
+$rateSession->requireRecentPrimaryAuthentication();
+$assert(true, 'A freshly verified Apple login satisfies sensitive authentication.');
+$_SESSION['speedytapper_primary_authenticated_provider'] = 'game_center';
+$throwsApi(
+    static fn () => $rateSession->requireRecentPrimaryAuthentication(),
+    'Game Center cannot satisfy primary-account reauthentication.',
 );
 $rateSession->login($ratePlayerId);
 $throwsApi(
@@ -626,6 +634,11 @@ foreach (glob(dirname(__DIR__) . '/server/migrations/*.sql') ?: [] as $migration
 }
 foreach ([
     'google_subject_hash',
+    'player_identities',
+    'player_game_center_bindings',
+    'player_apple_authorizations',
+    'game_center_assertion_uses',
+    "provider IN ('google', 'apple')",
     'nickname_confirmed',
     'completed_runs',
     'run_attempts',
@@ -707,17 +720,23 @@ foreach ([
 }
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(
     str_contains($app, '/api/admin/leaderboard')
         && str_contains($app, '/entries/([0-9a-fA-F-]{36})/(quarantine|delete-reset)')
         && str_contains($app, 'requireAdmin(true)')
-        && str_contains($app, 'requireRecentGoogleAuthentication')
+        && str_contains($app, 'requireRecentPrimaryAuthentication')
         && str_contains($app, "(\$body['confirm'] ?? null) !== true")
         && str_contains($app, "\$body['confirmPlayerId'] ?? null"),
-    'Admin reads are role-gated and exact-result mutations require target confirmation plus recent Google auth.',
+    'Admin reads are role-gated and exact-result mutations require target confirmation plus recent primary auth.',
+);
+$assert(
+    !str_contains($app, '/api/auth/game-center')
+        && !str_contains($app, "['gamePlayerId'")
+        && str_contains($app, "['challengeId', 'teamPlayerId', 'publicKeyUrl', 'signature', 'salt', 'timestamp']"),
+    'Game Center is link-only and accepts only the teamPlayerID covered by Apple\'s signature.',
 );
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
 $assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
@@ -951,6 +970,20 @@ $assert(count($migrationStatements) === 2, 'Migration SQL is split into executab
 $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
 $deploymentBootstrap = file_get_contents(dirname(__DIR__) . '/server/src/DeploymentBootstrap.php');
 $assert(str_contains($apiBootstrap, 'new RunAttemptService') && str_contains($apiBootstrap, 'new RunProofValidator'), 'The HTTP API wires issued attempts to server proof replay.');
+$assert(
+    str_contains($apiBootstrap, 'new PlayerIdentityService')
+        && str_contains($apiBootstrap, 'new AppleSignInIdentityVerifier')
+        && str_contains($apiBootstrap, 'new AppleSignInTokenClient')
+        && str_contains($apiBootstrap, 'new AppleCredentialRepository')
+        && str_contains($apiBootstrap, 'new GameCenterIdentityVerifier'),
+    'The HTTP API wires provider resolution, Apple code exchange/credential retention, and Game Center verification.',
+);
+$assert(
+    str_contains($app, "['challengeId', 'state', 'identityToken', 'authorizationCode']")
+        && str_contains($app, 'storeOrRetainInCurrentTransaction')
+        && str_contains($app, '->revoke($refreshToken)'),
+    'Apple sign-in requires a one-time code and retains revocation material atomically for deletion.',
+);
 $assert(
     is_string($deploymentBootstrap)
         && str_contains($deploymentBootstrap, "server/.migrations-pending")

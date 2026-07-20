@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use SpeedyTapper\SessionRegistry;
 use SpeedyTapper\SessionStore;
+use SpeedyTapper\ApiException;
 
 require dirname(__DIR__) . '/server/autoload.php';
 
@@ -13,6 +14,15 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
     if (!$condition) {
         throw new RuntimeException($message);
     }
+};
+$throwsApi = static function (callable $callback, string $message) use ($assert): void {
+    try {
+        $callback();
+    } catch (ApiException) {
+        $assert(true, $message);
+        return;
+    }
+    $assert(false, $message);
 };
 
 $database = new PDO('sqlite::memory:');
@@ -64,8 +74,41 @@ $assert(
     $registry->resolve((string) $firstAuthId) === $playerOne,
     'The database maps the opaque authentication ID to the player.',
 );
+$session->requireRecentPrimaryAuthentication();
+$assert(
+    ($_SESSION['speedytapper_primary_authenticated_provider'] ?? null) === 'google',
+    'A Google login records provider-neutral recent primary authentication.',
+);
+$appleChallenge = $session->issueAppleChallenge('link', 'com.otcsoftware.pimpopom');
+$consumedApple = $session->consumeAppleChallenge(
+    $appleChallenge['challengeId'],
+    $appleChallenge['state'],
+);
+$assert(
+    $consumedApple['nonce'] === $appleChallenge['nonce']
+        && $consumedApple['intent'] === 'link',
+    'Apple nonce/state challenge is bound to and consumed from the session.',
+);
+$throwsApi(
+    static fn () => $session->consumeAppleChallenge(
+        $appleChallenge['challengeId'],
+        $appleChallenge['state'],
+    ),
+    'Apple challenge is single use.',
+);
+$gameCenterChallenge = $session->issueGameCenterChallenge();
+$consumedGameCenter = $session->consumeGameCenterChallenge($gameCenterChallenge['challengeId']);
+$assert(
+    is_int($consumedGameCenter['issuedAtMilliseconds'] ?? null)
+        && $consumedGameCenter['issuedAtMilliseconds'] <= (int) floor(microtime(true) * 1_000),
+    'Game Center linking returns the issuance time that bounds the signed proof.',
+);
+$throwsApi(
+    static fn () => $session->consumeGameCenterChallenge($gameCenterChallenge['challengeId']),
+    'Game Center challenge cannot be replayed.',
+);
 
-$session->login($playerTwo);
+$session->login($playerTwo, 'apple');
 $secondAuthId = $_SESSION['speedytapper_session_auth_id'] ?? null;
 $assert(
     is_string($secondAuthId) && $secondAuthId !== $firstAuthId,
@@ -73,6 +116,10 @@ $assert(
 );
 $assert($registry->resolve((string) $firstAuthId) === null, 'Rotation revokes the previous mapping.');
 $assert($session->playerId() === $playerTwo, 'The rotated mapping resolves only the new player.');
+$assert(
+    ($_SESSION['speedytapper_primary_authenticated_provider'] ?? null) === 'apple',
+    'An Apple login is first-class primary authentication for the same session registry.',
+);
 
 $registry->revoke((string) $secondAuthId);
 $assert($session->playerId() === null, 'A missing server-side mapping fails closed.');

@@ -25,6 +25,15 @@ final readonly class Config
         public ?string $storeKitKeyId = null,
         public ?string $storeKitPrivateKeyPath = null,
         public array $storeKitEnvironments = [],
+        public ?string $appleSignInClientId = null,
+        public ?string $appleSignInTeamId = null,
+        public ?string $appleSignInKeyId = null,
+        public ?string $appleSignInPrivateKeyPath = null,
+        public ?string $appleSignInCredentialEncryptionKey = null,
+        public ?string $appleSignInJwksCachePath = null,
+        public array $gameCenterKeyHosts = ['static.gc.apple.com'],
+        public array $gameCenterTrustedRootCertificatePaths = [],
+        public ?string $gameCenterUntrustedCertificateBundlePath = null,
     ) {
     }
 
@@ -143,6 +152,90 @@ final readonly class Config
             throw new ApiException(503, 'StoreKit app identifier configuration is invalid.');
         }
 
+        $appleSignInClientId = $optional('SPEEDYTAPPER_APPLE_SIGNIN_CLIENT_ID')
+            ?? $storeKitBundleId;
+        if (
+            strlen($appleSignInClientId) > 255
+            || preg_match('/^[A-Za-z0-9.-]+$/D', $appleSignInClientId) !== 1
+        ) {
+            throw new ApiException(503, 'Apple Sign in client configuration is invalid.');
+        }
+        $appleSignInTeamId = $optional('SPEEDYTAPPER_APPLE_SIGNIN_TEAM_ID');
+        $appleSignInKeyId = $optional('SPEEDYTAPPER_APPLE_SIGNIN_KEY_ID');
+        $appleSignInPrivateKeyPath = $optional('SPEEDYTAPPER_APPLE_SIGNIN_PRIVATE_KEY_PATH');
+        $appleSignInCredentialEncryptionKey = $optional(
+            'SPEEDYTAPPER_APPLE_SIGNIN_CREDENTIAL_ENCRYPTION_KEY'
+        );
+        $appleSignInJwksCachePath = $optional('SPEEDYTAPPER_APPLE_SIGNIN_JWKS_CACHE_PATH');
+        if ($appleSignInJwksCachePath === null && is_string($home) && trim($home) !== '') {
+            $appleSignInJwksCachePath = rtrim(trim($home), '/')
+                . '/.cache/speedytapper/apple-signin-jwks.json';
+        }
+        if ($appleSignInJwksCachePath !== null && (
+            !str_starts_with($appleSignInJwksCachePath, '/')
+            || str_contains($appleSignInJwksCachePath, "\0")
+        )) {
+            throw new ApiException(503, 'Apple Sign in cache configuration is invalid.');
+        }
+
+        $configuredGameCenterHosts = $local['SPEEDYTAPPER_GAME_CENTER_KEY_HOSTS']
+            ?? ['static.gc.apple.com'];
+        $gameCenterHostsEnvironment = getenv('SPEEDYTAPPER_GAME_CENTER_KEY_HOSTS');
+        if ($gameCenterHostsEnvironment !== false) {
+            $configuredGameCenterHosts = explode(',', $gameCenterHostsEnvironment);
+        }
+        if (is_string($configuredGameCenterHosts)) {
+            $configuredGameCenterHosts = explode(',', $configuredGameCenterHosts);
+        }
+        if (!is_array($configuredGameCenterHosts)) {
+            throw new ApiException(503, 'Game Center key-host configuration is invalid.');
+        }
+        $gameCenterKeyHosts = array_values(array_unique(array_map(
+            static function (mixed $host): string {
+                if (!is_string($host)) {
+                    throw new ApiException(503, 'Game Center key-host configuration is invalid.');
+                }
+                $host = strtolower(trim($host));
+                if (preg_match('/^[a-z0-9.-]{1,253}$/D', $host) !== 1) {
+                    throw new ApiException(503, 'Game Center key-host configuration is invalid.');
+                }
+                return $host;
+            },
+            $configuredGameCenterHosts,
+        )));
+        if ($gameCenterKeyHosts === []) {
+            throw new ApiException(503, 'Game Center key-host configuration is invalid.');
+        }
+
+        $configuredGameCenterRootPaths = $local['SPEEDYTAPPER_GAME_CENTER_ROOT_CERTIFICATE_PATHS']
+            ?? [$projectRoot . '/server/certs/DigiCertTrustedRootG4.pem'];
+        $gameCenterRootsEnvironment = getenv('SPEEDYTAPPER_GAME_CENTER_ROOT_CERTIFICATE_PATHS');
+        if ($gameCenterRootsEnvironment !== false) {
+            $configuredGameCenterRootPaths = explode(',', $gameCenterRootsEnvironment);
+        }
+        if (is_string($configuredGameCenterRootPaths)) {
+            $configuredGameCenterRootPaths = explode(',', $configuredGameCenterRootPaths);
+        }
+        if (!is_array($configuredGameCenterRootPaths)) {
+            throw new ApiException(503, 'Game Center trust configuration is invalid.');
+        }
+        $gameCenterTrustedRootCertificatePaths = array_values(array_filter(array_map(
+            static function (mixed $path): string {
+                if (!is_string($path)) {
+                    throw new ApiException(503, 'Game Center trust configuration is invalid.');
+                }
+                return trim($path);
+            },
+            $configuredGameCenterRootPaths,
+        ), static fn (string $path): bool => $path !== ''));
+        if ($gameCenterTrustedRootCertificatePaths === []) {
+            throw new ApiException(503, 'Game Center trust configuration is invalid.');
+        }
+        $gameCenterUntrustedCertificateBundlePath = $optional(
+            'SPEEDYTAPPER_GAME_CENTER_INTERMEDIATE_CERTIFICATE_BUNDLE_PATH'
+        ) ?? $projectRoot
+            . '/server/certs/DigiCertTrustedG4CodeSigningRSA4096SHA3842021CA1.pem';
+
         $productsJson = $optional('SPEEDYTAPPER_STOREKIT_PRODUCTS_JSON');
         $storeKitProducts = [];
         if ($productsJson !== null) {
@@ -200,6 +293,15 @@ final readonly class Config
             storeKitKeyId: $optional('SPEEDYTAPPER_STOREKIT_KEY_ID'),
             storeKitPrivateKeyPath: $optional('SPEEDYTAPPER_STOREKIT_PRIVATE_KEY_PATH'),
             storeKitEnvironments: $storeKitEnvironments,
+            appleSignInClientId: $appleSignInClientId,
+            appleSignInTeamId: $appleSignInTeamId,
+            appleSignInKeyId: $appleSignInKeyId,
+            appleSignInPrivateKeyPath: $appleSignInPrivateKeyPath,
+            appleSignInCredentialEncryptionKey: $appleSignInCredentialEncryptionKey,
+            appleSignInJwksCachePath: $appleSignInJwksCachePath,
+            gameCenterKeyHosts: $gameCenterKeyHosts,
+            gameCenterTrustedRootCertificatePaths: $gameCenterTrustedRootCertificatePaths,
+            gameCenterUntrustedCertificateBundlePath: $gameCenterUntrustedCertificateBundlePath,
         );
     }
 
@@ -234,5 +336,20 @@ final readonly class Config
             && $this->storeKitIssuerId !== null
             && $this->storeKitKeyId !== null
             && $this->storeKitPrivateKeyPath !== null;
+    }
+
+    public function appleSignInIsConfigured(): bool
+    {
+        return $this->appleSignInClientId !== null
+            && $this->appleSignInTeamId !== null
+            && preg_match('/^[A-Z0-9]{10}$/D', $this->appleSignInTeamId) === 1
+            && $this->appleSignInKeyId !== null
+            && preg_match('/^[A-Z0-9]{10}$/D', $this->appleSignInKeyId) === 1
+            && $this->appleSignInPrivateKeyPath !== null
+            && is_readable($this->appleSignInPrivateKeyPath)
+            && $this->appleSignInCredentialEncryptionKey !== null
+            && strlen($this->appleSignInCredentialEncryptionKey) >= 32
+            && ($this->storeKitKeyId === null
+                || !hash_equals($this->storeKitKeyId, $this->appleSignInKeyId));
     }
 }

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace SpeedyTapper;
 
 use PDO;
-use PDOException;
 use Throwable;
 
 final class PlayerRepository
@@ -57,50 +56,6 @@ final class PlayerRepository
             'id' => (string) $row['id'],
             'nicknameConfirmed' => (bool) $row['nickname_confirmed'],
         ] : null;
-    }
-
-    public function findOrCreate(GoogleIdentity $identity): array
-    {
-        $subjectHash = hash('sha256', "google\0" . $identity->subject, true);
-        $statement = $this->database->prepare(
-            'SELECT id, nickname, nickname_confirmed, coins, total_play_ms, created_at, updated_at '
-            . 'FROM players WHERE google_subject_hash = :subject_hash LIMIT 1'
-        );
-        $statement->bindValue('subject_hash', $subjectHash, PDO::PARAM_LOB);
-        $statement->execute();
-        $existing = $statement->fetch();
-        if (is_array($existing)) {
-            $this->database->prepare(
-                'UPDATE players SET last_login_at = UTC_TIMESTAMP(3) WHERE id = :id'
-            )->execute(['id' => $existing['id']]);
-            return $this->find((string) $existing['id'])
-                ?? throw new \RuntimeException('Existing profile could not be loaded.');
-        }
-
-        $id = Uuid::v4();
-        try {
-            $insert = $this->database->prepare(
-                'INSERT INTO players (id, google_subject_hash, nickname, last_login_at) '
-                . 'VALUES (:id, :subject_hash, :nickname, UTC_TIMESTAMP(3))'
-            );
-            $insert->bindValue('id', $id);
-            $insert->bindValue('subject_hash', $subjectHash, PDO::PARAM_LOB);
-            $insert->bindValue('nickname', Nickname::anonymous());
-            $insert->execute();
-        } catch (PDOException $error) {
-            if ($error->getCode() !== '23000') {
-                throw $error;
-            }
-            $statement->execute();
-            $winner = $statement->fetch();
-            if (!is_array($winner)) {
-                throw $error;
-            }
-            return $this->find((string) $winner['id'])
-                ?? throw new \RuntimeException('Existing profile could not be loaded.');
-        }
-
-        return $this->find($id) ?? throw new \RuntimeException('Created profile could not be loaded.');
     }
 
     public function updateNickname(string $playerId, mixed $nickname): array

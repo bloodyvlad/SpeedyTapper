@@ -29,7 +29,7 @@ final class StoreKitAccountRepository
             );
             $player->execute(['player_id' => $playerId]);
             if ($player->fetchColumn() === false) {
-                throw new ApiException(401, 'Sign in with Google to continue.');
+                throw new ApiException(401, 'Sign in to continue.');
             }
 
             $existing = $this->binding($playerId, true);
@@ -115,7 +115,7 @@ final class StoreKitAccountRepository
         );
         $player->execute(['player_id' => $playerId]);
         if ($player->fetchColumn() === false) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
+            throw new ApiException(401, 'Sign in to continue.');
         }
 
         $this->requireEnvironment($environment);
@@ -196,7 +196,7 @@ final class StoreKitAccountRepository
         $statement->execute(['player_id' => $playerId]);
         $row = $statement->fetch();
         if (!is_array($row)) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
+            throw new ApiException(401, 'Sign in to continue.');
         }
         $wallet = CoinEconomy::summary(
             (int) $row['earned_coins'],

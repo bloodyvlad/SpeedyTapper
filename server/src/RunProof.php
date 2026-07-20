@@ -12,11 +12,12 @@ namespace SpeedyTapper;
  */
 final readonly class RunProof
 {
-    public const BUILD_ID = '20260719-3';
+    public const BUILD_ID = '20260720-1';
     public const SUPPORTED_BUILD_IDS = [
         '20260718-1',
         '20260719-1',
         '20260719-2',
+        '20260719-3',
         self::BUILD_ID,
     ];
     public const RULESET = 'reaction-proof-v2';

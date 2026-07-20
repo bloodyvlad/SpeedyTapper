@@ -21,7 +21,12 @@ final class App
         private readonly AppStoreNotificationService $appStoreNotifications,
         private readonly AccountDeletionService $accountDeletion,
         private readonly SessionStore $session,
+        private readonly PlayerIdentityService $identities,
         private readonly GoogleIdentityVerifier $google,
+        private readonly AppleIdentityVerifier $apple,
+        private readonly ?AppleAuthorizationCodeClient $appleTokens,
+        private readonly ?AppleCredentialRepository $appleCredentials,
+        private readonly GameCenterIdentityVerifier $gameCenter,
     ) {
     }
 
@@ -46,16 +51,251 @@ final class App
             );
         }
 
+        if ($request->method === 'POST' && $request->path === '/api/auth/apple/challenge') {
+            $this->guardMutation($request);
+            if (!$this->config->appleSignInIsConfigured()) {
+                throw new ApiException(503, 'Apple sign-in is not configured.');
+            }
+            $body = $request->json();
+            $this->requireOnlyFields($body, ['intent'], 'Apple sign-in challenge');
+            $intent = $body['intent'] ?? null;
+            if (!is_string($intent) || !in_array($intent, ['login', 'register', 'link', 'reauth'], true)) {
+                throw new ApiException(400, 'Apple sign-in intent must be login, register, link, or reauth.');
+            }
+            $playerId = $this->session->playerId();
+            if (in_array($intent, ['login', 'register'], true) && $playerId !== null) {
+                throw new ApiException(409, 'Log out before signing in to a different profile.');
+            }
+            if (in_array($intent, ['link', 'reauth'], true)) {
+                $this->requirePlayer();
+                if ($intent === 'link') {
+                    $this->session->requireRecentPrimaryAuthentication();
+                }
+            }
+            JsonResponse::send(201, [
+                'appleSignIn' => $this->session->issueAppleChallenge(
+                    $intent,
+                    $this->config->appleSignInClientId
+                        ?? throw new ApiException(503, 'Apple sign-in is not configured.'),
+                ),
+            ]);
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/auth/apple') {
+            $this->guardMutation($request);
+            $body = $request->json();
+            $this->requireOnlyFields(
+                $body,
+                ['challengeId', 'state', 'identityToken', 'authorizationCode'],
+                'Apple sign-in',
+            );
+            $challenge = $this->session->consumeAppleChallenge(
+                $body['challengeId'] ?? null,
+                $body['state'] ?? null,
+            );
+            $identityToken = $body['identityToken'] ?? null;
+            if (!is_string($identityToken)) {
+                throw new ApiException(400, 'Apple identity token is required.');
+            }
+            $authorizationCode = $body['authorizationCode'] ?? null;
+            if (!is_string($authorizationCode)) {
+                throw new ApiException(400, 'Apple authorization code is required.');
+            }
+            $currentPlayerId = $this->session->playerId();
+            if (in_array($challenge['intent'], ['link', 'reauth'], true)) {
+                if ($currentPlayerId === null) {
+                    throw new ApiException(401, 'Sign in before linking or reauthenticating.');
+                }
+                if ($challenge['intent'] === 'link') {
+                    $this->session->requireRecentPrimaryAuthentication();
+                }
+            }
+            $this->session->close();
+            $identity = $this->apple->verify(
+                $identityToken,
+                $challenge['nonce'],
+                $challenge['audience'],
+            );
+            $tokenClient = $this->appleTokens
+                ?? throw new ApiException(503, 'Apple sign-in is not configured.');
+            $credentials = $this->appleCredentials
+                ?? throw new ApiException(503, 'Apple sign-in is not configured.');
+            $exchange = $tokenClient->exchange($authorizationCode);
+            $exchangedIdentity = $this->apple->verify(
+                $exchange->identityToken,
+                $challenge['nonce'],
+                $challenge['audience'],
+            );
+            if (
+                !hash_equals($identity->subject, $exchangedIdentity->subject)
+                || !hash_equals($identity->audience, $exchangedIdentity->audience)
+            ) {
+                throw new ApiException(401, 'Apple authorization code belongs to a different identity.');
+            }
+            $intent = $challenge['intent'];
+            $activePlayerId = $this->session->playerId();
+            if (in_array($intent, ['login', 'register'], true)) {
+                if ($currentPlayerId !== null || $activePlayerId !== null) {
+                    throw new ApiException(409, 'Log out before signing in to a different profile.');
+                }
+                $resolution = $this->identities->loginOrRegister(
+                    PlayerIdentityService::PROVIDER_APPLE,
+                    $identity->subject,
+                    $intent === 'register',
+                    function (string $playerId) use ($credentials, $identity, $exchange): void {
+                        $credentials->storeOrRetainInCurrentTransaction(
+                            $playerId,
+                            $identity->subject,
+                            $exchange->refreshToken,
+                        );
+                    },
+                );
+                $this->session->login(
+                    $resolution['playerId'],
+                    PlayerIdentityService::PROVIDER_APPLE,
+                );
+            } else {
+                if (
+                    $currentPlayerId === null
+                    || $activePlayerId === null
+                    || !hash_equals($currentPlayerId, $activePlayerId)
+                ) {
+                    throw new ApiException(401, 'The sign-in session changed. Start again.');
+                }
+                if ($intent === 'link') {
+                    $this->session->requireRecentPrimaryAuthentication();
+                }
+                $profile = $this->players->find($activePlayerId)
+                    ?? throw new ApiException(401, 'Sign in again to continue.');
+                if ($intent === 'link') {
+                    $this->identities->linkPrimary(
+                        $profile['id'],
+                        PlayerIdentityService::PROVIDER_APPLE,
+                        $identity->subject,
+                        function (string $playerId) use ($credentials, $identity, $exchange): void {
+                            $credentials->storeOrRetainInCurrentTransaction(
+                                $playerId,
+                                $identity->subject,
+                                $exchange->refreshToken,
+                            );
+                        },
+                    );
+                } else {
+                    $this->identities->reauthenticate(
+                        $profile['id'],
+                        PlayerIdentityService::PROVIDER_APPLE,
+                        $identity->subject,
+                        function (string $playerId) use ($credentials, $identity, $exchange): void {
+                            $credentials->storeOrRetainInCurrentTransaction(
+                                $playerId,
+                                $identity->subject,
+                                $exchange->refreshToken,
+                            );
+                        },
+                    );
+                }
+                $this->session->markPrimaryAuthenticated(PlayerIdentityService::PROVIDER_APPLE);
+            }
+            JsonResponse::send(200, $this->sessionPayload());
+        }
+
         if ($request->method === 'POST' && $request->path === '/api/auth/google') {
             $this->guardMutation($request);
             $body = $request->json();
+            $this->requireOnlyFields($body, ['credential', 'intent'], 'Google sign-in');
             $credential = $body['credential'] ?? null;
             if (!is_string($credential)) {
                 throw new ApiException(400, 'Google credential is required.');
             }
-            $profile = $this->players->findOrCreate($this->google->verify($credential));
-            $this->session->login($profile['id']);
+            $identity = $this->google->verify($credential);
+            $intent = $body['intent'] ?? 'login_or_register';
+            if (!is_string($intent) || !in_array($intent, ['login', 'register', 'login_or_register', 'reauth'], true)) {
+                throw new ApiException(400, 'Google sign-in intent is invalid.');
+            }
+            $currentPlayerId = $this->session->playerId();
+            if ($currentPlayerId === null) {
+                if ($intent === 'reauth') {
+                    throw new ApiException(401, 'Sign in before reauthenticating.');
+                }
+                $resolution = $this->identities->loginOrRegister(
+                    PlayerIdentityService::PROVIDER_GOOGLE,
+                    $identity->subject,
+                    $intent !== 'login',
+                );
+                $this->session->login(
+                    $resolution['playerId'],
+                    PlayerIdentityService::PROVIDER_GOOGLE,
+                );
+            } else {
+                if ($intent !== 'reauth' && $intent !== 'login_or_register') {
+                    throw new ApiException(409, 'Use the explicit link flow to add another sign-in method.');
+                }
+                $this->identities->reauthenticate(
+                    $currentPlayerId,
+                    PlayerIdentityService::PROVIDER_GOOGLE,
+                    $identity->subject,
+                );
+                $this->session->markPrimaryAuthenticated(PlayerIdentityService::PROVIDER_GOOGLE);
+            }
             JsonResponse::send(200, $this->sessionPayload());
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/profile/identities/google') {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $this->session->requireRecentPrimaryAuthentication();
+            $body = $request->json();
+            $this->requireOnlyFields($body, ['credential'], 'Google identity link');
+            $credential = $body['credential'] ?? null;
+            if (!is_string($credential)) {
+                throw new ApiException(400, 'Google credential is required.');
+            }
+            $identity = $this->google->verify($credential);
+            $this->identities->linkPrimary(
+                $profile['id'],
+                PlayerIdentityService::PROVIDER_GOOGLE,
+                $identity->subject,
+            );
+            $this->session->markPrimaryAuthenticated(PlayerIdentityService::PROVIDER_GOOGLE);
+            JsonResponse::send(200, $this->sessionPayload());
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/profile/game-center/challenge') {
+            $this->guardMutation($request);
+            $this->requireOnlyFields($request->json(), [], 'Game Center link challenge');
+            $this->requirePlayer();
+            $this->session->requireRecentPrimaryAuthentication();
+            JsonResponse::send(201, [
+                'gameCenter' => $this->session->issueGameCenterChallenge(),
+            ]);
+        }
+
+        if ($request->method === 'POST' && $request->path === '/api/profile/game-center') {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $this->session->requireRecentPrimaryAuthentication();
+            $body = $request->json();
+            $this->requireOnlyFields(
+                $body,
+                ['challengeId', 'teamPlayerId', 'publicKeyUrl', 'signature', 'salt', 'timestamp'],
+                'Game Center link',
+            );
+            $challenge = $this->session->consumeGameCenterChallenge($body['challengeId'] ?? null);
+            $identity = $this->gameCenter->verify(
+                $body['teamPlayerId'] ?? null,
+                $body['publicKeyUrl'] ?? null,
+                $body['signature'] ?? null,
+                $body['salt'] ?? null,
+                $body['timestamp'] ?? null,
+                $challenge['issuedAtMilliseconds'],
+            );
+            $result = $this->identities->linkGameCenter($profile['id'], $identity);
+            JsonResponse::send(200, [
+                'profile' => $this->players->find($profile['id'])
+                    ?? throw new ApiException(401, 'Sign in again to continue.'),
+                'identityBindings' => $this->identities->bindings($profile['id']),
+                'gameCenter' => ['linked' => true, 'newlyLinked' => $result['linked']],
+            ]);
         }
 
         if ($request->method === 'POST' && $request->path === '/api/logout') {
@@ -103,7 +343,18 @@ final class App
             if (!is_string($confirmation) || !hash_equals('DELETE MY ACCOUNT', $confirmation)) {
                 throw new ApiException(400, 'Explicit account-deletion confirmation is required.');
             }
-            $this->session->requireRecentGoogleAuthentication();
+            $this->session->requireRecentPrimaryAuthentication();
+            $bindings = $this->identities->bindings($profile['id']);
+            if (($bindings['apple'] ?? false) === true) {
+                $credentials = $this->appleCredentials
+                    ?? throw new ApiException(503, 'Apple account revocation is not configured.');
+                $refreshToken = $credentials->refreshTokenForDeletion($profile['id'])
+                    ?? throw new ApiException(503, 'Apple account revocation material is missing.');
+                $this->session->close();
+                ($this->appleTokens
+                    ?? throw new ApiException(503, 'Apple account revocation is not configured.'))
+                    ->revoke($refreshToken);
+            }
             $result = $this->accountDeletion->delete($profile['id']);
             $this->session->logout();
             JsonResponse::send(200, [...$result, 'authenticated' => false]);
@@ -119,6 +370,7 @@ final class App
             $mode = $this->modeFromQuery($request);
             JsonResponse::send(200, [
                 'profile' => $profile,
+                'identityBindings' => $this->identities->bindings($profile['id']),
                 ...$this->storeKitAccounts->state($profile['id']),
                 'ranks' => $this->leaderboard->rankings($profile['id']),
                 'leaderboard' => $this->leaderboard->payload($mode, $profile['id']),
@@ -143,7 +395,7 @@ final class App
             $profile = $this->requirePlayer();
             $result = $this->pets->select($profile['id'], $request->json()['petId'] ?? null);
             $profile = $this->players->find($profile['id'])
-                ?? throw new ApiException(401, 'Sign in with Google to continue.');
+                ?? throw new ApiException(401, 'Sign in again to continue.');
             JsonResponse::send($result['purchased'] ? 201 : 200, [
                 'profile' => $profile,
                 'pet' => [
@@ -165,7 +417,7 @@ final class App
                 $body['visible'] ?? null,
             );
             $profile = $this->players->find($profile['id'])
-                ?? throw new ApiException(401, 'Sign in with Google to continue.');
+                ?? throw new ApiException(401, 'Sign in again to continue.');
             JsonResponse::send(200, [
                 'profile' => $profile,
                 'pet' => [
@@ -194,7 +446,7 @@ final class App
             $profile = $this->requirePlayer();
             $result = $this->themes->select($profile['id'], $request->json()['themeId'] ?? null);
             $profile = $this->players->find($profile['id'])
-                ?? throw new ApiException(401, 'Sign in with Google to continue.');
+                ?? throw new ApiException(401, 'Sign in again to continue.');
             JsonResponse::send($result['purchased'] ? 201 : 200, [
                 'profile' => $profile,
                 'theme' => [
@@ -395,8 +647,15 @@ final class App
             'authenticated' => $profile !== null,
             'csrfToken' => $csrfToken,
             'googleClientId' => $this->config->googleClientId,
+            'appleSignIn' => [
+                'enabled' => $this->config->appleSignInIsConfigured(),
+                'clientId' => $this->config->appleSignInClientId,
+            ],
             'season' => ['id' => $this->config->seasonId, 'name' => $this->config->seasonName],
             'profile' => $profile,
+            'identityBindings' => $profile === null
+                ? null
+                : $this->identities->bindings($profile['id']),
             ...($profile === null ? [
                 'wallet' => null,
                 'adFree' => false,
@@ -423,7 +682,7 @@ final class App
             if ($playerId !== null) {
                 $this->session->logout();
             }
-            throw new ApiException(401, 'Sign in with Google to continue.');
+            throw new ApiException(401, 'Sign in to continue.');
         }
         return $profile;
     }
@@ -434,7 +693,7 @@ final class App
         $playerId = $this->session->playerId();
         if ($playerId === null) {
             $this->session->close();
-            throw new ApiException(401, 'Sign in with Google to continue.');
+            throw new ApiException(401, 'Sign in to continue.');
         }
         if ($countFinishRequest) {
             $this->session->requireRunFinishCapacity();
@@ -446,7 +705,7 @@ final class App
         if ($identity === null) {
             $this->session->logout();
             $this->session->close();
-            throw new ApiException(401, 'Sign in with Google to continue.');
+            throw new ApiException(401, 'Sign in to continue.');
         }
         if (($identity['nicknameConfirmed'] ?? false) !== true) {
             throw new ApiException(
@@ -460,16 +719,25 @@ final class App
         return [$playerId, $sessionBindingHash];
     }
 
-    private function requireAdmin(bool $requireRecentGoogleAuthentication = false): array
+    private function requireAdmin(bool $requireRecentPrimaryAuthentication = false): array
     {
         $profile = $this->requirePlayer();
         if (($profile['isAdmin'] ?? false) !== true) {
             throw new ApiException(403, 'Leaderboard administrator access is required.');
         }
-        if ($requireRecentGoogleAuthentication) {
-            $this->session->requireRecentGoogleAuthentication();
+        if ($requireRecentPrimaryAuthentication) {
+            $this->session->requireRecentPrimaryAuthentication();
         }
         return $profile;
+    }
+
+    /** @param list<string> $allowed */
+    private function requireOnlyFields(array $body, array $allowed, string $operation): void
+    {
+        $unknown = array_diff(array_keys($body), $allowed);
+        if ($unknown !== []) {
+            throw new ApiException(400, $operation . ' contains unsupported fields.');
+        }
     }
 
     /** @return array{int, int} */

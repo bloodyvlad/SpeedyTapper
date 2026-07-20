@@ -35,7 +35,7 @@ final class RunAttemptService
         }
         self::assertBindingHash($sessionBindingHash);
         if (!Uuid::isValidV4($playerId)) {
-            throw new ApiException(401, 'Sign in with Google to start a ranked run.');
+            throw new ApiException(401, 'Sign in to start a ranked run.');
         }
 
         $this->database->beginTransaction();
@@ -45,7 +45,7 @@ final class RunAttemptService
             );
             $playerLock->execute(['player_id' => $playerId]);
             if ($playerLock->fetchColumn() === false) {
-                throw new ApiException(401, 'Sign in with Google to start a ranked run.');
+                throw new ApiException(401, 'Sign in to start a ranked run.');
             }
 
             $rate = $this->database->prepare(

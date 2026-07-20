@@ -12,6 +12,7 @@
     "ext-openssl": "*",
     "ext-pdo": "*",
     "ext-pdo_mysql": "*",
+    "firebase/php-jwt": "^7.1",
     "google/apiclient": "^2.18"
   },
   "autoload": {

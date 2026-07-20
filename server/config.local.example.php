@@ -11,6 +11,25 @@ return [
     'SPEEDYTAPPER_DB_USER' => '',
     'SPEEDYTAPPER_DB_PASSWORD' => '',
     'SPEEDYTAPPER_GOOGLE_CLIENT_ID' => '',
+    // Native Sign in with Apple audience and its own Services/App ID key.
+    // The StoreKit In-App Purchase key is not a substitute; reusing its Key ID
+    // deliberately leaves Sign in with Apple disabled.
+    'SPEEDYTAPPER_APPLE_SIGNIN_CLIENT_ID' => 'com.otcsoftware.pimpopom',
+    'SPEEDYTAPPER_APPLE_SIGNIN_TEAM_ID' => '',
+    'SPEEDYTAPPER_APPLE_SIGNIN_KEY_ID' => '',
+    'SPEEDYTAPPER_APPLE_SIGNIN_PRIVATE_KEY_PATH' => '',
+    // Stable random secret of at least 32 bytes for refresh-token encryption.
+    'SPEEDYTAPPER_APPLE_SIGNIN_CREDENTIAL_ENCRYPTION_KEY' => '',
+    // Optional; defaults to ~/.cache/speedytapper/apple-signin-jwks.json.
+    // The parent directory must be private (0700), otherwise disk caching is bypassed.
+    'SPEEDYTAPPER_APPLE_SIGNIN_JWKS_CACHE_PATH' => '',
+    // GameKit currently returns certificates from this exact Apple host. Add
+    // another host only after verifying an Apple-documented rotation.
+    'SPEEDYTAPPER_GAME_CENTER_KEY_HOSTS' => ['static.gc.apple.com'],
+    // Omit these two keys to use the reviewed DigiCert root and code-signing
+    // intermediate bundled with the release. Never fetch the HTTP AIA at runtime.
+    // 'SPEEDYTAPPER_GAME_CENTER_ROOT_CERTIFICATE_PATHS' => [],
+    // 'SPEEDYTAPPER_GAME_CENTER_INTERMEDIATE_CERTIFICATE_BUNDLE_PATH' => '',
     'SPEEDYTAPPER_SEASON_ID' => 'season-1',
     'SPEEDYTAPPER_SEASON_NAME' => 'Season 1',
     'SPEEDYTAPPER_STOREKIT_BUNDLE_ID' => 'com.otcsoftware.pimpopom',

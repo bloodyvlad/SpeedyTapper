@@ -26,7 +26,7 @@ final class CoinWalletRepository
         $statement->execute(['player_id' => $playerId]);
         $row = $statement->fetch();
         if (!is_array($row)) {
-            throw new ApiException(401, 'Sign in with Google to continue.');
+            throw new ApiException(401, 'Sign in to continue.');
         }
         return array_map('intval', $row);
     }

@@ -19,11 +19,47 @@ npm run check:php
 
 Run `php server/bin/purge-run-attempts.php --apply` from a daily Hostinger cron job. It deletes only bounded batches of unranked stale attempt metadata (7-day abandoned/expired retention and 30-day rejected retention); dry-run is the default, and completed/ranked/reviewed runs are never eligible.
 
-Production artifacts contain an untracked `server/.migrations-pending` marker. Only an API request that sees that marker runs the shared migration runner, ensures the configured season, and removes the marker after success. Ordinary requests do not inspect `schema_migrations` or write the season row. The database advisory lock still serializes concurrent first requests. Local and shell-capable environments run `php server/bin/migrate.php` explicitly. Migrations create a season, Google-backed internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; `010` keeps the selected pet while persisting whether it is shown; and `011` adds database roles, paginated web moderation, immutable account reward-reset audits, and economy generations. Only `SHA-256("google\\0" + sub)` is stored from the Google identity token; email claims and raw Google subject values are not stored.
+Production artifacts contain an untracked `server/.migrations-pending` marker. Only an API request that sees that marker runs the shared migration runner, ensures the configured season, and removes the marker after success. Ordinary requests do not inspect `schema_migrations` or write the season row. The database advisory lock still serializes concurrent first requests. Local and shell-capable environments run `php server/bin/migrate.php` explicitly. Migrations create a season, provider-neutral internal player profiles, and immutable leaderboard results. Migration `004` historically deleted pre-multiplier leaderboard rows once; migration `005` preserves multiple results; `006` adds server-issued run proofs and moderation; `007` adds durable pets; `008` adds achievements; `009` adds debt-aware economy events; `010` keeps the selected pet while persisting whether it is shown; and `011` adds database roles, paginated web moderation, immutable account reward-reset audits, and economy generations. External primary subjects are stored only as provider-domain-separated SHA-256 digests; raw subjects, identity tokens, email claims, and provider display names are not stored.
 
 Migration `012` extends that sequence with the authoritative theme catalog, paid ownership/selection, `theme_purchase` ledger events, and theme-aware reset audits. It does not clear leaderboard results.
 
 Migration `013` gives the original migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme. It targets the internal UUID only through the durable `leaderboard_admin` role row whose `granted_by` value is `migration-011`; it never uses nickname, email, Google identity, score, or browser state. These ownership rows do not alter coins, selections, visibility, achievements, or `coin_ledger`, and an existing paid purchase is preserved. Default and Disco remain implicit free ownership. A destructive account reward reset removes the one-time grants and the migration runner does not apply them again.
+
+## Primary identities and Game Center binding
+
+Migration `018_primary_identities_and_game_center.sql` introduces a provider-neutral identity layer without replacing or merging internal player UUIDs. It backfills every existing `players.google_subject_hash` into `player_identities` as `provider = 'google'`, preserving the exact UUID, wallet, StoreKit binding, scores, cosmetics, and achievements. New Google and Apple identities use `SHA-256(provider + "\\0" + subject)`. One verified provider subject can own only one internal UUID, and one UUID can have at most one subject for each primary provider. `player_game_center_bindings` similarly permits one verified `teamPlayerID` per profile and one profile per verified Game Center identity. Only hashes are stored; raw Google subjects, Apple subjects, Game Center identifiers, provider tokens, email addresses, relay email addresses, and display names are not persisted.
+
+Game Center is a link-only secondary binding. It cannot register a profile, create a wallet, satisfy recent primary reauthentication, or log in independently. The server verifies GameKit's signed `teamPlayerID || bundleID || UInt64BE(timestamp) || salt` tuple with the leaf certificate from the exact allowlisted Apple HTTPS origin, a bundled reviewed DigiCert intermediate/root chain, Apple subject and code-signing constraints, freshness relative to a single-use server challenge, and a database replay digest. The unsigned `gamePlayerID` is neither accepted nor stored.
+
+### Sign in with Apple configuration
+
+The complete Apple flow is enabled only when all of these private settings are present:
+
+- `SPEEDYTAPPER_APPLE_SIGNIN_CLIENT_ID` — the native App ID/Services ID audience;
+- `SPEEDYTAPPER_APPLE_SIGNIN_TEAM_ID`;
+- `SPEEDYTAPPER_APPLE_SIGNIN_KEY_ID`;
+- `SPEEDYTAPPER_APPLE_SIGNIN_PRIVATE_KEY_PATH` — a P-256 Sign in with Apple `.p8` outside the web root;
+- `SPEEDYTAPPER_APPLE_SIGNIN_CREDENTIAL_ENCRYPTION_KEY` — an independent stable secret of at least 32 bytes;
+- optional `SPEEDYTAPPER_APPLE_SIGNIN_JWKS_CACHE_PATH`, defaulting to `~/.cache/speedytapper/apple-signin-jwks.json` only when its app-owned parent is private (`0700`). Unsafe or symlinked cache locations are bypassed.
+
+The StoreKit/App Store Server API IAP key is not a Sign in with Apple key and must not be substituted. The server accepts Apple identity-token keys only from `https://appleid.apple.com/auth/keys`, verifies RS256, exact issuer, configured audience, nonce, subject, issue/expiry timing, and rejects token-selected key origins. It then exchanges the one-time authorization code at Apple's token endpoint with a five-minute ES256 client secret and independently verifies the exchanged ID token against the same nonce, audience, and subject. The refresh token required for later Apple revocation is stored as AES-256-GCM ciphertext with UUID/subject-bound authenticated data; a new Apple profile or link and that ciphertext commit in one database transaction.
+
+Game Center trust defaults to the reviewed files in `server/certs/`. Operators may set `SPEEDYTAPPER_GAME_CENTER_KEY_HOSTS`, `SPEEDYTAPPER_GAME_CENTER_ROOT_CERTIFICATE_PATHS`, and `SPEEDYTAPPER_GAME_CENTER_INTERMEDIATE_CERTIFICATE_BUNDLE_PATH` only for an explicitly reviewed Apple certificate rotation.
+
+### Identity API and duplicate-account prevention
+
+All of these routes retain the existing same-origin cookie session and `X-SpeedyTapper-CSRF` mutation guard:
+
+- `POST /api/auth/apple/challenge` accepts exactly `{ "intent": "login|register|link|reauth" }` and returns a single-use `challengeId`, raw `nonce`, `state`, `audience`, and expiry.
+- `POST /api/auth/apple` accepts exactly `challengeId`, `state`, `identityToken`, and `authorizationCode` from the corresponding Apple authorization response.
+- `POST /api/auth/google` accepts `credential` and optional `intent`. Native/new clients use `login`, `register`, or `reauth`; the omitted legacy browser value remains `login_or_register` for compatibility.
+- `POST /api/profile/identities/google` explicitly links Google to the signed-in UUID after recent Google/Apple primary authentication. Apple linking uses the Apple challenge with `intent: "link"`.
+- `POST /api/profile/game-center/challenge` accepts `{}` after recent primary authentication.
+- `POST /api/profile/game-center` accepts exactly `challengeId`, `teamPlayerId`, `publicKeyUrl`, base64 `signature`, base64 `salt`, and integer millisecond `timestamp`.
+
+A signed-out native client must try `login` first. A `409` means that provider subject is not linked; it must not be silently retried as `register`. The UI should offer either sign-in through an existing method followed by explicit linking, or an explicit new-profile registration. The backend can enforce that one external identity never owns two wallets, but it cannot infer that unrelated Google and Apple subjects are the same human. It therefore never merges profiles or moves a wallet based on email, Apple relay email, nickname, device, StoreKit `appAccountToken`, or Game Center data. Conflicting links return `409` and leave both UUIDs unchanged.
+
+Authenticated session/profile responses include `identityBindings: { "google": true|false, "apple": true|false, "gameCenter": true|false }`. `GET /api/session` also includes `appleSignIn.enabled` and the public `clientId`. The current browser UI remains Google-first; consuming Apple and Game Center is a separate native/UI integration task.
 
 ## Backend-first StoreKit and account-deletion foundation
 
@@ -83,7 +119,7 @@ All authenticated StoreKit and account-deletion routes retain the existing same-
 
 - `POST /api/storekit/transactions` and `POST /api/mobile/v1/storekit/transactions` accept exactly `{ "signedTransaction": "APPLE_JWS", "appAccountToken": "server-issued-uuid" }`. Unknown fields are rejected. The response contains `transactionId`, `status`, `duplicate`, the refreshed `wallet`, and `adFree`.
 - `POST /api/app-store/notifications/v2` accepts exactly `{ "signedPayload": "APPLE_NOTIFICATION_V2_JWS" }`. It does not use a player session. The verified outer payload must be V2 and carry the exact bundle plus an accepted signed environment; Production must also carry Apple App ID `6792328590`. A nested transaction must independently verify and match the outer environment. Environment-scoped notification UUID plus payload hash supplies retry idempotency. `ONE_TIME_CHARGE`, `REFUND`, `REVOKE`, and `REFUND_REVERSED` are processed; `TEST`, unsupported events, and `CONSUMPTION_REQUEST` are durably retained/ignored without inventing a policy response.
-- `DELETE /api/profile`, `DELETE /api/account`, and `DELETE /api/mobile/v1/account` require `{ "confirmation": "DELETE MY ACCOUNT" }` after recent Google authentication and return `deleted: true`, `authenticated: false`, plus counts of the detached StoreKit evidence retained.
+- `DELETE /api/profile`, `DELETE /api/account`, and `DELETE /api/mobile/v1/account` require `{ "confirmation": "DELETE MY ACCOUNT" }` after recent Google or Apple primary authentication and return `deleted: true`, `authenticated: false`, plus counts of the detached StoreKit evidence retained. An Apple-linked profile must first revoke its retained authorization at Apple; a revocation failure leaves local data intact for retry.
 
 Authenticated `GET /api/session` responses, and authenticated `GET`/`PATCH /api/profile` responses, add this server-authoritative state:
 
@@ -114,25 +150,29 @@ Run `php server/bin/reconcile-storekit.php --limit=100` from a bounded cron or o
 
 ### Account deletion and retained evidence
 
-Deletion requires an authenticated profile, same-origin CSRF, the exact case-sensitive confirmation `DELETE MY ACCOUNT`, and a Google login no more than 15 minutes old. One transaction removes the player row and therefore the Google-subject digest, public nickname, achievements, pet/theme ownership and selection, roles, every opaque browser-session mapping, public leaderboard entries, completed/issued runs, proofs, trace claims, moderation rows targeting the player, and ordinary gameplay/economy ledger history. References where the deleted account acted on another player's retained moderation history are anonymized rather than deleting that other player's evidence.
+Deletion requires an authenticated profile, same-origin CSRF, the exact case-sensitive confirmation `DELETE MY ACCOUNT`, and a Google or Apple primary login no more than 15 minutes old. For an Apple-bound profile, the server decrypts and revokes the retained Apple refresh token before local erasure; failure aborts deletion. One database transaction then removes the player row and therefore every primary-subject digest, encrypted Apple authorization, Game Center binding, public nickname, achievements, pet/theme ownership and selection, roles, every opaque browser-session mapping, public leaderboard entry, completed/issued run, proof, trace claim, moderation row targeting the player, and ordinary gameplay/economy ledger history. References where the deleted account acted on another player's retained moderation history are anonymized rather than deleting that other player's evidence.
 
 Only the minimum StoreKit settlement graph remains: signed transaction and observation metadata, notification hashes/status, purchased lots, entitlement-source rows, purchased spend allocations, exact refund-debt settlements, refund-revoked cosmetics, cosmetic-restore debts, and Family Sharing tombstones. Those rows are detached by setting `player_id` to null; raw account bindings and retained raw `appTransactionId` values are removed, and linkable spend/family/account references use domain-separated HMAC-SHA-256 pseudonyms under the private retention key. Ordinary earned allocation history is deleted, except an earned credit already used to settle an outstanding App Store refund is retained only as pseudonymized settlement provenance.
 
-This retained evidence has no nickname, Google digest, public player UUID, active session mapping, or live StoreKit account binding. It exists only so later Apple refund/reversal traffic can conserve prior paid value and so a deleted Family Sharing identity cannot be replayed onto another profile. A later reversal updates detached evidence but never recreates, rebinds, or publishes the deleted account.
+This retained evidence has no nickname, provider digest, Game Center binding, public player UUID, active session mapping, Apple sign-in credential, or live StoreKit account binding. It exists only so later Apple refund/reversal traffic can conserve prior paid value and so a deleted Family Sharing identity cannot be replayed onto another profile. A later reversal updates detached evidence but never recreates, rebinds, or publishes the deleted account.
 
 ## API contract
 
-All private and personalized responses are JSON with `Cache-Control: no-store`. The public `GET /api/top-scores` response permits a short five-second browser cache and ten-second shared cache. Mutations accept same-origin JSON and require the `X-SpeedyTapper-CSRF` token returned by the session endpoint. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services supplies the `credential` ID token, which is verified server-side by `google/apiclient` against the configured Web client ID. Login regenerates the cookie session ID and rotates CSRF state. Ranked attempts can only be issued after sign-in and nickname confirmation; a signed-out run is local practice and cannot be promoted later. PHP session locks are released before ranked proof or leaderboard database work.
+All private and personalized responses are JSON with `Cache-Control: no-store`. The public `GET /api/top-scores` response permits a short five-second browser cache and ten-second shared cache. Mutations accept same-origin JSON and require the `X-SpeedyTapper-CSRF` token returned by the session endpoint. Authentication uses a secure, HTTP-only, SameSite=Lax PHP session cookie. Google Identity Services credentials are verified server-side by `google/apiclient`; Sign in with Apple uses a server challenge, Apple JWKS verification, and authorization-code exchange. Login regenerates the cookie session ID and rotates CSRF state. Ranked attempts can only be issued after primary sign-in and nickname confirmation; a signed-out run is local practice and cannot be promoted later. PHP session locks are released before outbound Apple calls, ranked proof replay, or leaderboard database work.
 
 ### `GET /api/session`
 
-Always public. The Google client ID is intentionally public configuration.
+Always public. Google and Apple client IDs are intentionally public configuration.
 
 ```json
 {
   "authenticated": true,
   "csrfToken": "public-session-mutation-token",
   "googleClientId": "...apps.googleusercontent.com",
+  "appleSignIn": {
+    "enabled": true,
+    "clientId": "com.otcsoftware.pimpopom"
+  },
   "season": { "id": "season-1", "name": "Season 1" },
   "profile": {
     "id": "internal-uuid",
@@ -144,17 +184,35 @@ Always public. The Google client ID is intentionally public configuration.
     "createdAt": "2026-07-13T12:00:00.000Z",
     "updatedAt": "2026-07-13T12:00:00.000Z"
   },
+  "identityBindings": {
+    "google": true,
+    "apple": true,
+    "gameCenter": true
+  },
   "ranks": {
     "normal": { "rank": 12, "totalEntries": 250, "topPercent": 5 },
     "zen": { "rank": null, "totalEntries": 180, "topPercent": null }
-    }
+  }
+}
 ```
 
-The response also includes `achievementSnapshot`, allowing the menu to render claim status without a second API request. When signed out, `authenticated` is false and `profile` and `ranks` are null.
+The response also includes `achievementSnapshot`, allowing the menu to render claim status without a second API request. When signed out, `authenticated` is false and `profile`, `identityBindings`, and `ranks` are null. `appleSignIn.enabled` is false unless the full private Apple code-exchange and credential-encryption configuration is available.
 
 ### `POST /api/auth/google`
 
-Body: `{ "credential": "GOOGLE_ID_TOKEN" }`. Finds or creates the internal UUID profile, regenerates the session ID, and returns the same body as `GET /api/session`. No email or Google display name is persisted. A new profile receives a neutral placeholder and `nicknameConfirmed: false`; the player must explicitly save a public nickname before a result can be submitted.
+Body: `{ "credential": "GOOGLE_ID_TOKEN", "intent": "login|register|reauth" }`. `login` resolves only an existing mapping, `register` may create a new UUID, and `reauth` must match the current UUID. Omission retains the browser compatibility behavior `login_or_register`; native clients must send an explicit intent. No email or Google display name is persisted. A new profile receives a neutral placeholder and `nicknameConfirmed: false`; the player must explicitly save a public nickname before a result can be submitted.
+
+### `POST /api/auth/apple/challenge` and `POST /api/auth/apple`
+
+First send `{ "intent": "login|register|link|reauth" }` to the challenge route. Pass its exact `nonce` and `state` into the native Apple authorization request, then submit `{ "challengeId": "...", "state": "...", "identityToken": "APPLE_ID_TOKEN", "authorizationCode": "ONE_TIME_CODE" }` to `/api/auth/apple`. The challenge is session-bound, expires after five minutes, and is consumed even by a failed attempt. `link` requires the same profile session and recent Google/Apple authentication throughout the outbound Apple exchange. `reauth` requires the same existing profile and matching Apple subject, and refreshes stale primary authentication after success. A valid new registration/link and its encrypted revocation token commit atomically.
+
+### `POST /api/profile/identities/google`
+
+Body: `{ "credential": "GOOGLE_ID_TOKEN" }`. Explicitly links that verified Google identity to the current internal UUID after recent Google/Apple primary authentication. It returns `409` rather than moving an identity already owned by another UUID or replacing the profile's existing Google identity.
+
+### `POST /api/profile/game-center/challenge` and `POST /api/profile/game-center`
+
+Game Center is link-only. After primary authentication, request a challenge with `{}`, obtain a fresh GameKit identity signature, then submit `{ "challengeId": "...", "teamPlayerId": "...", "publicKeyUrl": "https://static.gc.apple.com/public-key/...cer", "signature": "BASE64", "salt": "BASE64", "timestamp": 1234567890123 }`. The signed proof must be fresh and no older than the current challenge (with a 30-second clock tolerance). A proof/replay or binding conflict returns `409`; no route permits Game Center-only login or registration.
 
 ### `POST /api/logout`
 
@@ -162,7 +220,7 @@ Clears and expires the server session. Returns the signed-out session shape.
 
 ### `GET` or `PATCH /api/profile`
 
-Authentication required. `PATCH` body: `{ "nickname": "Public name" }`. Saving it sets `nicknameConfirmed: true`. The response contains `profile`, `ranks`, and `leaderboard`; use `?mode=normal` or `?mode=zen` to choose the ±2 context shown in `leaderboard`.
+Authentication required. `PATCH` body: `{ "nickname": "Public name" }`. Saving it sets `nicknameConfirmed: true`. The response contains `profile`, `identityBindings`, `ranks`, and `leaderboard`; use `?mode=normal` or `?mode=zen` to choose the ±2 context shown in `leaderboard`.
 
 ### `GET /api/leaderboard?mode=normal|zen`
 
@@ -251,19 +309,19 @@ Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can nev
 
 ### Leaderboard administrator API
 
-Every route below requires a current Google-authenticated profile whose internal UUID has the database role `leaderboard_admin`. The profile and session payload expose only the derived `isAdmin` boolean; the browser cannot grant the role. Migration `011` bootstraps the initial administrator only when the exact production result IDs `d4e98497-9212-475e-8664-283171ce3910` and `82ee646d-28d9-43f8-9e38-e4e234a02db1` still belong to the same player. No score, nickname, rank, email, or client flag is consulted after that migration.
+Every route below requires a current primary-authenticated profile whose internal UUID has the database role `leaderboard_admin`. The profile and session payload expose only the derived `isAdmin` boolean; the browser cannot grant the role. Migration `011` bootstraps the initial administrator only when the exact production result IDs `d4e98497-9212-475e-8664-283171ce3910` and `82ee646d-28d9-43f8-9e38-e4e234a02db1` still belong to the same player. No score, nickname, rank, email, or client flag is consulted after that migration.
 
 - `GET /api/admin/leaderboard?view=all|scan&mode=all|normal|zen&status=all|legacy|verified|review|quarantined|deleted&offset=0&limit=100` returns one bounded page. The default `status=all` view omits logically deleted rows; only explicit `status=deleted` returns them. `hasMore` drives explicit pagination; a scan page additionally returns its scanned and flagged counts.
 - `GET /api/admin/leaderboard/entries/{entryUuid}` returns the exact result, conservative scan flags, linked run metadata, and moderation history while withholding browser/session and proof hash material.
 - `POST /api/admin/leaderboard/entries/{entryUuid}/quarantine` accepts `{ "reason": "...", "expectedStatus": "verified", "confirm": true }` and performs one exact-result quarantine.
 - `POST /api/admin/leaderboard/entries/{entryUuid}/delete-reset` accepts `{ "reason": "...", "expectedStatus": "quarantined", "confirm": true, "confirmPlayerId": "exact-player-uuid-from-the-selected-row" }`. It refuses any result that was not reviewed and quarantined first, or if the selected row and confirmed account no longer match.
 
-Both mutations require same-origin CSRF protection and a Google login verified within the preceding 15 minutes. An authorized administrator may moderate any exact result, including their own or another administrator's; exact target confirmation, quarantine-before-delete, reason, expected status, and immutable audit requirements still apply. Delete-and-reset is one transaction: it logically deletes the result, revokes its strictly linked run when present, abandons any outstanding issued attempt, and resets only earned progression. It sets earned coins and earned debt to zero, clears the sub-minute remainder plus current collected/play totals, advances the economy generation, and removes only pets/themes whose active purchase event has no active purchased-lot allocation. A cosmetic with even one active purchased allocation is retained, so both fully paid and mixed earned/purchased cosmetics, including their current selection, survive. Purchased coins/lots, IAP and refund history, active paid entitlement sources, and `refundDebt` are never cleared; invalidating an earned credit that previously settled refund debt reopens that exact obligation. Removed earned-only/test-grant cosmetic IDs, moderation, and the reward reset are audited. Achievements and immutable proof/run/ledger/moderation history remain, and repeating the same reset UUID returns its recorded result without forfeiting later earnings.
+Both mutations require same-origin CSRF protection and a Google or Apple primary login verified within the preceding 15 minutes. An authorized administrator may moderate any exact result, including their own or another administrator's; exact target confirmation, quarantine-before-delete, reason, expected status, and immutable audit requirements still apply. Delete-and-reset is one transaction: it logically deletes the result, revokes its strictly linked run when present, abandons any outstanding issued attempt, and resets only earned progression. It sets earned coins and earned debt to zero, clears the sub-minute remainder plus current collected/play totals, advances the economy generation, and removes only pets/themes whose active purchase event has no active purchased-lot allocation. A cosmetic with even one active purchased allocation is retained, so both fully paid and mixed earned/purchased cosmetics, including their current selection, survive. Purchased coins/lots, IAP and refund history, active paid entitlement sources, and `refundDebt` are never cleared; invalidating an earned credit that previously settled refund debt reopens that exact obligation. Removed earned-only/test-grant cosmetic IDs, moderation, and the reward reset are audited. Achievements and immutable proof/run/ledger/moderation history remain, and repeating the same reset UUID returns its recorded result without forfeiting later earnings.
 
 ## Security and limitations
 
-- The session cookie, same-origin mutation guard, and per-session CSRF token prevent common cross-site mutations, while Google verifies account ownership.
-- The Google subject is irreversibly digested before storage. Raw tokens, email claims, and passwords are never stored.
+- The session cookie, same-origin mutation guard, per-session CSRF token, and single-use Apple/Game Center challenges prevent common cross-site and replay mutations, while Google or Apple verifies primary account ownership.
+- Google and Apple subjects and Game Center team identities are irreversibly, domain-separately digested before storage. Raw identity tokens, provider subjects, Game Center IDs, email claims, and passwords are never stored. The Apple refresh token is the sole exception: it is retained only as authenticated ciphertext so authorization can be revoked during account deletion.
 - PHP issues the run ID, binds it to one confirmed player and browser session, permits only one issued attempt per player, bounds elapsed time with its own clock, replays the chronological proof, derives all result fields, and consumes the run once. Start and completion limits are persisted by internal player UUID, so re-login does not clear them.
 - Requests are capped at 256 KiB and 10,000 proof events. An authenticated per-session finish limit is consumed before proof JSON is parsed, while persisted per-minute and daily player limits run before replay or proof persistence. Rejected proofs retain hashes and compact audit metadata rather than attacker-controlled event JSON. The bounded maintenance command removes stale unranked attempts. Shared-hosting or edge-level IP throttling remains recommended for broader availability protection.
 - This is protocol verification, not proof of human input. A sufficiently modified browser, scripted client, or computer-vision bot can still create plausible real-time play. High-risk distributions can be held for manual review; never describe the board as bot-proof.
