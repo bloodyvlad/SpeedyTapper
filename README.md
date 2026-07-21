@@ -1,5 +1,19 @@
 # PimPoPom
 
+> **OpenAI Build Week — built with Codex and GPT-5.6**
+
+## How Codex and GPT-5.6 were used
+
+PimPoPom was implemented end to end through natural-language collaboration with OpenAI Codex powered by GPT-5.6. The full implementation was produced without a single line of code being written manually.
+
+- **Full-stack implementation:** Codex and GPT-5.6 designed, implemented, refactored, tested, documented, and secured the browser game, deterministic game engine, PHP API, MySQL persistence, authentication, profiles, leaderboard, anti-cheat proof replay, achievements, shops, economy, and StoreKit backend.
+- **Visual asset generation:** Codex generated and prepared the branding, textures, theme artwork, pet sprites, habitats, directional poses, sprite sheets, and animations.
+- **Music and sound generation:** Codex generated the theme-specific menu music, gameplay loops, tap-tone sequences, and sound effects, then normalized, integrated, and documented their runtime behavior and provenance.
+- **Browser UI testing:** Codex used browser automation to exercise responsive gameplay and UI flows, including mobile layouts and browser/PWA behavior.
+- **Computer-use setup:** Codex operated browser and desktop interfaces where APIs were unavailable, including assistance configuring TestFlight, App Store Connect, AdMob, OAuth, and related release settings.
+- **Automated deployment:** Codex prepared versioned release artifacts, migrations, cache updates, smoke checks, and repeatable deployments.
+- **Vercel and Hostinger integrations:** Early releases and rollback builds used Vercel; the current PHP/MySQL production release is deployed through the Hostinger MCP integration to an isolated subdomain.
+
 PimPoPom is an installable, offline-capable browser proof of concept for validating the core reaction loop before choosing the architecture of the eventual Steam, mobile, Roblox, or console products. The repository, domain, PHP namespace, storage keys, and compatibility API retain the internal SpeedyTapper name.
 
 PHP release target: <https://speedytapper.otcsoft.com>
