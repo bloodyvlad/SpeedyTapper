@@ -34,6 +34,11 @@ final readonly class Config
         public array $gameCenterKeyHosts = ['static.gc.apple.com'],
         public array $gameCenterTrustedRootCertificatePaths = [],
         public ?string $gameCenterUntrustedCertificateBundlePath = null,
+        public ?string $gameCenterApiIssuerId = null,
+        public ?string $gameCenterApiKeyId = null,
+        public ?string $gameCenterApiPrivateKeyPath = null,
+        public ?string $gameCenterPlayerIdEncryptionKey = null,
+        public ?bool $gameCenterPreReleased = null,
     ) {
     }
 
@@ -88,6 +93,27 @@ final readonly class Config
                 return null;
             }
             return trim($candidate);
+        };
+        $optionalBoolean = static function (string $key) use ($local): ?bool {
+            $environmentValue = getenv($key);
+            $candidate = $environmentValue !== false ? $environmentValue : ($local[$key] ?? null);
+            if ($candidate === null || $candidate === '') {
+                return null;
+            }
+            if (is_bool($candidate)) {
+                return $candidate;
+            }
+            if (is_string($candidate)) {
+                return match (strtolower(trim($candidate))) {
+                    '1', 'true' => true,
+                    '0', 'false' => false,
+                    default => throw new ApiException(
+                        503,
+                        'Server boolean configuration is invalid.',
+                    ),
+                };
+            }
+            throw new ApiException(503, 'Server boolean configuration is invalid.');
         };
 
         $port = filter_var($value('SPEEDYTAPPER_DB_PORT', '3306'), FILTER_VALIDATE_INT, [
@@ -235,6 +261,142 @@ final readonly class Config
             'SPEEDYTAPPER_GAME_CENTER_INTERMEDIATE_CERTIFICATE_BUNDLE_PATH'
         ) ?? $projectRoot
             . '/server/certs/DigiCertTrustedG4CodeSigningRSA4096SHA3842021CA1.pem';
+        $gameCenterApiIssuerId = $optional('SPEEDYTAPPER_GAME_CENTER_API_ISSUER_ID');
+        if (
+            $gameCenterApiIssuerId !== null
+            && preg_match(
+                '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/Di',
+                $gameCenterApiIssuerId,
+            ) !== 1
+        ) {
+            throw new ApiException(503, 'Game Center API issuer configuration is invalid.');
+        }
+        $gameCenterApiKeyId = $optional('SPEEDYTAPPER_GAME_CENTER_API_KEY_ID');
+        if (
+            $gameCenterApiKeyId !== null
+            && preg_match('/^[A-Z0-9]{10}$/D', $gameCenterApiKeyId) !== 1
+        ) {
+            throw new ApiException(503, 'Game Center API key configuration is invalid.');
+        }
+        $gameCenterApiPrivateKeyPath = $optional(
+            'SPEEDYTAPPER_GAME_CENTER_API_PRIVATE_KEY_PATH'
+        );
+        if ($gameCenterApiPrivateKeyPath !== null && (
+            !str_starts_with($gameCenterApiPrivateKeyPath, '/')
+            || str_contains($gameCenterApiPrivateKeyPath, "\0")
+        )) {
+            throw new ApiException(503, 'Game Center API key path is invalid.');
+        }
+        $gameCenterPlayerIdEncryptionKey = $optional(
+            'SPEEDYTAPPER_GAME_CENTER_PLAYER_ID_ENCRYPTION_KEY'
+        );
+        $gameCenterPreReleased = $optionalBoolean(
+            'SPEEDYTAPPER_GAME_CENTER_PRE_RELEASED'
+        );
+        $storeKitKeyId = $optional('SPEEDYTAPPER_STOREKIT_KEY_ID');
+        $storeKitPrivateKeyPath = $optional('SPEEDYTAPPER_STOREKIT_PRIVATE_KEY_PATH');
+        if (
+            $gameCenterApiKeyId !== null
+            && (
+                ($storeKitKeyId !== null
+                    && hash_equals($storeKitKeyId, $gameCenterApiKeyId))
+                || ($appleSignInKeyId !== null
+                    && hash_equals($appleSignInKeyId, $gameCenterApiKeyId))
+            )
+        ) {
+            throw new ApiException(
+                503,
+                'Game Center publication requires a distinct App Store Connect API key.',
+            );
+        }
+        if ($gameCenterApiPrivateKeyPath !== null) {
+            $resolvedGameCenterKey = realpath($gameCenterApiPrivateKeyPath);
+            if (
+                is_link($gameCenterApiPrivateKeyPath)
+                || (file_exists($gameCenterApiPrivateKeyPath)
+                    && !is_file($gameCenterApiPrivateKeyPath))
+            ) {
+                throw new ApiException(
+                    503,
+                    'Game Center publication key must be a regular non-symlinked file.',
+                );
+            }
+            foreach ([$storeKitPrivateKeyPath, $appleSignInPrivateKeyPath] as $otherKeyPath) {
+                $resolvedOtherKey = is_string($otherKeyPath)
+                    ? realpath($otherKeyPath)
+                    : false;
+                if (
+                    is_string($otherKeyPath)
+                    && (
+                        hash_equals($otherKeyPath, $gameCenterApiPrivateKeyPath)
+                        || (
+                            is_string($resolvedGameCenterKey)
+                            && is_string($resolvedOtherKey)
+                            && hash_equals($resolvedGameCenterKey, $resolvedOtherKey)
+                        )
+                    )
+                ) {
+                    throw new ApiException(
+                        503,
+                        'Game Center publication cannot reuse another Apple private key.',
+                    );
+                }
+            }
+            $normalizeAbsolutePath = static function (string $path): string {
+                $segments = [];
+                foreach (explode('/', str_replace('\\', '/', $path)) as $segment) {
+                    if ($segment === '' || $segment === '.') {
+                        continue;
+                    }
+                    if ($segment === '..') {
+                        array_pop($segments);
+                        continue;
+                    }
+                    $segments[] = $segment;
+                }
+                return '/' . implode('/', $segments);
+            };
+            $pathIsWithin = static function (string $path, string $root): bool {
+                return hash_equals($root, $path)
+                    || str_starts_with($path, rtrim($root, '/') . '/');
+            };
+            $keyCandidates = [$normalizeAbsolutePath($gameCenterApiPrivateKeyPath)];
+            if (is_string($resolvedGameCenterKey)) {
+                $keyCandidates[] = $normalizeAbsolutePath($resolvedGameCenterKey);
+            }
+            $rootCandidates = [$normalizeAbsolutePath($projectRoot)];
+            $resolvedProjectRoot = realpath($projectRoot);
+            if (is_string($resolvedProjectRoot)) {
+                $rootCandidates[] = $normalizeAbsolutePath($resolvedProjectRoot);
+            }
+            $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? null;
+            if (is_string($documentRoot) && str_starts_with($documentRoot, '/')) {
+                $rootCandidates[] = $normalizeAbsolutePath($documentRoot);
+                $resolvedDocumentRoot = realpath($documentRoot);
+                if (is_string($resolvedDocumentRoot)) {
+                    $rootCandidates[] = $normalizeAbsolutePath($resolvedDocumentRoot);
+                }
+            }
+            foreach (array_unique($keyCandidates) as $keyCandidate) {
+                foreach (array_unique($rootCandidates) as $rootCandidate) {
+                    if ($pathIsWithin($keyCandidate, $rootCandidate)) {
+                        throw new ApiException(
+                            503,
+                            'Game Center publication key must remain outside the deployed web root.',
+                        );
+                    }
+                }
+            }
+            if (is_string($resolvedGameCenterKey)) {
+                $permissions = fileperms($resolvedGameCenterKey);
+                if (is_int($permissions) && ($permissions & 0o077) !== 0) {
+                    throw new ApiException(
+                        503,
+                        'Game Center publication key permissions must be owner-only.',
+                    );
+                }
+            }
+        }
 
         $productsJson = $optional('SPEEDYTAPPER_STOREKIT_PRODUCTS_JSON');
         $storeKitProducts = [];
@@ -290,8 +452,8 @@ final readonly class Config
             storeKitRetentionHmacKey: $optional('SPEEDYTAPPER_STOREKIT_RETENTION_HMAC_KEY'),
             storeKitRootCertificatePaths: $rootCertificatePaths,
             storeKitIssuerId: $optional('SPEEDYTAPPER_STOREKIT_ISSUER_ID'),
-            storeKitKeyId: $optional('SPEEDYTAPPER_STOREKIT_KEY_ID'),
-            storeKitPrivateKeyPath: $optional('SPEEDYTAPPER_STOREKIT_PRIVATE_KEY_PATH'),
+            storeKitKeyId: $storeKitKeyId,
+            storeKitPrivateKeyPath: $storeKitPrivateKeyPath,
             storeKitEnvironments: $storeKitEnvironments,
             appleSignInClientId: $appleSignInClientId,
             appleSignInTeamId: $appleSignInTeamId,
@@ -302,6 +464,11 @@ final readonly class Config
             gameCenterKeyHosts: $gameCenterKeyHosts,
             gameCenterTrustedRootCertificatePaths: $gameCenterTrustedRootCertificatePaths,
             gameCenterUntrustedCertificateBundlePath: $gameCenterUntrustedCertificateBundlePath,
+            gameCenterApiIssuerId: $gameCenterApiIssuerId,
+            gameCenterApiKeyId: $gameCenterApiKeyId,
+            gameCenterApiPrivateKeyPath: $gameCenterApiPrivateKeyPath,
+            gameCenterPlayerIdEncryptionKey: $gameCenterPlayerIdEncryptionKey,
+            gameCenterPreReleased: $gameCenterPreReleased,
         );
     }
 
@@ -351,5 +518,21 @@ final readonly class Config
             && strlen($this->appleSignInCredentialEncryptionKey) >= 32
             && ($this->storeKitKeyId === null
                 || !hash_equals($this->storeKitKeyId, $this->appleSignInKeyId));
+    }
+
+    public function gameCenterPublicationStorageIsConfigured(): bool
+    {
+        return $this->gameCenterPlayerIdEncryptionKey !== null
+            && strlen($this->gameCenterPlayerIdEncryptionKey) >= 32
+            && $this->gameCenterPreReleased !== null;
+    }
+
+    public function gameCenterPublicationIsConfigured(): bool
+    {
+        return $this->gameCenterPublicationStorageIsConfigured()
+            && $this->gameCenterApiIssuerId !== null
+            && $this->gameCenterApiKeyId !== null
+            && $this->gameCenterApiPrivateKeyPath !== null
+            && is_readable($this->gameCenterApiPrivateKeyPath);
     }
 }

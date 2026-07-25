@@ -30,6 +30,19 @@ return [
     // intermediate bundled with the release. Never fetch the HTTP AIA at runtime.
     // 'SPEEDYTAPPER_GAME_CENTER_ROOT_CERTIFICATE_PATHS' => [],
     // 'SPEEDYTAPPER_GAME_CENTER_INTERMEDIATE_CERTIFICATE_BUNDLE_PATH' => '',
+    // Server-side Game Center publication uses a distinct App Store Connect
+    // API key with Game Center permissions. It is not the StoreKit server key,
+    // Sign in with Apple key, or any credential shipped in the iOS app.
+    'SPEEDYTAPPER_GAME_CENTER_API_ISSUER_ID' => '',
+    'SPEEDYTAPPER_GAME_CENTER_API_KEY_ID' => '',
+    // Absolute path outside public_html/the deployed project, mode 0600.
+    'SPEEDYTAPPER_GAME_CENTER_API_PRIVATE_KEY_PATH' => '',
+    // Stable random secret of at least 32 bytes used only to encrypt the
+    // client-asserted GameKit gamePlayerID needed by Apple's submission API.
+    'SPEEDYTAPPER_GAME_CENTER_PLAYER_ID_ENCRYPTION_KEY' => '',
+    // true publishes into Apple's prerelease/TestFlight partition; change to
+    // false for the released App Store build. Never accept this from a client.
+    'SPEEDYTAPPER_GAME_CENTER_PRE_RELEASED' => true,
     'SPEEDYTAPPER_SEASON_ID' => 'season-1',
     'SPEEDYTAPPER_SEASON_NAME' => 'Season 1',
     'SPEEDYTAPPER_STOREKIT_BUNDLE_ID' => 'com.otcsoftware.pimpopom',

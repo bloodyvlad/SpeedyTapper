@@ -21,6 +21,7 @@ final class AccountDeletionService
     public function __construct(
         private readonly PDO $database,
         private readonly string $retentionHmacKey,
+        private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
     ) {
         if ($this->retentionHmacKey !== '' && strlen($this->retentionHmacKey) < 32) {
             throw new InvalidArgumentException(
@@ -51,6 +52,29 @@ final class AccountDeletionService
             throw new InvalidArgumentException('Account deletion must own its database transaction.');
         }
 
+        if ($this->gameCenterPublication !== null) {
+            return $this->gameCenterPublication->withPlayerPublicationLock(
+                $playerId,
+                fn (): array => $this->deleteWhilePublicationLocked($playerId),
+            );
+        }
+        return $this->deleteWhilePublicationLocked($playerId);
+    }
+
+    /**
+     * @return array{
+     *     deleted: true,
+     *     retainedStoreKitTransactions: int,
+     *     retainedPurchasedCoinLots: int,
+     *     retainedEntitlementSources: int,
+     *     retainedPurchasedSpendAllocations: int,
+     *     retainedRefundDebtSettlements: int,
+     *     retainedRefundedCosmetics: int,
+     *     retainedCosmeticRestoreDebts: int
+     * }
+     */
+    private function deleteWhilePublicationLocked(string $playerId): array
+    {
         $this->database->beginTransaction();
         try {
             $this->lockPlayer($playerId);

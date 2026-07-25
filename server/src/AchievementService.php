@@ -15,6 +15,7 @@ final class AchievementService
     public function __construct(
         private readonly PDO $database,
         private readonly CoinWalletRepository $wallets,
+        private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
     ) {
     }
 
@@ -76,6 +77,25 @@ final class AchievementService
             throw new \LogicException('Pet achievements must unlock inside the purchase transaction.');
         }
         $this->unlock($playerId, AchievementCatalog::BUY_A_PET);
+    }
+
+    /**
+     * Reconcile run-derived achievements after a held result becomes verified.
+     * Moderation owns the surrounding transaction, including its coin update.
+     */
+    public function syncVerifiedRunEligibilityInTransaction(string $playerId): void
+    {
+        if (!$this->database->inTransaction()) {
+            throw new \LogicException(
+                'Run achievement reconciliation requires an active transaction.',
+            );
+        }
+        $player = $this->wallets->lock($playerId);
+        $this->syncRunEligibility(
+            $playerId,
+            (int) $player['total_coins_collected'],
+            (int) $player['economy_generation'],
+        );
     }
 
     public function currentPayload(string $playerId, int $coinBalance): array
@@ -216,6 +236,29 @@ final class AchievementService
         int $economyGeneration,
     ): void
     {
+        $this->syncRunEligibility(
+            $playerId,
+            $totalCoinsCollected,
+            $economyGeneration,
+        );
+
+        if ($this->hasPetOwnershipTable()) {
+            $petPurchase = $this->database->prepare(
+                "SELECT 1 FROM player_pets WHERE player_id = :player_id "
+                . "AND acquisition_source = 'purchase' LIMIT 1"
+            );
+            $petPurchase->execute(['player_id' => $playerId]);
+            if ($petPurchase->fetchColumn() !== false) {
+                $this->unlock($playerId, AchievementCatalog::BUY_A_PET);
+            }
+        }
+    }
+
+    private function syncRunEligibility(
+        string $playerId,
+        int $totalCoinsCollected,
+        int $economyGeneration,
+    ): void {
         $runs = $this->database->prepare(
             'SELECT '
             . "COALESCE(MAX(mode = 'normal'), 0) AS completed_arcade, "
@@ -255,17 +298,6 @@ final class AchievementService
         if ($totalCoinsCollected >= 5) {
             $this->unlock($playerId, AchievementCatalog::COLLECT_FIVE_COINS);
         }
-
-        if ($this->hasPetOwnershipTable()) {
-            $petPurchase = $this->database->prepare(
-                "SELECT 1 FROM player_pets WHERE player_id = :player_id "
-                . "AND acquisition_source = 'purchase' LIMIT 1"
-            );
-            $petPurchase->execute(['player_id' => $playerId]);
-            if ($petPurchase->fetchColumn() !== false) {
-                $this->unlock($playerId, AchievementCatalog::BUY_A_PET);
-            }
-        }
     }
 
     private function unlock(string $playerId, string $achievementId): void
@@ -281,6 +313,12 @@ final class AchievementService
             'achievement_key' => $definition['id'],
             'reward_coins' => $definition['rewardCoins'],
         ]);
+        if ($statement->rowCount() === 1) {
+            $this->gameCenterPublication?->enqueueAchievementInCurrentTransaction(
+                $playerId,
+                $definition['id'],
+            );
+        }
     }
 
     private function hasPetOwnershipTable(): bool

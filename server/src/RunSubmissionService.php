@@ -21,6 +21,7 @@ final class RunSubmissionService
         private readonly RunProofValidator $validator,
         private readonly AchievementService $achievements,
         private readonly CoinWalletRepository $wallets,
+        private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
     ) {
     }
 
@@ -159,6 +160,14 @@ final class RunSubmissionService
                 $score,
                 $verificationStatus,
             );
+            if ($verificationStatus === 'verified') {
+                // Recompute from verified-only rows instead of relying on
+                // $improved, whose public-board comparison also includes
+                // retained legacy results.
+                $this->gameCenterPublication?->enqueueBestScoreInCurrentTransaction(
+                    $playerId,
+                );
+            }
 
             if ($verificationStatus === 'verified') {
                 $updatePlayer = $this->database->prepare(

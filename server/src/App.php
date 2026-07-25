@@ -27,6 +27,7 @@ final class App
         private readonly ?AppleAuthorizationCodeClient $appleTokens,
         private readonly ?AppleCredentialRepository $appleCredentials,
         private readonly GameCenterIdentityVerifier $gameCenter,
+        private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
     ) {
     }
 
@@ -277,9 +278,26 @@ final class App
             $body = $request->json();
             $this->requireOnlyFields(
                 $body,
-                ['challengeId', 'teamPlayerId', 'publicKeyUrl', 'signature', 'salt', 'timestamp'],
+                [
+                    'challengeId',
+                    'teamPlayerId',
+                    'gamePlayerId',
+                    'publish',
+                    'publicKeyUrl',
+                    'signature',
+                    'salt',
+                    'timestamp',
+                ],
                 'Game Center link',
             );
+            $publish = $body['publish'] ?? false;
+            if (!is_bool($publish)) {
+                throw new ApiException(400, 'Game Center publication choice is invalid.');
+            }
+            $gamePlayerId = $body['gamePlayerId'] ?? null;
+            if ($gamePlayerId !== null && !is_string($gamePlayerId)) {
+                throw new ApiException(400, 'Game Center gamePlayerID is invalid.');
+            }
             $challenge = $this->session->consumeGameCenterChallenge($body['challengeId'] ?? null);
             $identity = $this->gameCenter->verify(
                 $body['teamPlayerId'] ?? null,
@@ -289,12 +307,44 @@ final class App
                 $body['timestamp'] ?? null,
                 $challenge['issuedAtMilliseconds'],
             );
-            $result = $this->identities->linkGameCenter($profile['id'], $identity);
+            $result = $this->identities->linkGameCenter(
+                $profile['id'],
+                $identity,
+                $gamePlayerId,
+                $publish,
+            );
             JsonResponse::send(200, [
                 'profile' => $this->players->find($profile['id'])
                     ?? throw new ApiException(401, 'Sign in again to continue.'),
                 'identityBindings' => $this->identities->bindings($profile['id']),
-                'gameCenter' => ['linked' => true, 'newlyLinked' => $result['linked']],
+                'gameCenter' => [
+                    ...$this->gameCenterPayload($profile['id']),
+                    'newlyLinked' => $result['linked'],
+                    'gamePlayerIdNewlyBound' => $result['gamePlayerIdNewlyBound'],
+                ],
+            ]);
+        }
+
+        if (
+            $request->method === 'DELETE'
+            && $request->path === '/api/profile/game-center/publication'
+        ) {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $this->session->requireRecentPrimaryAuthentication();
+            $body = $request->json();
+            $this->requireOnlyFields($body, ['confirm'], 'Game Center publication disable');
+            if (($body['confirm'] ?? null) !== true) {
+                throw new ApiException(400, 'Explicit Game Center publication confirmation is required.');
+            }
+            $publication = $this->gameCenterPublication
+                ?? throw new ApiException(503, 'Game Center publication storage is not configured.');
+            $result = $publication->disable($profile['id']);
+            JsonResponse::send(200, [
+                'gameCenter' => [
+                    ...$this->gameCenterPayload($profile['id']),
+                    ...$result,
+                ],
             ]);
         }
 
@@ -371,6 +421,7 @@ final class App
             JsonResponse::send(200, [
                 'profile' => $profile,
                 'identityBindings' => $this->identities->bindings($profile['id']),
+                'gameCenter' => $this->gameCenterPayload($profile['id']),
                 ...$this->storeKitAccounts->state($profile['id']),
                 'ranks' => $this->leaderboard->rankings($profile['id']),
                 'leaderboard' => $this->leaderboard->payload($mode, $profile['id']),
@@ -656,6 +707,9 @@ final class App
             'identityBindings' => $profile === null
                 ? null
                 : $this->identities->bindings($profile['id']),
+            'gameCenter' => $this->gameCenterPayload(
+                $profile === null ? null : $profile['id'],
+            ),
             ...($profile === null ? [
                 'wallet' => null,
                 'adFree' => false,
@@ -666,6 +720,41 @@ final class App
                 ? $this->achievements->payload(null)
                 : $this->achievements->currentPayload($profile['id'], (int) $profile['coins']),
         ];
+    }
+
+    /** @return array<string, bool|int|null> */
+    private function gameCenterPayload(?string $playerId): array
+    {
+        $publicationAvailable = $this->config->gameCenterPublicationIsConfigured();
+        $base = [
+            'serverPublicationAvailable' => $publicationAvailable,
+            'preReleased' => $this->config->gameCenterPreReleased,
+        ];
+        if ($playerId === null) {
+            return [
+                ...$base,
+                'identityLinked' => false,
+                'publicationEnabled' => false,
+                'mirrorReady' => false,
+                'pendingJobs' => 0,
+                'heldJobs' => 0,
+                'needsReset' => false,
+            ];
+        }
+        if ($this->gameCenterPublication === null) {
+            return [
+                ...$base,
+                'identityLinked' => $this->identities->bindings($playerId)['gameCenter'],
+                'publicationEnabled' => false,
+                'mirrorReady' => false,
+                'pendingJobs' => 0,
+                'heldJobs' => 0,
+                'needsReset' => false,
+            ];
+        }
+        $status = $this->gameCenterPublication->status($playerId);
+        $status['mirrorReady'] = $status['publicationEnabled'] && $publicationAvailable;
+        return [...$base, ...$status];
     }
 
     private function guardMutation(HttpRequest $request): void

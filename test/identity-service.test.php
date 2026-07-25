@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
 use SpeedyTapper\GameCenterIdentity;
+use SpeedyTapper\GameCenterPublicationRepository;
 use SpeedyTapper\PlayerIdentityService;
 
 require dirname(__DIR__) . '/server/autoload.php';
@@ -53,8 +54,40 @@ $database->exec(
     'CREATE TABLE player_game_center_bindings ('
     . 'player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, '
     . 'team_player_id_hash BLOB NOT NULL UNIQUE, '
+    . 'game_player_id_hash BLOB NULL UNIQUE, '
+    . 'game_player_id_ciphertext BLOB NULL, '
+    . 'game_player_id_iv BLOB NULL, '
+    . 'game_player_id_tag BLOB NULL, '
     . 'linked_at TEXT NOT NULL, '
-    . 'last_verified_at TEXT NOT NULL'
+    . 'last_verified_at TEXT NOT NULL, '
+    . 'publication_enabled_at TEXT NULL, '
+    . 'publication_disabled_at TEXT NULL'
+    . ')'
+);
+$database->exec(
+    'CREATE TABLE leaderboard_entries ('
+    . 'id TEXT PRIMARY KEY, '
+    . 'player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'mode TEXT NOT NULL, score INTEGER NOT NULL, verification_status TEXT NOT NULL'
+    . ')'
+);
+$database->exec(
+    'CREATE TABLE player_achievements ('
+    . 'player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'achievement_key TEXT NOT NULL, PRIMARY KEY (player_id, achievement_key)'
+    . ')'
+);
+$database->exec(
+    'CREATE TABLE game_center_publication_outbox ('
+    . 'id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'publication_kind TEXT NOT NULL, vendor_identifier TEXT NOT NULL, '
+    . 'pre_released INTEGER NOT NULL, desired_value INTEGER NULL, delivered_value INTEGER NULL, '
+    . 'desired_revision INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL DEFAULT \'pending\', '
+    . 'attempt_count INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL, '
+    . 'lock_token TEXT NULL, locked_at TEXT NULL, apple_submission_id TEXT NULL, '
+    . 'last_http_status INTEGER NULL, last_error_code TEXT NULL, last_error TEXT NULL, '
+    . 'created_at TEXT NOT NULL, updated_at TEXT NOT NULL, delivered_at TEXT NULL, '
+    . 'UNIQUE (player_id, publication_kind, vendor_identifier, pre_released)'
     . ')'
 );
 $database->exec(
@@ -79,7 +112,12 @@ $database->exec(
     . ')'
 );
 
-$service = new PlayerIdentityService($database);
+$publication = new GameCenterPublicationRepository(
+    $database,
+    str_repeat('identity-publication-secret-', 2),
+    true,
+);
+$service = new PlayerIdentityService($database, $publication);
 $googleSubject = '100000000000000000001';
 $googleHash = hash('sha256', "google\0" . $googleSubject, true);
 $legacyPlayerId = '11111111-1111-4111-8111-111111111111';
@@ -199,6 +237,76 @@ $sameTeamFreshProof = new GameCenterIdentity(
 $assert(
     $service->linkGameCenter($legacyPlayerId, $sameTeamFreshProof)['linked'] === false,
     'A fresh proof for the already linked Game Center account is idempotent.',
+);
+$throwsStatus(
+    400,
+    static fn () => $service->linkGameCenter(
+        $legacyPlayerId,
+        new GameCenterIdentity(
+            'T:team-player-one',
+            hash('sha256', 'assertion-publish-missing-id', true),
+            (int) floor(microtime(true) * 1000),
+        ),
+        null,
+        true,
+    ),
+    'Publication cannot be enabled without a persistent gamePlayerID.',
+);
+$throwsStatus(
+    400,
+    static fn () => $service->linkGameCenter(
+        $legacyPlayerId,
+        new GameCenterIdentity(
+            'T:team-player-one',
+            hash('sha256', 'assertion-id-without-consent', true),
+            (int) floor(microtime(true) * 1000),
+        ),
+        'G:unconsented',
+        false,
+    ),
+    'A gamePlayerID is not accepted without explicit publication consent.',
+);
+$database->prepare(
+    'INSERT INTO leaderboard_entries '
+    . '(id, player_id, mode, score, verification_status) '
+    . "VALUES ('verified-best', :player_id, 'normal', 1234, 'verified')"
+)->execute(['player_id' => $legacyPlayerId]);
+$database->prepare(
+    'INSERT INTO player_achievements (player_id, achievement_key) '
+    . "VALUES (:player_id, 'complete_arcade')"
+)->execute(['player_id' => $legacyPlayerId]);
+$publicationResult = $service->linkGameCenter(
+    $legacyPlayerId,
+    new GameCenterIdentity(
+        'T:team-player-one',
+        hash('sha256', 'assertion-publication-enable', true),
+        (int) floor(microtime(true) * 1000),
+    ),
+    'G:game-player-one',
+    true,
+);
+$assert(
+    !$publicationResult['linked']
+        && $publicationResult['publicationEnabled']
+        && $publicationResult['gamePlayerIdNewlyBound']
+        && (int) $database->query(
+            'SELECT COUNT(*) FROM game_center_publication_outbox'
+        )->fetchColumn() === 2,
+    'The identity service atomically binds the scoped player and backfills server authority.',
+);
+$throwsStatus(
+    409,
+    static fn () => $service->linkGameCenter(
+        $apple['playerId'],
+        new GameCenterIdentity(
+            'T:team-player-two',
+            hash('sha256', 'assertion-game-player-conflict', true),
+            (int) floor(microtime(true) * 1000),
+        ),
+        'G:game-player-one',
+        true,
+    ),
+    'The service cannot bind another wallet to the same client-asserted gamePlayerID.',
 );
 $throwsStatus(
     409,

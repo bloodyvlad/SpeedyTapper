@@ -20,8 +20,10 @@ final class PlayerIdentityService
     public const PROVIDER_GOOGLE = 'google';
     public const PROVIDER_APPLE = 'apple';
 
-    public function __construct(private readonly PDO $database)
-    {
+    public function __construct(
+        private readonly PDO $database,
+        private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
+    ) {
     }
 
     /**
@@ -220,10 +222,36 @@ final class PlayerIdentityService
         }
     }
 
-    /** @return array{playerId: string, linked: bool} */
-    public function linkGameCenter(string $playerId, GameCenterIdentity $identity): array
-    {
+    /**
+     * @return array{
+     *   playerId: string,
+     *   linked: bool,
+     *   publicationEnabled: bool,
+     *   gamePlayerIdNewlyBound: bool
+     * }
+     */
+    public function linkGameCenter(
+        string $playerId,
+        GameCenterIdentity $identity,
+        ?string $gamePlayerId = null,
+        bool $enablePublication = false,
+    ): array {
         $playerId = $this->normalizedPlayerId($playerId);
+        if ($enablePublication && $gamePlayerId === null) {
+            throw new ApiException(
+                400,
+                'A persistent Game Center gamePlayerID is required for server publication.',
+            );
+        }
+        if (!$enablePublication && $gamePlayerId !== null) {
+            throw new ApiException(
+                400,
+                'Game Center gamePlayerID is accepted only when publication is enabled.',
+            );
+        }
+        if ($enablePublication && $this->gameCenterPublication === null) {
+            throw new ApiException(503, 'Game Center publication storage is not configured.');
+        }
         $teamPlayerHash = hash(
             'sha256',
             "game_center\0" . $identity->teamPlayerId,
@@ -280,8 +308,22 @@ final class PlayerIdentityService
                 );
                 $update->execute(['last_verified_at' => $now, 'player_id' => $playerId]);
             }
+            $publication = ['enabled' => false, 'newlyBound' => false];
+            if ($enablePublication) {
+                $publication = $this->gameCenterPublication?->enableInCurrentTransaction(
+                    $playerId,
+                    $teamPlayerHash,
+                    $gamePlayerId
+                        ?? throw new \LogicException('Game Center gamePlayerID is missing.'),
+                ) ?? throw new \LogicException('Game Center publication repository is missing.');
+            }
             $this->database->commit();
-            return ['playerId' => $playerId, 'linked' => $linked];
+            return [
+                'playerId' => $playerId,
+                'linked' => $linked,
+                'publicationEnabled' => $publication['enabled'],
+                'gamePlayerIdNewlyBound' => $publication['newlyBound'],
+            ];
         } catch (PDOException $error) {
             $this->rollBack();
             if ($error->getCode() === '23000') {

@@ -17,6 +17,7 @@ use SpeedyTapper\Database;
 use SpeedyTapper\DeploymentBootstrap;
 use SpeedyTapper\GoogleClientIdentityVerifier;
 use SpeedyTapper\GameCenterIdentityVerifier;
+use SpeedyTapper\GameCenterPublicationRepository;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
@@ -52,6 +53,15 @@ try {
     );
     DeploymentBootstrap::migrateIfMarked($database, $projectRoot, $leaderboard);
     $wallets = new CoinWalletRepository($database);
+    $gameCenterPublication = null;
+    if ($config->gameCenterPublicationStorageIsConfigured()) {
+        $gameCenterPublication = new GameCenterPublicationRepository(
+            $database,
+            $config->gameCenterPlayerIdEncryptionKey ?? '',
+            $config->gameCenterPreReleased
+                ?? throw new ApiException(503, 'Game Center publication lane is not configured.'),
+        );
+    }
     $storeKitAccounts = new StoreKitAccountRepository(
         $database,
         $config->storeKitRetentionHmacKey ?? '',
@@ -66,10 +76,14 @@ try {
         $storeKitAccounts,
         $wallets,
     );
-    $achievements = new AchievementService($database, $wallets);
+    $achievements = new AchievementService(
+        $database,
+        $wallets,
+        $gameCenterPublication,
+    );
     $pets = new PetShopService($database, $achievements, $wallets);
     $themes = new ThemeShopService($database, $wallets);
-    $identities = new PlayerIdentityService($database);
+    $identities = new PlayerIdentityService($database, $gameCenterPublication);
     $appleIdentity = new AppleSignInIdentityVerifier([
         $config->appleSignInClientId
             ?? throw new ApiException(503, 'Apple sign-in audience is not configured.'),
@@ -102,8 +116,13 @@ try {
             new RunProofValidator(),
             $achievements,
             $wallets,
+            $gameCenterPublication,
         ),
-        moderation: new LeaderboardModerationService($database),
+        moderation: new LeaderboardModerationService(
+            $database,
+            $gameCenterPublication,
+            $achievements,
+        ),
         storeKitAccounts: $storeKitAccounts,
         storeKit: $storeKit,
         appStoreNotifications: new AppStoreNotificationService(
@@ -115,6 +134,7 @@ try {
         accountDeletion: new AccountDeletionService(
             $database,
             $config->storeKitRetentionHmacKey ?? '',
+            $gameCenterPublication,
         ),
         session: new SessionStore($request->isSecure(), new SessionRegistry($database)),
         identities: $identities,
@@ -129,6 +149,7 @@ try {
             $config->gameCenterUntrustedCertificateBundlePath
                 ?? throw new ApiException(503, 'Game Center trust is not configured.'),
         ),
+        gameCenterPublication: $gameCenterPublication,
     );
     $app->dispatch($request);
 } catch (ApiException $error) {

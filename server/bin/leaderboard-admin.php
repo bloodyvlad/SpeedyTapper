@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 use SpeedyTapper\Config;
+use SpeedyTapper\AchievementService;
+use SpeedyTapper\CoinWalletRepository;
 use SpeedyTapper\Database;
+use SpeedyTapper\GameCenterPublicationRepository;
 use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\MigrationRunner;
 
@@ -111,7 +114,24 @@ try {
     $config = Config::load($projectRoot);
     $database = Database::connect($config);
     (new MigrationRunner($database, $projectRoot . '/server/migrations'))->run();
-    $moderation = new LeaderboardModerationService($database);
+    $gameCenterPublication = $config->gameCenterPublicationStorageIsConfigured()
+        ? new GameCenterPublicationRepository(
+            $database,
+            $config->gameCenterPlayerIdEncryptionKey ?? '',
+            (bool) $config->gameCenterPreReleased,
+        )
+        : null;
+    $wallets = new CoinWalletRepository($database);
+    $achievements = new AchievementService(
+        $database,
+        $wallets,
+        $gameCenterPublication,
+    );
+    $moderation = new LeaderboardModerationService(
+        $database,
+        $gameCenterPublication,
+        $achievements,
+    );
 
     $result = match ($command) {
         'list' => (function () use ($moderation, $options): array {

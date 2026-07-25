@@ -29,7 +29,7 @@ Migration `013` gives the original migration-011 bootstrap administrator zero-pr
 
 Migration `018_primary_identities_and_game_center.sql` introduces a provider-neutral identity layer without replacing or merging internal player UUIDs. It backfills every existing `players.google_subject_hash` into `player_identities` as `provider = 'google'`, preserving the exact UUID, wallet, StoreKit binding, scores, cosmetics, and achievements. New Google and Apple identities use `SHA-256(provider + "\\0" + subject)`. One verified provider subject can own only one internal UUID, and one UUID can have at most one subject for each primary provider. `player_game_center_bindings` similarly permits one verified `teamPlayerID` per profile and one profile per verified Game Center identity. Only hashes are stored; raw Google subjects, Apple subjects, Game Center identifiers, provider tokens, email addresses, relay email addresses, and display names are not persisted.
 
-Game Center is a link-only secondary binding. It cannot register a profile, create a wallet, satisfy recent primary reauthentication, or log in independently. The server verifies GameKit's signed `teamPlayerID || bundleID || UInt64BE(timestamp) || salt` tuple with the leaf certificate from the exact allowlisted Apple HTTPS origin, a bundled reviewed DigiCert intermediate/root chain, Apple subject and code-signing constraints, freshness relative to a single-use server challenge, and a database replay digest. The unsigned `gamePlayerID` is neither accepted nor stored.
+Game Center is a link-only secondary binding. It cannot register a profile, create a wallet, satisfy recent primary reauthentication, or log in independently. The server verifies GameKit's signed `teamPlayerID || bundleID || UInt64BE(timestamp) || salt` tuple with the leaf certificate from the exact allowlisted Apple HTTPS origin, a bundled reviewed DigiCert intermediate/root chain, Apple subject and code-signing constraints, freshness relative to a single-use server challenge, and a database replay digest. Identity-only linking does not need `gamePlayerID`. Explicit server-publication consent may accompany a fresh verified proof with the client-asserted persistent `gamePlayerID`; PHP binds it one-to-one and retains only its domain hash plus authenticated ciphertext.
 
 ### Sign in with Apple configuration
 
@@ -55,7 +55,7 @@ All of these routes retain the existing same-origin cookie session and `X-Speedy
 - `POST /api/auth/google` accepts `credential` and optional `intent`. Native/new clients use `login`, `register`, or `reauth`; the omitted legacy browser value remains `login_or_register` for compatibility.
 - `POST /api/profile/identities/google` explicitly links Google to the signed-in UUID after recent Google/Apple primary authentication. Apple linking uses the Apple challenge with `intent: "link"`.
 - `POST /api/profile/game-center/challenge` accepts `{}` after recent primary authentication.
-- `POST /api/profile/game-center` accepts exactly `challengeId`, `teamPlayerId`, `publicKeyUrl`, base64 `signature`, base64 `salt`, and integer millisecond `timestamp`.
+- `POST /api/profile/game-center` accepts exactly `challengeId`, `teamPlayerId`, `publicKeyUrl`, base64 `signature`, base64 `salt`, integer millisecond `timestamp`, and the optional pair `gamePlayerId` plus `publish: true`.
 
 A signed-out native client must try `login` first. A `409` means that provider subject is not linked; it must not be silently retried as `register`. The UI should offer either sign-in through an existing method followed by explicit linking, or an explicit new-profile registration. The backend can enforce that one external identity never owns two wallets, but it cannot infer that unrelated Google and Apple subjects are the same human. It therefore never merges profiles or moves a wallet based on email, Apple relay email, nickname, device, StoreKit `appAccountToken`, or Game Center data. Conflicting links return `409` and leave both UUIDs unchanged.
 
@@ -71,6 +71,8 @@ The StoreKit backend additionally requires PHP cURL; `composer.json` declares `e
 
 On an existing MCP-only Hostinger installation, the guarded operator command `php server/bin/configure-storekit-environments.php --enable-sandbox-and-production` atomically updates only the private home configuration and validates the resulting dual-environment Server API setup. It never prints configuration values. `php server/bin/storekit-environment-status.php --summary` reports only each environment's latest retained `TEST` notification and reconciliation timestamps/error, allowing deployment verification without exposing signed payloads or payment evidence.
 
+Game Center server publication is a separate App Store Connect integration. It requires `SPEEDYTAPPER_GAME_CENTER_API_ISSUER_ID`, `SPEEDYTAPPER_GAME_CENTER_API_KEY_ID`, `SPEEDYTAPPER_GAME_CENTER_API_PRIVATE_KEY_PATH`, a stable at-least-32-byte `SPEEDYTAPPER_GAME_CENTER_PLAYER_ID_ENCRYPTION_KEY`, and an explicit boolean `SPEEDYTAPPER_GAME_CENTER_PRE_RELEASED`. The App Store Connect key needs Game Center score-management permission, must be distinct from both other Apple keys, and must be an owner-only file outside the deployed web root. Do not reuse the StoreKit Server API client: Game Center writes use `https://api.appstoreconnect.apple.com`, JSON:API, and an App Store Connect JWT without StoreKit's bundle claim.
+
 Migration `014_storekit_paid_value_and_account_deletion.sql`:
 
 - separates `earned_coins`/`earned_coin_debt` from `purchased_coins`/`refund_coin_debt`, preserving the compatibility totals in `coins` and `coin_debt`;
@@ -81,6 +83,8 @@ Migration `014_storekit_paid_value_and_account_deletion.sql`:
 Migration `015_player_sessions.sql` adds a server-side opaque-session registry. A PHP session stores a rotating 256-bit authentication ID rather than a raw player UUID; MySQL stores only its SHA-256 digest, player mapping, and 30-day expiry. Login rotates both the PHP session and opaque authentication ID. Logout revokes the mapping, player deletion removes every mapping by foreign-key cascade, missing/expired mappings fail closed, and legacy PHP sessions containing the old raw UUID cannot authenticate.
 
 Forward-only migration `016_storekit_schema_hardening.sql` is required for installations that may already have recorded an earlier form of migration `014`. It makes the reward-reset administrator reference nullable with `ON DELETE SET NULL`, ensures the `(environment, transaction_id)` reconciliation index, adds/backfills a distinct non-null `lifecycle_signed_date_ms` watermark, and leaves clean installations at the same finalized schema already declared by the current `014` migration.
+
+Migration `019_game_center_server_publication.sql` augments the verified `teamPlayerID` binding with a nullable one-to-one `gamePlayerID` uniqueness hash and AES-256-GCM ciphertext/IV/tag, plus enable/disable timestamps. Existing migration-018 bindings stay valid but are not publication-ready until a fresh native link supplies the persistent scoped ID. Its outbox is unique by player, kind, Apple vendor identifier, and prerelease lane; desired revision and lease token prevent an old retry from acknowledging or overwriting newer authoritative state. Player deletion cascades both encrypted binding and publication records.
 
 ### Exact product and trust contract
 
@@ -189,6 +193,15 @@ Always public. Google and Apple client IDs are intentionally public configuratio
     "apple": true,
     "gameCenter": true
   },
+  "gameCenter": {
+    "serverPublicationAvailable": true,
+    "preReleased": true,
+    "identityLinked": true,
+    "publicationEnabled": true,
+    "mirrorReady": true,
+    "pendingJobs": 2,
+    "needsReset": false
+  },
   "ranks": {
     "normal": { "rank": 12, "totalEntries": 250, "topPercent": 5 },
     "zen": { "rank": null, "totalEntries": 180, "topPercent": null }
@@ -196,7 +209,7 @@ Always public. Google and Apple client IDs are intentionally public configuratio
 }
 ```
 
-The response also includes `achievementSnapshot`, allowing the menu to render claim status without a second API request. When signed out, `authenticated` is false and `profile`, `identityBindings`, and `ranks` are null. `appleSignIn.enabled` is false unless the full private Apple code-exchange and credential-encryption configuration is available.
+The response also includes `achievementSnapshot`, allowing the menu to render claim status without a second API request. `gameCenter.serverPublicationAvailable` means the distinct App Store Connect key is currently usable; `identityLinked` and `publicationEnabled` are durable player state, while `mirrorReady` requires both that state and the server credential. `pendingJobs` is eventual-delivery state, not proof of failure. When signed out, `authenticated` is false and `profile`, `identityBindings`, and `ranks` are null, while `gameCenter` retains only non-personal capability/lane values and false/zero player state. `appleSignIn.enabled` is false unless the full private Apple code-exchange and credential-encryption configuration is available.
 
 ### `POST /api/auth/google`
 
@@ -212,7 +225,32 @@ Body: `{ "credential": "GOOGLE_ID_TOKEN" }`. Explicitly links that verified Goog
 
 ### `POST /api/profile/game-center/challenge` and `POST /api/profile/game-center`
 
-Game Center is link-only. After primary authentication, request a challenge with `{}`, obtain a fresh GameKit identity signature, then submit `{ "challengeId": "...", "teamPlayerId": "...", "publicKeyUrl": "https://static.gc.apple.com/public-key/...cer", "signature": "BASE64", "salt": "BASE64", "timestamp": 1234567890123 }`. The signed proof must be fresh and no older than the current challenge (with a 30-second clock tolerance). A proof/replay or binding conflict returns `409`; no route permits Game Center-only login or registration.
+Game Center is link-only. After recent Google/Apple primary authentication, request a challenge with `{}`, require an authenticated `GKLocalPlayer` with persistent scoped IDs, obtain a fresh GameKit identity signature, then submit:
+
+```json
+{
+  "challengeId": "...",
+  "teamPlayerId": "...",
+  "gamePlayerId": "...",
+  "publish": true,
+  "publicKeyUrl": "https://static.gc.apple.com/public-key/...cer",
+  "signature": "BASE64",
+  "salt": "BASE64",
+  "timestamp": 1234567890123
+}
+```
+
+The signed proof must be fresh and no older than the current challenge (with a 30-second clock tolerance). The server signature verification covers `teamPlayerID`, bundle ID, timestamp, and salt. For a normal non-Apple-Arcade game it does **not** cover `gamePlayerID`; that accompanying value is therefore a client-asserted, once-bound association used only because Apple's server submission API requires `scopedPlayerId`. PHP domain-hashes it for uniqueness, encrypts it with AES-GCM, never returns/logs it, and rejects replacement or cross-profile reuse with `409`. Omitting both optional publication fields retains identity-only linking. Supplying `gamePlayerId` without `publish: true`, or publishing without configured encrypted storage, fails closed. No route permits Game Center-only login or registration.
+
+### `DELETE /api/profile/game-center/publication`
+
+After recent primary authentication, body `{ "confirm": true }` disables future Apple mirroring while retaining the verified Game Center identity binding. Pending, leased, retry, and reset-needed jobs are revision-cancelled. A per-player advisory lock serializes this operation with the bounded Apple request, so success cannot race an already-prepared publication. Re-enabling requires a fresh link challenge and the same one-to-one `gamePlayerID`; its consent timestamp is renewed.
+
+### Game Center publication worker
+
+Verified Arcade completion queues the all-time best score from `mode = normal` and `verification_status = verified` only. First insertion of any of the five internal achievements queues 100 percent; claiming its coin reward has no effect. Linking backfills current best plus every allowlisted unlocked achievement, skipping retired historical rows. Moderation recomputes the desired best and an approved held run reconciles its newly eligible achievements in the same transaction. The worker rechecks those facts after leasing and before decrypting/submitting.
+
+Run `php server/bin/publish-game-center.php --limit=50` every minute. The worker uses a lane-specific nonblocking MySQL advisory lock plus a per-player lock across each bounded Apple request, processes at most 500 rows per invocation, sends one Apple JSON:API request per desired resource, and retries network/429/5xx failures with bounded exponential backoff and jitter. A nonretryable response or twelve failed attempts moves the row to operator-visible `held`; ordinary gameplay and backfill cannot create an accidental request storm from it. After correcting the key, role, identifier, or Apple catalog, explicitly run `--requeue-held`. Run an explicit `--backfill --limit=500` invocation after first enabling publication or switching the trusted `preReleased` lane; bulk backfill scans every active binding and remains idempotent. Apple documents score submissions as overwriting the player's existing score, so moderation publishes a lower verified replacement when one remains. If moderation removes every verified score, the row becomes `needs_reset`; the worker neither invents zero nor falsely marks it synchronized because Apple's documented submission API exposes no per-player delete/reset.
 
 ### `POST /api/logout`
 
@@ -321,7 +359,7 @@ Both mutations require same-origin CSRF protection and a Google or Apple primary
 ## Security and limitations
 
 - The session cookie, same-origin mutation guard, per-session CSRF token, and single-use Apple/Game Center challenges prevent common cross-site and replay mutations, while Google or Apple verifies primary account ownership.
-- Google and Apple subjects and Game Center team identities are irreversibly, domain-separately digested before storage. Raw identity tokens, provider subjects, Game Center IDs, email claims, and passwords are never stored. The Apple refresh token is the sole exception: it is retained only as authenticated ciphertext so authorization can be revoked during account deletion.
+- Google and Apple subjects and Game Center team identities are irreversibly, domain-separately digested before storage. Raw identity tokens, provider subjects, `teamPlayerID`, email claims, and passwords are never stored. The only reversible identity data is narrowly retained as authenticated ciphertext: Apple's refresh token for deletion-time revocation and the explicitly consented client-asserted `gamePlayerID` needed for server publication.
 - PHP issues the run ID, binds it to one confirmed player and browser session, permits only one issued attempt per player, bounds elapsed time with its own clock, replays the chronological proof, derives all result fields, and consumes the run once. Start and completion limits are persisted by internal player UUID, so re-login does not clear them.
 - Requests are capped at 256 KiB and 10,000 proof events. An authenticated per-session finish limit is consumed before proof JSON is parsed, while persisted per-minute and daily player limits run before replay or proof persistence. Rejected proofs retain hashes and compact audit metadata rather than attacker-controlled event JSON. The bounded maintenance command removes stale unranked attempts. Shared-hosting or edge-level IP throttling remains recommended for broader availability protection.
 - This is protocol verification, not proof of human input. A sufficiently modified browser, scripted client, or computer-vision bot can still create plausible real-time play. High-risk distributions can be held for manual review; never describe the board as bot-proof.

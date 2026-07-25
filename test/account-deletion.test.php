@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use SpeedyTapper\AccountDeletionService;
 use SpeedyTapper\ApiException;
+use SpeedyTapper\GameCenterPublicationRepository;
 use SpeedyTapper\StoreKitPseudonym;
 
 require dirname(__DIR__) . '/server/autoload.php';
@@ -88,6 +89,41 @@ CREATE TABLE player_achievements (
     player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     achievement_key TEXT NOT NULL,
     PRIMARY KEY (player_id, achievement_key)
+);
+CREATE TABLE player_game_center_bindings (
+    player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+    team_player_id_hash BLOB NOT NULL UNIQUE,
+    game_player_id_hash BLOB NULL UNIQUE,
+    game_player_id_ciphertext BLOB NULL,
+    game_player_id_iv BLOB NULL,
+    game_player_id_tag BLOB NULL,
+    linked_at TEXT NOT NULL,
+    last_verified_at TEXT NOT NULL,
+    publication_enabled_at TEXT NULL,
+    publication_disabled_at TEXT NULL
+);
+CREATE TABLE game_center_publication_outbox (
+    id TEXT PRIMARY KEY,
+    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    publication_kind TEXT NOT NULL,
+    vendor_identifier TEXT NOT NULL,
+    pre_released INTEGER NOT NULL,
+    desired_value INTEGER NULL,
+    delivered_value INTEGER NULL,
+    desired_revision INTEGER NOT NULL DEFAULT 1,
+    state TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    available_at TEXT NOT NULL,
+    lock_token TEXT NULL,
+    locked_at TEXT NULL,
+    apple_submission_id TEXT NULL,
+    last_http_status INTEGER NULL,
+    last_error_code TEXT NULL,
+    last_error TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    delivered_at TEXT NULL,
+    UNIQUE (player_id, publication_kind, vendor_identifier, pre_released)
 );
 CREATE TABLE player_pets (
     player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -236,6 +272,35 @@ $insert($database, 'INSERT INTO account_reward_resets VALUES (:id, :player, :act
 $insert($database, 'INSERT INTO account_reward_resets VALUES (:id, :player, :actor)', ['id' => 'reset-actor', 'player' => $other, 'actor' => $target]);
 $insert($database, 'INSERT INTO player_roles VALUES (:player, :role)', ['player' => $target, 'role' => 'leaderboard_admin']);
 $insert($database, 'INSERT INTO player_achievements VALUES (:player, :key)', ['player' => $target, 'key' => 'complete_arcade']);
+$teamHash = hash('sha256', "game_center\0T:deletion-target", true);
+$gameHash = hash('sha256', "game_center_game_player\0G:deletion-target", true);
+$gameCenterBinding = $database->prepare(
+    'INSERT INTO player_game_center_bindings '
+    . '(player_id, team_player_id_hash, game_player_id_hash, '
+    . 'game_player_id_ciphertext, game_player_id_iv, game_player_id_tag, '
+    . 'linked_at, last_verified_at, publication_enabled_at) '
+    . 'VALUES (:player_id, :team_hash, :game_hash, :ciphertext, :iv, :tag, '
+    . 'CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)'
+);
+$gameCenterBinding->bindValue(':player_id', $target);
+$gameCenterBinding->bindValue(':team_hash', $teamHash, PDO::PARAM_LOB);
+$gameCenterBinding->bindValue(':game_hash', $gameHash, PDO::PARAM_LOB);
+$gameCenterBinding->bindValue(':ciphertext', random_bytes(32), PDO::PARAM_LOB);
+$gameCenterBinding->bindValue(':iv', random_bytes(12), PDO::PARAM_LOB);
+$gameCenterBinding->bindValue(':tag', random_bytes(16), PDO::PARAM_LOB);
+$gameCenterBinding->execute();
+$insert(
+    $database,
+    'INSERT INTO game_center_publication_outbox '
+    . '(id, player_id, publication_kind, vendor_identifier, pre_released, '
+    . 'desired_value, state, available_at, created_at, updated_at) '
+    . "VALUES ('gc-delete', :player_id, 'achievement', :vendor, 1, 100, "
+    . "'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    [
+        'player_id' => $target,
+        'vendor' => 'com.otcsoftware.pimpopom.achievement.complete_arcade',
+    ],
+);
 $insert($database, 'INSERT INTO player_pets VALUES (:player, :pet)', ['player' => $target, 'pet' => 'foka']);
 $insert($database, 'INSERT INTO player_pet_selection VALUES (:player, :pet)', ['player' => $target, 'pet' => 'foka']);
 $insert($database, 'INSERT INTO player_themes VALUES (:player, :theme)', ['player' => $target, 'theme' => 'pixel']);
@@ -274,7 +339,15 @@ $insert($database, "INSERT INTO storekit_refund_cosmetics VALUES ('refund-cosmet
 $insert($database, "INSERT INTO storekit_cosmetic_restore_debts VALUES ('restore-debt', 'apple-transaction-target', :player, 'ledger-purchased', 'pet', 'foka', 2)", ['player' => $target]);
 $insert($database, 'INSERT INTO storekit_notifications VALUES (:id, :transaction, :type, :hash)', ['id' => 'notification-target', 'transaction' => 'apple-transaction-target', 'type' => 'REFUND', 'hash' => random_bytes(32)]);
 
-$service = new AccountDeletionService($database, $key);
+$service = new AccountDeletionService(
+    $database,
+    $key,
+    new GameCenterPublicationRepository(
+        $database,
+        str_repeat('deletion-publication-secret-', 2),
+        true,
+    ),
+);
 $result = $service->delete($target);
 $assert($result === [
     'deleted' => true,
@@ -296,6 +369,8 @@ foreach (
         'run_proofs',
         'player_roles',
         'player_achievements',
+        'player_game_center_bindings',
+        'game_center_publication_outbox',
         'player_pets',
         'player_pet_selection',
         'player_themes',

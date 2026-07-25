@@ -6,6 +6,7 @@ use SpeedyTapper\ApiException;
 use SpeedyTapper\AchievementCatalog;
 use SpeedyTapper\CoinEconomy;
 use SpeedyTapper\CoinProgression;
+use SpeedyTapper\Config;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\LeaderboardWindow;
@@ -42,6 +43,52 @@ $throwsApi = static function (callable $callback, string $message) use ($assert)
     }
     $assert(false, $message);
 };
+
+$configFixtureRoot = sys_get_temp_dir() . '/speedytapper-config-' . bin2hex(random_bytes(8));
+$configPublicRoot = $configFixtureRoot . '/public';
+$configPrivateRoot = $configFixtureRoot . '/private';
+mkdir($configPublicRoot, 0700, true);
+mkdir($configPrivateRoot, 0700, true);
+$configPrivateKey = $configPrivateRoot . '/game-center.p8';
+file_put_contents($configPrivateKey, "fixture-private-key\n");
+chmod($configPrivateKey, 0600);
+$configPublicKeyLink = $configPublicRoot . '/game-center.p8';
+symlink($configPrivateKey, $configPublicKeyLink);
+$configPath = $configPrivateRoot . '/config.php';
+file_put_contents($configPath, '<?php return ' . var_export([
+    'SPEEDYTAPPER_DB_NAME' => 'speedytapper',
+    'SPEEDYTAPPER_DB_USER' => 'speedytapper',
+    'SPEEDYTAPPER_DB_PASSWORD' => 'fixture-password',
+    'SPEEDYTAPPER_GOOGLE_CLIENT_ID' => 'fixture.apps.googleusercontent.com',
+    'SPEEDYTAPPER_GAME_CENTER_API_PRIVATE_KEY_PATH' => $configPublicKeyLink,
+], true) . ';');
+$previousConfigPath = getenv('SPEEDYTAPPER_CONFIG_PATH');
+$previousDocumentRoot = $_SERVER['DOCUMENT_ROOT'] ?? null;
+putenv('SPEEDYTAPPER_CONFIG_PATH=' . $configPath);
+$_SERVER['DOCUMENT_ROOT'] = $configPublicRoot;
+try {
+    $throwsApi(
+        static fn () => Config::load($configPublicRoot),
+        'A public-web-root symlink cannot expose the Game Center publication key.',
+    );
+} finally {
+    if ($previousConfigPath === false) {
+        putenv('SPEEDYTAPPER_CONFIG_PATH');
+    } else {
+        putenv('SPEEDYTAPPER_CONFIG_PATH=' . $previousConfigPath);
+    }
+    if ($previousDocumentRoot === null) {
+        unset($_SERVER['DOCUMENT_ROOT']);
+    } else {
+        $_SERVER['DOCUMENT_ROOT'] = $previousDocumentRoot;
+    }
+    unlink($configPublicKeyLink);
+    unlink($configPath);
+    unlink($configPrivateKey);
+    rmdir($configPublicRoot);
+    rmdir($configPrivateRoot);
+    rmdir($configFixtureRoot);
+}
 
 $proofPayload = static function (string $runId, string $mode, array $events): array {
     return [
@@ -636,6 +683,12 @@ foreach ([
     'google_subject_hash',
     'player_identities',
     'player_game_center_bindings',
+    'game_center_publication_outbox',
+    'game_player_id_ciphertext',
+    'publication_enabled_at',
+    'desired_revision',
+    'needs_reset',
+    "'held'",
     'player_apple_authorizations',
     'game_center_assertion_uses',
     "provider IN ('google', 'apple')",
@@ -720,7 +773,7 @@ foreach ([
 }
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $assert(
@@ -734,9 +787,11 @@ $assert(
 );
 $assert(
     !str_contains($app, '/api/auth/game-center')
-        && !str_contains($app, "['gamePlayerId'")
-        && str_contains($app, "['challengeId', 'teamPlayerId', 'publicKeyUrl', 'signature', 'salt', 'timestamp']"),
-    'Game Center is link-only and accepts only the teamPlayerID covered by Apple\'s signature.',
+        && str_contains($app, "'gamePlayerId'")
+        && str_contains($app, "'publish'")
+        && str_contains($app, 'gamePlayerIdNewlyBound')
+        && str_contains($app, 'serverPublicationAvailable'),
+    'Game Center remains link-only while exposing a separate encrypted server-publication state.',
 );
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
 $assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
@@ -775,8 +830,9 @@ $assert(
         && str_contains($runService, "'review'")
         && str_contains($runService, "'withheld'")
         && str_contains($runService, 'CoinProgression::accrue')
+        && str_contains($runService, 'enqueueBestScoreInCurrentTransaction')
         && str_contains($runService, 'FOR UPDATE'),
-    'Run completion is clock-covered, replayed, risk-gated, coin-accounted, and transactional.',
+    'Run completion is clock-covered, replayed, risk-gated, coin-accounted, publication-aware, and transactional.',
 );
 
 $leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
@@ -821,6 +877,7 @@ $assert(
         && str_contains($moderationService, 'COALESCE(credited_play_ms, LEAST(duration_ms')
         && str_contains($moderationService, 'lockEntryPlayer')
         && str_contains($moderationService, 'recomputePlayerCoins')
+        && str_contains($moderationService, 'syncVerifiedRunEligibilityInTransaction')
         && is_string($moderationCli)
         && str_contains($moderationCli, '--apply')
         && str_contains($moderationCli, "\$name === 'apply'")
@@ -839,6 +896,7 @@ $assert(
         && str_contains($moderationService, 'account_reward_resets')
         && str_contains($moderationService, 'economy_generation = :economy_generation')
         && str_contains($moderationService, 'removeUnpaidCosmetics')
+        && str_contains($moderationService, 'enqueueBestScoreInCurrentTransaction')
         && str_contains($moderationService, "allocation.source = 'purchased'")
         && !str_contains($moderationService, 'purchased_coins = 0')
         && !str_contains($moderationService, 'refund_coin_debt = 0')
@@ -900,6 +958,13 @@ $assert(
 );
 
 $achievementService = file_get_contents(dirname(__DIR__) . '/server/src/AchievementService.php');
+$identityService = file_get_contents(dirname(__DIR__) . '/server/src/PlayerIdentityService.php');
+$gameCenterPublicationSource = file_get_contents(
+    dirname(__DIR__) . '/server/src/GameCenterPublicationRepository.php'
+);
+$accountDeletionSource = file_get_contents(
+    dirname(__DIR__) . '/server/src/AccountDeletionService.php'
+);
 $assert(
     is_string($achievementService)
         && str_contains($achievementService, 'unlockBuyPetInTransaction')
@@ -909,8 +974,30 @@ $assert(
         && str_contains($achievementService, "acquisition_source = 'purchase'")
         && str_contains($achievementService, 'achievement_reward')
         && str_contains($achievementService, 'wallets->creditEarned')
+        && str_contains($achievementService, 'syncVerifiedRunEligibilityInTransaction')
         && str_contains($achievementService, 'allocateRefundDebtPayment'),
     'Achievement unlocks use verified runs and durable moderation-safe rewards.',
+);
+$assert(
+    str_contains($achievementService, '$statement->rowCount() === 1')
+        && str_contains($achievementService, 'enqueueAchievementInCurrentTransaction'),
+    'Only a first authoritative achievement unlock queues Game Center progress.',
+);
+$assert(
+    is_string($identityService)
+        && str_contains($identityService, 'enableInCurrentTransaction')
+        && str_contains($identityService, 'gamePlayerIdNewlyBound')
+        && str_contains($identityService, 'Game Center gamePlayerID is accepted only when publication is enabled.'),
+    'A signed Game Center team link gates the separate one-to-one scoped-player publication association.',
+);
+$assert(
+    is_string($gameCenterPublicationSource)
+        && str_contains($gameCenterPublicationSource, 'withPlayerPublicationLock')
+        && str_contains($gameCenterPublicationSource, "state = 'held'")
+        && str_contains($gameCenterPublicationSource, 'requeueHeld')
+        && is_string($accountDeletionSource)
+        && str_contains($accountDeletionSource, 'withPlayerPublicationLock'),
+    'Game Center disable, account deletion, and bounded permanent-failure handling fence Apple publication.',
 );
 $assert(
     str_contains($achievementService, 'run.economy_generation = :economy_generation')
@@ -968,6 +1055,12 @@ $migrationStatements = MigrationRunner::splitStatements(
 $assert(count($migrationStatements) === 2, 'Migration SQL is split into executable statements.');
 
 $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
+$gameCenterWorker = file_get_contents(
+    dirname(__DIR__) . '/server/bin/publish-game-center.php'
+);
+$gameCenterMigration = file_get_contents(
+    dirname(__DIR__) . '/server/migrations/019_game_center_server_publication.sql'
+);
 $deploymentBootstrap = file_get_contents(dirname(__DIR__) . '/server/src/DeploymentBootstrap.php');
 $assert(str_contains($apiBootstrap, 'new RunAttemptService') && str_contains($apiBootstrap, 'new RunProofValidator'), 'The HTTP API wires issued attempts to server proof replay.');
 $assert(
@@ -975,8 +1068,27 @@ $assert(
         && str_contains($apiBootstrap, 'new AppleSignInIdentityVerifier')
         && str_contains($apiBootstrap, 'new AppleSignInTokenClient')
         && str_contains($apiBootstrap, 'new AppleCredentialRepository')
-        && str_contains($apiBootstrap, 'new GameCenterIdentityVerifier'),
-    'The HTTP API wires provider resolution, Apple code exchange/credential retention, and Game Center verification.',
+        && str_contains($apiBootstrap, 'new GameCenterIdentityVerifier')
+        && str_contains($apiBootstrap, 'new GameCenterPublicationRepository'),
+    'The HTTP API wires provider resolution, Apple code exchange/credential retention, Game Center verification, and its publication outbox.',
+);
+$assert(
+    is_string($gameCenterWorker)
+        && str_contains($gameCenterWorker, 'GameCenterOutboxWorker')
+        && str_contains($gameCenterWorker, 'GET_LOCK')
+        && str_contains($gameCenterWorker, 'RELEASE_LOCK')
+        && str_contains($gameCenterWorker, '--backfill')
+        && str_contains($gameCenterWorker, '--requeue-held'),
+    'The bounded Game Center publisher serializes Hostinger cron workers with an advisory lock.',
+);
+$assert(
+    is_string($gameCenterMigration)
+        && str_contains($gameCenterMigration, 'information_schema.COLUMNS')
+        && str_contains($gameCenterMigration, 'information_schema.STATISTICS')
+        && str_contains($gameCenterMigration, 'information_schema.TABLE_CONSTRAINTS')
+        && str_contains($gameCenterMigration, "'DO 1'")
+        && str_contains($gameCenterMigration, 'CREATE TABLE IF NOT EXISTS'),
+    'The Game Center migration is retry-safe across auto-committed columns, keys, constraints, and table creation.',
 );
 $assert(
     str_contains($app, "['challengeId', 'state', 'identityToken', 'authorizationCode']")

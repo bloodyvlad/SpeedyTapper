@@ -22,8 +22,11 @@ final class LeaderboardModerationService
     private const MIN_DECOY_GAP_MS = 600;
     private const FIRST_DECOY_AT_MS = 10_000;
 
-    public function __construct(private readonly PDO $database)
-    {
+    public function __construct(
+        private readonly PDO $database,
+        private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
+        private readonly ?AchievementService $achievements = null,
+    ) {
     }
 
     /**
@@ -305,6 +308,11 @@ final class LeaderboardModerationService
                     $actor,
                     $reason,
                 );
+                if ($toStatus === 'verified') {
+                    $this->achievements?->syncVerifiedRunEligibilityInTransaction(
+                        (string) $entry['player_id'],
+                    );
+                }
             }
 
             $details = [
@@ -335,6 +343,9 @@ final class LeaderboardModerationService
                 'reason' => $reason,
                 'details_json' => json_encode($details, JSON_THROW_ON_ERROR),
             ]);
+            $this->gameCenterPublication?->enqueueBestScoreInCurrentTransaction(
+                (string) $entry['player_id'],
+            );
 
             $result = [
                 'applied' => $apply,
@@ -606,6 +617,9 @@ final class LeaderboardModerationService
                 'reason' => $reason,
                 'details_json' => json_encode($details, JSON_THROW_ON_ERROR),
             ]);
+            $this->gameCenterPublication?->enqueueBestScoreInCurrentTransaction(
+                $targetPlayerId,
+            );
 
             $this->database->commit();
             return [
