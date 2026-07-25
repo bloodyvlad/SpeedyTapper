@@ -12,7 +12,7 @@ namespace SpeedyTapper;
  */
 final readonly class RunProof
 {
-    public const BUILD_ID = '20260720-1';
+    public const BUILD_ID = '20260725-1';
     public const SUPPORTED_BUILD_IDS = [
         '20260718-1',
         '20260719-1',
