@@ -252,7 +252,22 @@ After recent primary authentication, body `{ "confirm": true }` disables future 
 
 Verified Arcade completion queues the all-time best score from `mode = normal` and `verification_status = verified` only. First insertion of any of the five internal achievements queues 100 percent; claiming its coin reward has no effect. Linking backfills current best plus every allowlisted unlocked achievement, skipping retired historical rows. Moderation recomputes the desired best and an approved held run reconciles its newly eligible achievements in the same transaction. The worker rechecks those facts after leasing and before decrypting/submitting.
 
-Run `php server/bin/publish-game-center.php --limit=50` every minute. The worker uses a lane-specific nonblocking MySQL advisory lock plus a per-player lock across each bounded Apple request, processes at most 500 rows per invocation, sends one Apple JSON:API request per desired resource, and retries network/429/5xx failures with bounded exponential backoff and jitter. A nonretryable response or twelve failed attempts moves the row to operator-visible `held`; ordinary gameplay and backfill cannot create an accidental request storm from it. After correcting the key, role, identifier, or Apple catalog, explicitly run `--requeue-held`. Run an explicit `--backfill --limit=500` invocation after first enabling publication or switching the trusted `preReleased` lane; bulk backfill scans every active binding and remains idempotent. Apple documents score submissions as overwriting the player's existing score, so moderation publishes a lower verified replacement when one remains. If moderation removes every verified score, the row becomes `needs_reset`; the worker neither invents zero nor falsely marks it synchronized because Apple's documented submission API exposes no per-player delete/reset.
+Run `php server/bin/publish-game-center.php --limit=50` every minute. The worker uses a lane-specific nonblocking MySQL advisory lock plus a per-player lock across each bounded Apple request, processes at most 500 rows per invocation, sends one Apple JSON:API request per desired resource, and retries network/429/5xx failures with bounded exponential backoff and jitter. The authoritative score remains an integer; only the outbound JSON:API `score` attribute is encoded as a decimal string because Apple's endpoint example and live request validation require that wire type.
+
+A nonretryable response or twelve failed attempts moves the row to operator-visible `held`; ordinary gameplay and backfill cannot create an accidental request storm from it. Inspect the active lane without exposing player identities:
+
+```sh
+php server/bin/publish-game-center.php --list-held --limit=100
+```
+
+The listing contains the exact outbox UUID, publication kind, vendor identifier, attempt/status/code, and a bounded diagnostic whose reflected player IDs, credentials, request body, opaque values, and unrecognized source pointers are removed. After correcting the specific rejection, requeue exactly one UUID:
+
+```sh
+php server/bin/publish-game-center.php --requeue-held=OUTBOX_UUID
+php server/bin/publish-game-center.php --limit=1
+```
+
+The recovery command is lane-scoped, rejects a bulk bare flag, and exits without dispatching; the normal worker then performs the usual authority revalidation. For a mixed leaderboard/achievement incident, recover the leaderboard and one achievement only, verify the leaderboard delivery, diagnose the achievement permission or first-app-version review association, then recover the remaining achievements. Run an explicit `--backfill --limit=500` invocation after first enabling publication or switching the trusted `preReleased` lane; bulk backfill scans every active binding and remains idempotent. Apple documents score submissions as overwriting the player's existing score, so moderation publishes a lower verified replacement when one remains. If moderation removes every verified score, the row becomes `needs_reset`; the worker neither invents zero nor falsely marks it synchronized because Apple's documented submission API exposes no per-player delete/reset.
 
 ### `POST /api/logout`
 

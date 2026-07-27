@@ -329,13 +329,64 @@ final class GameCenterPublicationRepository
     }
 
     /**
-     * Operator-only recovery after fixing a catalog, permission, or credential
-     * problem. Ordinary gameplay and backfill do not revive held jobs.
+     * @return list<array{
+     *   id: string,
+     *   publicationKind: string,
+     *   vendorIdentifier: string,
+     *   attemptCount: int,
+     *   httpStatus: ?int,
+     *   errorCode: ?string,
+     *   diagnostic: ?string,
+     *   updatedAt: string
+     * }>
      */
-    public function requeueHeld(): int
+    public function heldDiagnostics(int $limit = 100): array
+    {
+        if ($limit < 1 || $limit > 500) {
+            throw new \InvalidArgumentException('Game Center held-job limit is invalid.');
+        }
+        $statement = $this->database->prepare(
+            'SELECT id, publication_kind, vendor_identifier, attempt_count, '
+            . 'last_http_status, last_error_code, last_error, updated_at '
+            . 'FROM game_center_publication_outbox '
+            . "WHERE pre_released = :pre_released AND state = 'held' "
+            . 'ORDER BY updated_at ASC, id ASC LIMIT :limit'
+        );
+        $statement->bindValue(':pre_released', $this->preReleased ? 1 : 0, PDO::PARAM_INT);
+        $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $statement->execute();
+        return array_map(
+            static fn (array $row): array => [
+                'id' => (string) $row['id'],
+                'publicationKind' => (string) $row['publication_kind'],
+                'vendorIdentifier' => (string) $row['vendor_identifier'],
+                'attemptCount' => (int) $row['attempt_count'],
+                'httpStatus' => $row['last_http_status'] === null
+                    ? null
+                    : (int) $row['last_http_status'],
+                'errorCode' => is_string($row['last_error_code'])
+                    ? $row['last_error_code']
+                    : null,
+                'diagnostic' => is_string($row['last_error'])
+                    ? $row['last_error']
+                    : null,
+                'updatedAt' => (string) $row['updated_at'],
+            ],
+            $statement->fetchAll(),
+        );
+    }
+
+    /**
+     * Operator-only exact recovery after fixing the recorded Apple rejection.
+     * Ordinary gameplay and backfill do not revive held jobs.
+     */
+    public function requeueHeldById(string $jobId): bool
     {
         if ($this->database->inTransaction()) {
             throw new \LogicException('Game Center held-job recovery owns its transaction.');
+        }
+        if (!Uuid::isValidV4($jobId)) {
+            throw new \InvalidArgumentException('Game Center outbox job ID is invalid.');
         }
         $statement = $this->database->prepare(
             "UPDATE game_center_publication_outbox SET state = 'pending', "
@@ -343,15 +394,16 @@ final class GameCenterPublicationRepository
             . 'available_at = :available_at, lock_token = NULL, locked_at = NULL, '
             . 'last_http_status = NULL, last_error_code = NULL, last_error = NULL, '
             . 'updated_at = :updated_at '
-            . "WHERE pre_released = :pre_released AND state = 'held'"
+            . "WHERE id = :id AND pre_released = :pre_released AND state = 'held'"
         );
         $timestamp = self::timestamp();
         $statement->execute([
             'available_at' => $timestamp,
             'updated_at' => $timestamp,
+            'id' => strtolower($jobId),
             'pre_released' => $this->preReleased ? 1 : 0,
         ]);
-        return $statement->rowCount();
+        return $statement->rowCount() === 1;
     }
 
     /** @return array<string, mixed>|null */
@@ -541,6 +593,9 @@ final class GameCenterPublicationRepository
         $appleCode = $error instanceof GameCenterAppleApiException
             ? $error->appleCode
             : null;
+        $diagnostic = $error instanceof GameCenterAppleApiException
+            ? $error->operatorDiagnostic()
+            : 'Internal Game Center publisher failure.';
         $update = $this->database->prepare(
             'UPDATE game_center_publication_outbox SET state = :state, '
             . 'available_at = :available_at, lock_token = NULL, locked_at = NULL, '
@@ -555,7 +610,7 @@ final class GameCenterPublicationRepository
         $update->bindValue(':error_code', $appleCode, $appleCode === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
         $update->bindValue(
             ':last_error',
-            mb_strcut($error->getMessage(), 0, 500, 'UTF-8'),
+            mb_strcut($diagnostic, 0, 500, 'UTF-8'),
         );
         $update->bindValue(':updated_at', self::timestamp());
         $update->bindValue(':id', self::jobString($job, 'id'));

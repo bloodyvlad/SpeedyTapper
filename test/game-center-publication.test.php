@@ -527,10 +527,13 @@ $permanentFailureClient = new class implements GameCenterSubmissionClient {
         bool $preReleased,
     ): string {
         throw new GameCenterAppleApiException(
-            'Apple rejected the configured achievement.',
+            'Apple Game Center submission failed.',
             false,
-            422,
-            'ENTITY_ERROR.ATTRIBUTE.INVALID',
+            403,
+            'FORBIDDEN_ERROR',
+            'Forbidden',
+            'The achievement component is not available for this app version',
+            '/data/attributes/vendorIdentifier',
         );
     }
 };
@@ -538,26 +541,94 @@ $heldResult = (new GameCenterOutboxWorker(
     $repository,
     $permanentFailureClient,
 ))->run(1);
-$heldState = $database->query(
-    "SELECT state FROM game_center_publication_outbox WHERE player_id = '{$playerTwo}' "
+$heldRow = $database->query(
+    "SELECT * FROM game_center_publication_outbox WHERE player_id = '{$playerTwo}' "
     . "AND publication_kind = 'achievement'"
-)->fetchColumn();
+)->fetch();
 $assert(
     $heldResult === ['claimed' => 1, 'delivered' => 0, 'superseded' => 0, 'failed' => 1]
-        && $heldState === 'held'
+        && is_array($heldRow)
+        && $heldRow['state'] === 'held'
+        && (int) $heldRow['last_http_status'] === 403
+        && $heldRow['last_error_code'] === 'FORBIDDEN_ERROR'
+        && str_contains(
+            (string) $heldRow['last_error'],
+            'The achievement component is not available for this app version',
+        )
+        && str_contains(
+            (string) $heldRow['last_error'],
+            '/data/attributes/vendorIdentifier',
+        )
         && $repository->status($playerTwo)['heldJobs'] === 1,
-    'Permanent Apple failures enter operator hold instead of retrying forever.',
+    'Permanent Apple failures enter operator hold with bounded sanitized diagnostics.',
 );
 $database->beginTransaction();
 $repository->enqueueAchievementInCurrentTransaction($playerTwo, 'buy_a_pet');
 $database->commit();
+$heldAchievementId = is_array($heldRow) ? (string) $heldRow['id'] : '';
 $assert(
     $database->query(
         "SELECT state FROM game_center_publication_outbox WHERE player_id = '{$playerTwo}' "
         . "AND publication_kind = 'achievement'"
-    )->fetchColumn() === 'held'
-        && $repository->requeueHeld() === 1,
-    'Ordinary gameplay cannot revive a held job; explicit operator recovery can.',
+    )->fetchColumn() === 'held',
+    'Ordinary gameplay cannot revive a held job.',
+);
+$heldLeaderboardId = '44444444-4444-4444-8444-444444444444';
+$database->exec(
+    "INSERT INTO game_center_publication_outbox "
+    . '(id, player_id, publication_kind, vendor_identifier, pre_released, desired_value, '
+    . 'desired_revision, state, attempt_count, available_at, last_http_status, '
+    . 'last_error_code, last_error, created_at, updated_at) VALUES '
+    . "('{$heldLeaderboardId}', '{$playerTwo}', 'leaderboard', '"
+    . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED
+    . "', 1, 77, 1, 'held', 1, CURRENT_TIMESTAMP, 409, "
+    . "'ENTITY_ERROR.ATTRIBUTE.TYPE', 'Apple rejected a numeric score.', "
+    . 'CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)'
+);
+$heldDiagnostics = $repository->heldDiagnostics();
+$diagnosticIds = array_column($heldDiagnostics, 'id');
+$assert(
+    count($heldDiagnostics) === 2
+        && in_array($heldAchievementId, $diagnosticIds, true)
+        && in_array($heldLeaderboardId, $diagnosticIds, true)
+        && !array_key_exists('playerId', $heldDiagnostics[0])
+        && !array_key_exists('scopedPlayerId', $heldDiagnostics[0]),
+    'Held-job inspection exposes exact operator IDs and sanitized errors without player identities.',
+);
+$heldAchievementRevision = (int) ($heldRow['desired_revision'] ?? 0);
+$assert(
+    $repository->requeueHeldById($heldAchievementId)
+        && !$repository->requeueHeldById($heldAchievementId)
+        && $database->query(
+            "SELECT state = 'pending' AND attempt_count = 0 "
+            . "AND desired_revision = {$heldAchievementRevision} + 1 "
+            . 'AND last_http_status IS NULL AND last_error_code IS NULL AND last_error IS NULL '
+            . "FROM game_center_publication_outbox WHERE id = '{$heldAchievementId}'"
+        )->fetchColumn() == 1
+        && $database->query(
+            "SELECT state FROM game_center_publication_outbox WHERE id = '{$heldLeaderboardId}'"
+        )->fetchColumn() === 'held',
+    'Exact held-job recovery resets only the selected row and cannot revive it twice.',
+);
+$wrongLaneRepository = new GameCenterPublicationRepository(
+    $database,
+    str_repeat('publication-secret-', 3),
+    false,
+);
+$invalidHeldIdRejected = false;
+try {
+    $repository->requeueHeldById('not-an-outbox-id');
+} catch (InvalidArgumentException) {
+    $invalidHeldIdRejected = true;
+}
+$assert(
+    $invalidHeldIdRejected
+        && !$wrongLaneRepository->requeueHeldById($heldLeaderboardId)
+        && $repository->requeueHeldById($heldLeaderboardId)
+        && $database->query(
+            "SELECT state FROM game_center_publication_outbox WHERE id = '{$heldAchievementId}'"
+        )->fetchColumn() === 'pending',
+    'Held recovery validates UUIDs and remains isolated to the configured Apple lane.',
 );
 
 $reviewEntryId = '33333333-3333-4333-8333-333333333333';
@@ -644,10 +715,10 @@ $assert(
             'bundleId' => 'com.otcsoftware.pimpopom',
             'vendorIdentifier' => GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
             'scopedPlayerId' => 'G:test',
-            'score' => 123456,
+            'score' => '123456',
             'preReleased' => true,
         ],
-    'Leaderboard requests use Apple JSON:API and encode the score as a JSON number.',
+    'Leaderboard requests use Apple JSON:API and encode the score as a decimal JSON string.',
 );
 $assert(
     $achievementBody['data']['attributes']['vendorIdentifier']
@@ -692,7 +763,14 @@ $retryClient = new AppStoreConnectGameCenterClient(
     $config,
     static fn (): array => [
         'status' => 429,
-        'body' => '{"errors":[{"code":"RATE_LIMIT_EXCEEDED","detail":"Slow down"}]}',
+        'body' => json_encode([
+            'errors' => [[
+                'code' => 'RATE_LIMIT_EXCEEDED',
+                'title' => "Too\tMany Requests",
+                'detail' => 'Player G:test sent Authorization: Bearer eyJsecret.payload.signature',
+                'source' => ['pointer' => '/data/attributes/score'],
+            ]],
+        ], JSON_THROW_ON_ERROR),
     ],
 );
 $retryable = false;
@@ -701,9 +779,52 @@ try {
 } catch (GameCenterAppleApiException $error) {
     $retryable = $error->retryable
         && $error->httpStatus === 429
-        && $error->appleCode === 'RATE_LIMIT_EXCEEDED';
+        && $error->appleCode === 'RATE_LIMIT_EXCEEDED'
+        && $error->appleTitle === 'Too Many Requests'
+        && str_contains($error->appleDetail ?? '', '[redacted]')
+        && !str_contains($error->appleDetail ?? '', 'G:test')
+        && !str_contains($error->appleDetail ?? '', 'eyJsecret')
+        && $error->appleSourcePointer === '/data/attributes/score'
+        && !str_contains($error->operatorDiagnostic(), 'G:test');
 }
-$assert($retryable, 'Apple rate limits are classified for durable outbox retry.');
+$assert(
+    $retryable,
+    'Apple rate limits retain only bounded sanitized diagnostics for durable outbox retry.',
+);
+
+$hostileClient = new AppStoreConnectGameCenterClient(
+    $config,
+    static fn (): array => [
+        'status' => 403,
+        'body' => json_encode([
+            'errors' => [[
+                'code' => "FORBIDDEN_ERROR\nINJECTED",
+                'title' => 'Forbidden for G:hostile-player',
+                'detail' => 'Authorization: Bearer eyJsecret.payload.signature '
+                    . 'owner@example.com ' . str_repeat('A', 64),
+                'source' => ['pointer' => '/data/attributes/G:hostile-player'],
+            ]],
+        ], JSON_THROW_ON_ERROR),
+    ],
+);
+$hostileDiagnosticWasSanitized = false;
+try {
+    $hostileClient->submitAchievement('G:hostile-player', 'complete_arcade', true);
+} catch (GameCenterAppleApiException $error) {
+    $operatorDiagnostic = $error->operatorDiagnostic();
+    $hostileDiagnosticWasSanitized = $error->appleCode === null
+        && $error->appleSourcePointer === null
+        && str_contains($operatorDiagnostic, '[redacted]')
+        && !str_contains($operatorDiagnostic, 'G:hostile-player')
+        && !str_contains($operatorDiagnostic, 'eyJsecret')
+        && !str_contains($operatorDiagnostic, 'owner@example.com')
+        && !str_contains($operatorDiagnostic, str_repeat('A', 64))
+        && strlen($operatorDiagnostic) <= 500;
+}
+$assert(
+    $hostileDiagnosticWasSanitized,
+    'Reflected player IDs, credentials, opaque values, and malformed metadata never enter diagnostics.',
+);
 
 fwrite(
     STDOUT,

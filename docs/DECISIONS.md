@@ -993,3 +993,18 @@ This is an operational alpha reset, not a substitute for the normal per-user del
 Consequences: Backend identity, progress, economy, and Game Center state can be validated from a known-empty baseline without reopening old Apple transactions for duplicate credit. The brief maintenance window prevents concurrent account creation or publication from racing the reset. Restoring the pre-reset database remains possible from the verified backup, but Apple-side state is not rolled back by that database restore.
 
 Revisit when: Another environment needs a clean-room reset, retained payment evidence reaches its approved legal retention limit, Apple provides an app-wide test-data API, or migration operations move to a dedicated maintenance/queue system.
+
+## D-071 — Match live Game Center submission types and recover held jobs exactly
+
+- Date: 2026-07-27
+- Status: Accepted
+
+Context: A live TestFlight publication attempt reached the PHP outbox and Apple rejected the leaderboard with `409 ENTITY_ERROR.ATTRIBUTE.TYPE` while rejecting four achievements with `403 FORBIDDEN_ERROR`. The leaderboard request encoded `score` as a JSON number, but Apple's endpoint example encodes it as a string and the live rejection confirms that wire requirement. The achievement payload shape matches the documented example, while the stored error omitted Apple's useful title, detail, and source pointer. The existing operator recovery flag also revived every held row in a lane, making the intended one-score/one-achievement diagnostic retry unsafe.
+
+Decision: Keep score authority and outbox desired values as validated integers, but serialize only the outbound App Store Connect leaderboard `score` attribute as a base-ten JSON string. Parse the first Apple JSON:API error into a strict ASCII code, bounded title/detail with reflected request body, scoped player ID, credentials, email-like and opaque values redacted, and a source pointer accepted only from the fixed local request-field allowlist. Persist only that sanitized operator diagnostic in the existing private outbox error field; never persist the raw Apple body, headers, JWT, request body, or scoped player ID, and never expose diagnostics through the public session API.
+
+Replace lane-wide held recovery with an exact, lane-scoped outbox UUID operation. Provide a read-only held listing that omits player/internal/scoped identifiers, reject the old bare bulk-requeue flag, and make exact recovery exit without sending so the normal worker performs its usual authority revalidation on the subsequent invocation. Recover mixed failures in this order: one leaderboard row and one achievement row, confirm the corrected leaderboard delivery, use the sanitized achievement diagnostic to distinguish key permissions from component/app-version review configuration, then recover the remaining achievements only after that cause is corrected. New Game Center components must still be associated with the first app-version review submission as required by App Store Connect.
+
+Consequences: The Apple wire contract changes without altering PHP scores, player data, wallets, achievements, native endpoints, or the server-authoritative trust model. Existing held rows remain untouched until an operator explicitly selects their UUID. No schema migration or player-data deletion is required. Sanitized diagnostics improve configuration diagnosis while exact recovery prevents a retry storm or repeated known-permanent failures.
+
+Revisit when: Apple makes its leaderboard schema and endpoint example consistent, adds structured permission diagnostics that do not contain reflected values, supports request idempotency or batch recovery, or the outbox moves to a dedicated operator queue.

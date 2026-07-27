@@ -50,9 +50,9 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
                 'bundleId' => $this->config->storeKitBundleId,
                 'vendorIdentifier' => GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
                 'scopedPlayerId' => self::normalizedScopedPlayerId($scopedPlayerId),
-                // Apple's current App Store Connect schema requires a JSON
-                // number. PHP integers are 64-bit on the supported runtime.
-                'score' => $score,
+                // Apple's submission example and live endpoint require a
+                // decimal JSON string despite conflicting schema metadata.
+                'score' => (string) $score,
                 'preReleased' => $preReleased,
             ],
         );
@@ -101,7 +101,12 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
         $status = (int) ($response['status'] ?? 0);
         $raw = $response['body'] ?? '';
         if ($status !== 201) {
-            throw $this->responseException($status, is_string($raw) ? $raw : '');
+            throw $this->responseException(
+                $status,
+                is_string($raw) ? $raw : '',
+                $attributes,
+                $body,
+            );
         }
         try {
             $decoded = json_decode((string) $raw, true, 32, JSON_THROW_ON_ERROR);
@@ -185,9 +190,19 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
         return ['status' => $status, 'headers' => $responseHeaders, 'body' => $raw];
     }
 
-    private function responseException(int $status, string $raw): GameCenterAppleApiException
-    {
+    /**
+     * @param array<string, bool|int|string> $attributes
+     */
+    private function responseException(
+        int $status,
+        string $raw,
+        array $attributes,
+        string $requestBody,
+    ): GameCenterAppleApiException {
         $code = null;
+        $title = null;
+        $detail = null;
+        $sourcePointer = null;
         try {
             $decoded = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
             $first = is_array($decoded) && is_array($decoded['errors'] ?? null)
@@ -195,7 +210,26 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
                 : null;
             if (is_array($first)) {
                 $candidateCode = $first['code'] ?? null;
-                $code = is_string($candidateCode) ? mb_strcut($candidateCode, 0, 128) : null;
+                $code = self::sanitizedAppleCode($candidateCode);
+                $sensitiveValues = [$requestBody];
+                $scopedPlayerId = $attributes['scopedPlayerId'] ?? null;
+                if (is_string($scopedPlayerId) && $scopedPlayerId !== '') {
+                    $sensitiveValues[] = $scopedPlayerId;
+                }
+                $title = self::sanitizedAppleText(
+                    $first['title'] ?? null,
+                    $sensitiveValues,
+                    120,
+                );
+                $detail = self::sanitizedAppleText(
+                    $first['detail'] ?? null,
+                    $sensitiveValues,
+                    280,
+                );
+                $source = $first['source'] ?? null;
+                $sourcePointer = self::sanitizedAppleSourcePointer(
+                    is_array($source) ? ($source['pointer'] ?? null) : null,
+                );
             }
         } catch (\JsonException) {
         }
@@ -205,13 +239,100 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
             || $status === 429
             || $status >= 500;
         return new GameCenterAppleApiException(
-            'Apple Game Center submission failed'
-                . ($code === null ? '' : ' (' . $code . ')')
-                . '.',
+            'Apple Game Center submission failed.',
             $retryable,
             $status > 0 ? $status : null,
             $code,
+            $title,
+            $detail,
+            $sourcePointer,
         );
+    }
+
+    private static function sanitizedAppleCode(mixed $value): ?string
+    {
+        if (
+            !is_string($value)
+            || preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $value) !== 1
+        ) {
+            return null;
+        }
+        return $value;
+    }
+
+    /**
+     * Apple diagnostic strings are untrusted and may reflect request values.
+     * Keep only bounded operator context after removing exact request secrets
+     * and common credential/player-identity shapes.
+     *
+     * @param list<string> $sensitiveValues
+     */
+    private static function sanitizedAppleText(
+        mixed $value,
+        array $sensitiveValues,
+        int $limit,
+    ): ?string {
+        if (!is_string($value) || $value === '' || $limit < 1) {
+            return null;
+        }
+        foreach ($sensitiveValues as $sensitiveValue) {
+            if ($sensitiveValue !== '') {
+                $value = str_replace($sensitiveValue, '[redacted]', $value);
+            }
+        }
+        $patterns = [
+            '/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----/is'
+                => '[redacted-key]',
+            '/\bAuthorization\s*:\s*Bearer\s+\S+/i' => 'Authorization: Bearer [redacted]',
+            '/\bBearer\s+[A-Za-z0-9._~+\/=-]{12,}/i' => 'Bearer [redacted]',
+            '/\beyJ[A-Za-z0-9_-]{5,}(?:\.[A-Za-z0-9_-]{5,}){2}\b/'
+                => '[redacted-token]',
+            '/\b(?:G|T|U):[A-Za-z0-9._~+\/=-]{3,}\b/' => '[redacted-player]',
+            '/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i'
+                => '[redacted-id]',
+            '/\b[A-Za-z0-9+\/_-]{40,}={0,2}\b/' => '[redacted-opaque]',
+            '/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i' => '[redacted-email]',
+        ];
+        $value = preg_replace(
+            array_keys($patterns),
+            array_values($patterns),
+            $value,
+        );
+        if (!is_string($value)) {
+            return null;
+        }
+        // Reject reflected JSON fragments even when Apple did not echo the
+        // complete request body byte-for-byte.
+        if (str_contains($value, '{') || str_contains($value, '}')) {
+            return null;
+        }
+        $value = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value);
+        $value = is_string($value) ? preg_replace('/\s+/u', ' ', $value) : null;
+        if (!is_string($value)) {
+            return null;
+        }
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        return mb_strcut($value, 0, $limit, 'UTF-8');
+    }
+
+    private static function sanitizedAppleSourcePointer(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        return in_array($value, [
+            '/data',
+            '/data/type',
+            '/data/attributes/bundleId',
+            '/data/attributes/vendorIdentifier',
+            '/data/attributes/scopedPlayerId',
+            '/data/attributes/score',
+            '/data/attributes/percentageAchieved',
+            '/data/attributes/preReleased',
+        ], true) ? $value : null;
     }
 
     private function jwt(): string

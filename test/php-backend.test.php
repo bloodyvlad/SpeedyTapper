@@ -1088,8 +1088,11 @@ $assert(
         && str_contains($gameCenterWorker, 'GET_LOCK')
         && str_contains($gameCenterWorker, 'RELEASE_LOCK')
         && str_contains($gameCenterWorker, '--backfill')
-        && str_contains($gameCenterWorker, '--requeue-held'),
-    'The bounded Game Center publisher serializes Hostinger cron workers with an advisory lock.',
+        && str_contains($gameCenterWorker, '--list-held')
+        && str_contains($gameCenterWorker, '--requeue-held=OUTBOX_UUID')
+        && str_contains($gameCenterWorker, 'requeueHeldById')
+        && !str_contains($gameCenterWorker, "\$argument === '--requeue-held'"),
+    'The bounded Game Center publisher serializes workers and permits only exact held-job recovery.',
 );
 $assert(
     is_string($gameCenterMigration)
