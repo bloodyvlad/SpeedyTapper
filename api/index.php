@@ -42,6 +42,19 @@ if (is_file($composerAutoload)) {
     require $composerAutoload;
 }
 
+// Release operators may inject this untracked marker into a deployment
+// artifact while a destructive, separately-invoked database migration runs.
+// Check it before parsing requests, opening sessions, or connecting to MySQL so
+// no API write can race the reset. The marker is never part of a Git commit.
+if (is_file($projectRoot . '/server/.maintenance')) {
+    JsonResponse::send(
+        503,
+        ['error' => 'PimPoPom is briefly unavailable for maintenance.'],
+        ['Retry-After' => '60'],
+    );
+    return;
+}
+
 try {
     $request = HttpRequest::fromGlobals();
     $config = Config::load($projectRoot);

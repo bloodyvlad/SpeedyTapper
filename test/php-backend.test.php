@@ -553,7 +553,14 @@ $throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot clai
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
 $compatibleBuildProofs = [];
-foreach (['20260718-1', '20260719-1', '20260719-2'] as $compatibleBuildId) {
+foreach ([
+    '20260718-1',
+    '20260719-1',
+    '20260719-2',
+    '20260719-3',
+    '20260720-1',
+    '20260725-1',
+] as $compatibleBuildId) {
     $compatibleBuildPayload = $singleHitPayload;
     $compatibleBuildPayload['buildId'] = $compatibleBuildId;
     $compatibleBuildProofs[$compatibleBuildId] = RunProof::fromArray($compatibleBuildPayload);
@@ -1061,6 +1068,9 @@ $gameCenterWorker = file_get_contents(
 $gameCenterMigration = file_get_contents(
     dirname(__DIR__) . '/server/migrations/019_game_center_server_publication.sql'
 );
+$internalAlphaResetMigration = file_get_contents(
+    dirname(__DIR__) . '/server/migrations/020_reset_internal_alpha_player_data.sql'
+);
 $deploymentBootstrap = file_get_contents(dirname(__DIR__) . '/server/src/DeploymentBootstrap.php');
 $assert(str_contains($apiBootstrap, 'new RunAttemptService') && str_contains($apiBootstrap, 'new RunProofValidator'), 'The HTTP API wires issued attempts to server proof replay.');
 $assert(
@@ -1089,6 +1099,69 @@ $assert(
         && str_contains($gameCenterMigration, "'DO 1'")
         && str_contains($gameCenterMigration, 'CREATE TABLE IF NOT EXISTS'),
     'The Game Center migration is retry-safe across auto-committed columns, keys, constraints, and table creation.',
+);
+$assert(
+    is_string($internalAlphaResetMigration)
+        && str_contains(
+            $internalAlphaResetMigration,
+            "GET_LOCK(\n    'speedytapper-game-center-publish-prerelease'"
+        )
+        && str_contains(
+            $internalAlphaResetMigration,
+            "GET_LOCK(\n    'speedytapper-storekit-reconcile-production'"
+        )
+        && str_contains(
+            $internalAlphaResetMigration,
+            'allocation.spend_reference_pseudonym = transaction_record.account_token_pseudonym'
+        )
+        && str_contains($internalAlphaResetMigration, 'INSERT IGNORE INTO migration_data_markers')
+        && str_contains(
+            $internalAlphaResetMigration,
+            'SET @speedytapper_internal_alpha_reset_claimed = ROW_COUNT()'
+        )
+        && str_contains(
+            $internalAlphaResetMigration,
+            'account_deleted_at = COALESCE(account_deleted_at, UTC_TIMESTAMP(3))'
+        )
+        && str_contains($internalAlphaResetMigration, 'DELETE FROM game_center_publication_outbox')
+        && str_contains($internalAlphaResetMigration, 'DELETE FROM run_trace_claims')
+        && str_contains($internalAlphaResetMigration, 'DELETE FROM player_achievements')
+        && str_contains($internalAlphaResetMigration, 'DELETE FROM player_storekit_bindings')
+        && str_contains($internalAlphaResetMigration, 'DELETE FROM players')
+        && str_contains(
+            $internalAlphaResetMigration,
+            '020-internal-alpha-player-data-reset-20260727-v1'
+        ),
+    'The one-time internal-alpha reset fences publishers and removes every live player surface.',
+);
+$assert(
+    is_string($internalAlphaResetMigration)
+        && !str_contains($internalAlphaResetMigration, 'DELETE FROM storekit_transactions')
+        && !str_contains($internalAlphaResetMigration, 'DELETE FROM storekit_notifications')
+        && !str_contains(
+            $internalAlphaResetMigration,
+            'DELETE FROM storekit_transaction_observations'
+        )
+        && !str_contains($internalAlphaResetMigration, 'DELETE FROM purchased_coin_lots')
+        && !str_contains($internalAlphaResetMigration, 'TRUNCATE')
+        && !str_contains($internalAlphaResetMigration, 'FOREIGN_KEY_CHECKS'),
+    'The reset retains StoreKit settlement/idempotency evidence and never bypasses foreign keys.',
+);
+$assert(
+    is_string($internalAlphaResetMigration)
+        && strpos($internalAlphaResetMigration, 'DELETE FROM run_trace_claims')
+            < strpos($internalAlphaResetMigration, 'DELETE FROM run_attempts')
+        && strpos($internalAlphaResetMigration, 'DELETE FROM game_center_publication_outbox')
+            < strpos($internalAlphaResetMigration, 'DELETE FROM player_game_center_bindings')
+        && strpos($internalAlphaResetMigration, 'DELETE FROM player_storekit_bindings')
+            < strpos($internalAlphaResetMigration, 'DELETE FROM players'),
+    'The reset orders restrictive child cleanup before parent deletion.',
+);
+$assert(
+    str_contains($apiBootstrap, "is_file(\$projectRoot . '/server/.maintenance')")
+        && strpos($apiBootstrap, "is_file(\$projectRoot . '/server/.maintenance')")
+            < strpos($apiBootstrap, 'HttpRequest::fromGlobals()'),
+    'An injected maintenance marker blocks API work before request/session/database setup.',
 );
 $assert(
     str_contains($app, "['challengeId', 'state', 'identityToken', 'authorizationCode']")
