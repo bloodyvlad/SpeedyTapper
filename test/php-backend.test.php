@@ -1065,6 +1065,9 @@ $apiBootstrap = file_get_contents(dirname(__DIR__) . '/api/index.php');
 $gameCenterWorker = file_get_contents(
     dirname(__DIR__) . '/server/bin/publish-game-center.php'
 );
+$gameCenterKeyConfigurator = file_get_contents(
+    dirname(__DIR__) . '/server/bin/configure-game-center-publisher-key.php'
+);
 $gameCenterMigration = file_get_contents(
     dirname(__DIR__) . '/server/migrations/019_game_center_server_publication.sql'
 );
@@ -1093,6 +1096,23 @@ $assert(
         && str_contains($gameCenterWorker, 'requeueHeldById')
         && !str_contains($gameCenterWorker, "\$argument === '--requeue-held'"),
     'The bounded Game Center publisher serializes workers and permits only exact held-job recovery.',
+);
+$assert(
+    is_string($gameCenterKeyConfigurator)
+        && str_contains($gameCenterKeyConfigurator, '--key-id=APP_STORE_CONNECT_KEY_ID')
+        && str_contains($gameCenterKeyConfigurator, "AuthKey_' . \$keyId . '.p8")
+        && str_contains($gameCenterKeyConfigurator, 'SPEEDYTAPPER_GAME_CENTER_API_KEY_ID')
+        && str_contains($gameCenterKeyConfigurator, 'SPEEDYTAPPER_GAME_CENTER_API_PRIVATE_KEY_PATH')
+        && str_contains($gameCenterKeyConfigurator, 'SPEEDYTAPPER_STOREKIT_KEY_ID')
+        && str_contains($gameCenterKeyConfigurator, 'SPEEDYTAPPER_APPLE_SIGNIN_KEY_ID')
+        && str_contains($gameCenterKeyConfigurator, 'SPEEDYTAPPER_CONFIG_PATH')
+        && str_contains($gameCenterKeyConfigurator, 'is_link')
+        && str_contains($gameCenterKeyConfigurator, '0o077')
+        && str_contains($gameCenterKeyConfigurator, "fopen(\$temporaryPath, 'x+b')")
+        && str_contains($gameCenterKeyConfigurator, 'umask(0o077)')
+        && str_contains($gameCenterKeyConfigurator, 'prime256v1')
+        && str_contains($gameCenterKeyConfigurator, 'rename($temporaryPath, $configurationPath)'),
+    'Game Center key rotation validates one distinct owner-only P-256 team key atomically.',
 );
 $assert(
     is_string($gameCenterMigration)

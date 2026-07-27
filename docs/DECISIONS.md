@@ -1008,3 +1008,16 @@ Replace lane-wide held recovery with an exact, lane-scoped outbox UUID operation
 Consequences: The Apple wire contract changes without altering PHP scores, player data, wallets, achievements, native endpoints, or the server-authoritative trust model. Existing held rows remain untouched until an operator explicitly selects their UUID. No schema migration or player-data deletion is required. Sanitized diagnostics improve configuration diagnosis while exact recovery prevents a retry storm or repeated known-permanent failures.
 
 Revisit when: Apple makes its leaderboard schema and endpoint example consistent, adds structured permission diagnostics that do not contain reflected values, supports request idempotency or batch recovery, or the outbox moves to a dedicated operator queue.
+
+## D-072 — Rotate Game Center publisher credentials explicitly, never by fallback
+
+- Date: 2026-07-27
+- Status: Accepted
+
+Context: After the corrected leaderboard score reached Apple's authorization layer, App Store Connect returned `403 FORBIDDEN_ERROR` with `The API key in use does not allow this request.` Multiple private Apple keys may exist on the host, but file presence does not grant permission or select a credential. Automatically trying broader keys would obscure authorization errors, expand credential exposure, and make publication behavior nondeterministic.
+
+Decision: Select exactly one dedicated App Store Connect team key through the private Game Center key ID/path configuration. Provide a guarded host-only command that derives the expected private-key path from the requested key ID; rejects explicit-path or Game Center environment overrides, unsafe configuration directories, symlinked or weakly protected files, invalid/non-P-256 material, and StoreKit or Sign in with Apple key reuse; creates its staged configuration exclusively with owner-only permissions; validates the complete staged runtime configuration; and atomically changes only the two Game Center credential selectors. Never retry an Apple request automatically with another credential.
+
+Consequences: Credential rotation is explicit, auditable through the chosen public key ID, and cannot leak private configuration. Existing outbox rows remain held until an operator retries their exact UUID after rotation. A broader Admin/App Manager key may diagnose or unblock score publication, while a least-privilege dedicated key should replace it later once its immutable App Store Connect role is confirmed to allow player-score management.
+
+Revisit when: Apple introduces a narrower purpose-built Game Center player-score key role, exposes team-key role inspection through a supported API, or Hostinger provides a managed secret/versioning facility with atomic activation.
