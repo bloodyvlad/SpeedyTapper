@@ -560,6 +560,9 @@ foreach ([
     '20260719-3',
     '20260720-1',
     '20260725-1',
+    '20260727-1',
+    '20260727-2',
+    '20260727-3',
 ] as $compatibleBuildId) {
     $compatibleBuildPayload = $singleHitPayload;
     $compatibleBuildPayload['buildId'] = $compatibleBuildId;
@@ -796,9 +799,32 @@ $assert(
     !str_contains($app, '/api/auth/game-center')
         && str_contains($app, "'gamePlayerId'")
         && str_contains($app, "'publish'")
+        && str_contains($app, '$publish !== true')
         && str_contains($app, 'gamePlayerIdNewlyBound')
+        && str_contains($app, "'reassigned'")
         && str_contains($app, 'serverPublicationAvailable'),
-    'Game Center remains link-only while exposing a separate encrypted server-publication state.',
+    'Game Center remains authenticated-session link-only and requires publication.',
+);
+$challengeRouteStart = strpos($app, "path === '/api/profile/game-center/challenge'");
+$linkRouteStart = strpos($app, "path === '/api/profile/game-center'");
+$disableRouteStart = strpos($app, "path === '/api/profile/game-center/publication'");
+$assert(
+    is_int($challengeRouteStart)
+        && is_int($linkRouteStart)
+        && is_int($disableRouteStart)
+        && !str_contains(
+            substr($app, $challengeRouteStart, $linkRouteStart - $challengeRouteStart),
+            'requireRecentPrimaryAuthentication',
+        )
+        && !str_contains(
+            substr($app, $linkRouteStart, $disableRouteStart - $linkRouteStart),
+            'requireRecentPrimaryAuthentication',
+        )
+        && str_contains(
+            substr($app, $disableRouteStart, 900),
+            'requireRecentPrimaryAuthentication',
+        ),
+    'Long-lived authenticated sessions can auto-link Game Center while publication disable stays sensitive.',
 );
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
 $assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
@@ -992,14 +1018,15 @@ $assert(
 );
 $assert(
     is_string($identityService)
-        && str_contains($identityService, 'enableInCurrentTransaction')
+        && str_contains($identityService, 'assignCurrentProfile')
         && str_contains($identityService, 'gamePlayerIdNewlyBound')
-        && str_contains($identityService, 'Game Center gamePlayerID is accepted only when publication is enabled.'),
-    'A signed Game Center team link gates the separate one-to-one scoped-player publication association.',
+        && str_contains($identityService, 'Game Center automatic linking requires publication.'),
+    'A signed Game Center team link atomically assigns the published pair to the current profile.',
 );
 $assert(
     is_string($gameCenterPublicationSource)
-        && str_contains($gameCenterPublicationSource, 'withPlayerPublicationLock')
+        && str_contains($gameCenterPublicationSource, 'withPlayerPublicationLocks')
+        && str_contains($gameCenterPublicationSource, 'revisionCancelOutboxes')
         && str_contains($gameCenterPublicationSource, "state = 'held'")
         && str_contains($gameCenterPublicationSource, 'requeueHeld')
         && is_string($accountDeletionSource)

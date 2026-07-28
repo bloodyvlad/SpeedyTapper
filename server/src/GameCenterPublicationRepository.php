@@ -11,10 +11,12 @@ use Throwable;
  * Owns the encrypted client-asserted gamePlayerID association and the
  * coalescing desired-state outbox. Apple does not sign this identifier in the
  * ordinary non-Apple-Arcade identity tuple; callers must first verify the
- * signed teamPlayerID and a fresh primary-authenticated link challenge.
+ * signed teamPlayerID and a fresh authenticated-session link challenge.
  */
 final class GameCenterPublicationRepository
 {
+    private const ASSIGNMENT_ATTEMPTS = 4;
+
     private string $encryptionKey;
 
     public function __construct(
@@ -36,17 +38,30 @@ final class GameCenterPublicationRepository
     }
 
     /**
-     * @return array{enabled: bool, newlyBound: bool}
+     * Atomically makes the submitted Game Center pair publish the current
+     * PimPoPom profile. Game Center is secondary identity only: this operation
+     * never moves or merges any profile-owned data.
+     *
+     * @return array{
+     *   enabled: bool,
+     *   linked: bool,
+     *   newlyBound: bool,
+     *   reassigned: bool
+     * }
      */
-    public function enableInCurrentTransaction(
+    public function assignCurrentProfile(
         string $playerId,
         string $teamPlayerIdHash,
         string $gamePlayerId,
+        string $assertionHash,
+        string $assertionExpiresAt,
     ): array {
-        $this->requireTransaction();
+        if ($this->database->inTransaction()) {
+            throw new \LogicException('Game Center reassignment must own its transaction.');
+        }
         $playerId = self::normalizedPlayerId($playerId);
-        if (strlen($teamPlayerIdHash) !== 32) {
-            throw new \InvalidArgumentException('Game Center team-player digest is invalid.');
+        if (strlen($teamPlayerIdHash) !== 32 || strlen($assertionHash) !== 32) {
+            throw new \InvalidArgumentException('Game Center identity digest is invalid.');
         }
         $gamePlayerId = self::normalizedGamePlayerId($gamePlayerId);
         $gamePlayerIdHash = hash(
@@ -54,61 +69,194 @@ final class GameCenterPublicationRepository
             "game_center_game_player\0" . $gamePlayerId,
             true,
         );
-        $binding = $this->binding($playerId, true);
-        if ($binding === null) {
-            throw new ApiException(409, 'Link Game Center identity before enabling publication.');
-        }
-        $storedTeamHash = $binding['team_player_id_hash'] ?? null;
-        if (!is_string($storedTeamHash) || !hash_equals($storedTeamHash, $teamPlayerIdHash)) {
-            throw new ApiException(409, 'Game Center identity changed during linking.');
-        }
-        $existingHash = $binding['game_player_id_hash'] ?? null;
-        if (is_string($existingHash) && !hash_equals($existingHash, $gamePlayerIdHash)) {
-            throw new ApiException(
-                409,
-                'This PimPoPom profile already publishes to a different Game Center player.',
-            );
-        }
-        $owner = $this->playerForGamePlayerHash($gamePlayerIdHash, true);
-        if ($owner !== null && !hash_equals($owner, $playerId)) {
-            throw new ApiException(
-                409,
-                'This Game Center player already publishes another PimPoPom profile.',
-            );
-        }
+        [$ciphertext, $iv, $tag] = $this->encrypt(
+            $playerId,
+            $teamPlayerIdHash,
+            $gamePlayerId,
+        );
 
-        $newlyBound = !is_string($existingHash);
-        $timestamp = self::timestamp();
-        if ($newlyBound) {
-            [$ciphertext, $iv, $tag] = $this->encrypt(
+        for ($attempt = 1; $attempt <= self::ASSIGNMENT_ATTEMPTS; $attempt++) {
+            $preliminaryPlayers = $this->affectedPlayerIds(
                 $playerId,
                 $teamPlayerIdHash,
-                $gamePlayerId,
+                $gamePlayerIdHash,
+                false,
             );
-            $update = $this->database->prepare(
-                'UPDATE player_game_center_bindings SET '
-                . 'game_player_id_hash = :game_player_id_hash, '
-                . 'game_player_id_ciphertext = :ciphertext, game_player_id_iv = :iv, '
-                . 'game_player_id_tag = :tag, publication_enabled_at = :enabled_at, '
-                . 'publication_disabled_at = NULL WHERE player_id = :player_id'
-            );
-            $update->bindValue(':game_player_id_hash', $gamePlayerIdHash, PDO::PARAM_LOB);
-            $update->bindValue(':ciphertext', $ciphertext, PDO::PARAM_LOB);
-            $update->bindValue(':iv', $iv, PDO::PARAM_LOB);
-            $update->bindValue(':tag', $tag, PDO::PARAM_LOB);
-            $update->bindValue(':enabled_at', $timestamp);
-            $update->bindValue(':player_id', $playerId);
-            $update->execute();
-        } else {
-            $update = $this->database->prepare(
-                'UPDATE player_game_center_bindings SET publication_enabled_at = :enabled_at, '
-                . 'publication_disabled_at = NULL '
-                . 'WHERE player_id = :player_id'
-            );
-            $update->execute(['enabled_at' => $timestamp, 'player_id' => $playerId]);
+            try {
+                return $this->withPlayerPublicationLocks(
+                    $preliminaryPlayers,
+                    function () use (
+                        $playerId,
+                        $teamPlayerIdHash,
+                        $gamePlayerIdHash,
+                        $ciphertext,
+                        $iv,
+                        $tag,
+                        $assertionHash,
+                        $assertionExpiresAt,
+                        $preliminaryPlayers,
+                    ): array {
+                        return $this->assignWhileLocked(
+                            $playerId,
+                            $teamPlayerIdHash,
+                            $gamePlayerIdHash,
+                            $ciphertext,
+                            $iv,
+                            $tag,
+                            $assertionHash,
+                            $assertionExpiresAt,
+                            $preliminaryPlayers,
+                        );
+                    },
+                );
+            } catch (GameCenterAssignmentRetry $error) {
+                if ($attempt === self::ASSIGNMENT_ATTEMPTS) {
+                    break;
+                }
+            } catch (\PDOException $error) {
+                $this->rollBack();
+                if ($error->getCode() !== '23000') {
+                    throw $error;
+                }
+                if ($attempt === self::ASSIGNMENT_ATTEMPTS) {
+                    break;
+                }
+            }
         }
-        $this->backfillInCurrentTransaction($playerId);
-        return ['enabled' => true, 'newlyBound' => $newlyBound];
+        throw new ApiException(
+            503,
+            'Game Center ownership changed while linking. Please try again.',
+        );
+    }
+
+    /**
+     * @param list<string> $lockedPlayerIds
+     * @return array{
+     *   enabled: bool,
+     *   linked: bool,
+     *   newlyBound: bool,
+     *   reassigned: bool
+     * }
+     */
+    private function assignWhileLocked(
+        string $playerId,
+        string $teamPlayerIdHash,
+        string $gamePlayerIdHash,
+        string $ciphertext,
+        string $iv,
+        string $tag,
+        string $assertionHash,
+        string $assertionExpiresAt,
+        array $lockedPlayerIds,
+    ): array {
+        $this->database->beginTransaction();
+        try {
+            $this->lockPlayers($lockedPlayerIds, $playerId);
+            $actualPlayerIds = $this->affectedPlayerIds(
+                $playerId,
+                $teamPlayerIdHash,
+                $gamePlayerIdHash,
+                true,
+            );
+            if (array_diff($actualPlayerIds, $lockedPlayerIds) !== []) {
+                throw new GameCenterAssignmentRetry(
+                    'Game Center binding ownership changed during lock acquisition.',
+                );
+            }
+            $bindings = $this->affectedBindings(
+                $playerId,
+                $teamPlayerIdHash,
+                $gamePlayerIdHash,
+                true,
+            );
+            $current = null;
+            foreach ($bindings as $binding) {
+                if (hash_equals($playerId, (string) $binding['player_id'])) {
+                    $current = $binding;
+                    break;
+                }
+            }
+
+            $this->consumeAssertion($assertionHash, $assertionExpiresAt);
+            $timestamp = self::timestamp();
+            $currentTeamHash = is_string($current['team_player_id_hash'] ?? null)
+                ? $current['team_player_id_hash']
+                : null;
+            $currentGameHash = is_string($current['game_player_id_hash'] ?? null)
+                ? $current['game_player_id_hash']
+                : null;
+            $sameTeam = is_string($currentTeamHash)
+                && hash_equals($currentTeamHash, $teamPlayerIdHash);
+            $sameGame = is_string($currentGameHash)
+                && hash_equals($currentGameHash, $gamePlayerIdHash);
+            $hasCompleteCiphertext = is_string($current['game_player_id_ciphertext'] ?? null)
+                && is_string($current['game_player_id_iv'] ?? null)
+                && is_string($current['game_player_id_tag'] ?? null);
+
+            if ($sameTeam && $sameGame && $hasCompleteCiphertext) {
+                $touch = $this->database->prepare(
+                    'UPDATE player_game_center_bindings SET '
+                    . 'last_verified_at = :last_verified_at, '
+                    . 'publication_enabled_at = COALESCE(publication_enabled_at, :enabled_at), '
+                    . 'publication_disabled_at = NULL WHERE player_id = :player_id'
+                );
+                $touch->execute([
+                    'last_verified_at' => $timestamp,
+                    'enabled_at' => $timestamp,
+                    'player_id' => $playerId,
+                ]);
+                $this->backfillInCurrentTransaction($playerId);
+                $this->database->commit();
+                return [
+                    'enabled' => true,
+                    'linked' => false,
+                    'newlyBound' => false,
+                    'reassigned' => false,
+                ];
+            }
+
+            $reassigned = $current !== null
+                && (!$sameTeam || (is_string($currentGameHash) && !$sameGame));
+            foreach ($bindings as $binding) {
+                if (!hash_equals($playerId, (string) $binding['player_id'])) {
+                    $reassigned = true;
+                    break;
+                }
+            }
+            $this->revisionCancelOutboxes($actualPlayerIds, $timestamp);
+            $this->deleteBindings($actualPlayerIds);
+
+            $insert = $this->database->prepare(
+                'INSERT INTO player_game_center_bindings '
+                . '(player_id, team_player_id_hash, game_player_id_hash, '
+                . 'game_player_id_ciphertext, game_player_id_iv, game_player_id_tag, '
+                . 'linked_at, last_verified_at, publication_enabled_at, publication_disabled_at) '
+                . 'VALUES (:player_id, :team_player_id_hash, :game_player_id_hash, '
+                . ':ciphertext, :iv, :tag, :linked_at, :last_verified_at, :enabled_at, NULL)'
+            );
+            $insert->bindValue(':player_id', $playerId);
+            $insert->bindValue(':team_player_id_hash', $teamPlayerIdHash, PDO::PARAM_LOB);
+            $insert->bindValue(':game_player_id_hash', $gamePlayerIdHash, PDO::PARAM_LOB);
+            $insert->bindValue(':ciphertext', $ciphertext, PDO::PARAM_LOB);
+            $insert->bindValue(':iv', $iv, PDO::PARAM_LOB);
+            $insert->bindValue(':tag', $tag, PDO::PARAM_LOB);
+            $insert->bindValue(':linked_at', $timestamp);
+            $insert->bindValue(':last_verified_at', $timestamp);
+            $insert->bindValue(':enabled_at', $timestamp);
+            $insert->execute();
+
+            $this->backfillInCurrentTransaction($playerId);
+            $this->database->commit();
+            return [
+                'enabled' => true,
+                'linked' => !$sameTeam,
+                'newlyBound' => true,
+                'reassigned' => $reassigned,
+            ];
+        } catch (Throwable $error) {
+            $this->rollBack();
+            throw $error;
+        }
     }
 
     /** @return array{disabled: bool} */
@@ -170,27 +318,58 @@ final class GameCenterPublicationRepository
      */
     public function withPlayerPublicationLock(string $playerId, callable $operation): mixed
     {
-        $playerId = self::normalizedPlayerId($playerId);
+        return $this->withPlayerPublicationLocks([$playerId], $operation);
+    }
+
+    /**
+     * @template T
+     * @param list<string> $playerIds
+     * @param callable(): T $operation
+     * @return T
+     */
+    public function withPlayerPublicationLocks(array $playerIds, callable $operation): mixed
+    {
+        $playerIds = array_values(array_unique(array_map(
+            static fn (string $playerId): string => self::normalizedPlayerId($playerId),
+            $playerIds,
+        )));
+        sort($playerIds, SORT_STRING);
+        if ($playerIds === []) {
+            throw new \InvalidArgumentException('At least one Game Center player lock is required.');
+        }
         if ($this->database->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
             return $operation();
         }
         if ($this->database->inTransaction()) {
             throw new \LogicException('Acquire the Game Center player lock before a transaction.');
         }
-        $lockName = 'pimpopom-gc-player-' . substr(hash('sha256', $playerId), 0, 40);
-        $lock = $this->database->prepare('SELECT GET_LOCK(:lock_name, 25)');
-        $lock->execute(['lock_name' => $lockName]);
-        if ((int) $lock->fetchColumn() !== 1) {
-            throw new ApiException(
-                503,
-                'Game Center publication is busy. Please try again.',
-            );
-        }
+        $acquired = [];
+        $deadline = microtime(true) + 25;
         try {
+            foreach ($playerIds as $playerId) {
+                $lockName = self::publicationLockName($playerId);
+                $timeout = max(0, (int) ceil($deadline - microtime(true)));
+                $lock = $this->database->prepare(
+                    'SELECT GET_LOCK(:lock_name, :timeout_seconds)'
+                );
+                $lock->bindValue(':lock_name', $lockName);
+                $lock->bindValue(':timeout_seconds', $timeout, PDO::PARAM_INT);
+                $lock->execute();
+                if ((int) $lock->fetchColumn() !== 1) {
+                    throw new ApiException(
+                        503,
+                        'Game Center publication is busy. Please try again.',
+                    );
+                }
+                $acquired[] = $lockName;
+            }
             return $operation();
         } finally {
-            $release = $this->database->prepare('SELECT RELEASE_LOCK(:lock_name)');
-            $release->execute(['lock_name' => $lockName]);
+            $acquired = array_reverse($acquired);
+            foreach ($acquired as $lockName) {
+                $release = $this->database->prepare('SELECT RELEASE_LOCK(:lock_name)');
+                $release->execute(['lock_name' => $lockName]);
+            }
         }
     }
 
@@ -780,6 +959,132 @@ final class GameCenterPublicationRepository
         ]);
     }
 
+    /** @return list<array<string, mixed>> */
+    private function affectedBindings(
+        string $playerId,
+        string $teamPlayerIdHash,
+        string $gamePlayerIdHash,
+        bool $forUpdate,
+    ): array {
+        $statement = $this->database->prepare(
+            'SELECT * FROM player_game_center_bindings '
+            . 'WHERE player_id = :player_id '
+            . 'OR team_player_id_hash = :team_player_id_hash '
+            . 'OR game_player_id_hash = :game_player_id_hash '
+            . 'ORDER BY player_id ASC'
+            . ($forUpdate ? $this->forUpdate() : '')
+        );
+        $statement->bindValue(':player_id', $playerId);
+        $statement->bindValue(':team_player_id_hash', $teamPlayerIdHash, PDO::PARAM_LOB);
+        $statement->bindValue(':game_player_id_hash', $gamePlayerIdHash, PDO::PARAM_LOB);
+        $statement->execute();
+        return array_values(array_filter(
+            $statement->fetchAll(),
+            static fn (mixed $row): bool => is_array($row),
+        ));
+    }
+
+    /** @return list<string> */
+    private function affectedPlayerIds(
+        string $playerId,
+        string $teamPlayerIdHash,
+        string $gamePlayerIdHash,
+        bool $forUpdate,
+    ): array {
+        $ids = [$playerId];
+        foreach ($this->affectedBindings(
+            $playerId,
+            $teamPlayerIdHash,
+            $gamePlayerIdHash,
+            $forUpdate,
+        ) as $binding) {
+            $boundPlayerId = $binding['player_id'] ?? null;
+            if (is_string($boundPlayerId)) {
+                $ids[] = self::normalizedPlayerId($boundPlayerId);
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids, SORT_STRING);
+        return $ids;
+    }
+
+    private function consumeAssertion(string $assertionHash, string $expiresAt): void
+    {
+        $this->database->exec(
+            'DELETE FROM game_center_assertion_uses WHERE expires_at <= CURRENT_TIMESTAMP'
+        );
+        $statement = $this->database->prepare(
+            'INSERT INTO game_center_assertion_uses (assertion_hash, expires_at) '
+            . 'VALUES (:assertion_hash, :expires_at)'
+        );
+        $statement->bindValue(':assertion_hash', $assertionHash, PDO::PARAM_LOB);
+        $statement->bindValue(':expires_at', $expiresAt);
+        try {
+            $statement->execute();
+        } catch (\PDOException $error) {
+            if ($error->getCode() === '23000') {
+                throw new ApiException(409, 'This Game Center proof was already used.');
+            }
+            throw $error;
+        }
+    }
+
+    /** @param list<string> $playerIds */
+    private function revisionCancelOutboxes(array $playerIds, string $timestamp): void
+    {
+        $placeholders = implode(',', array_fill(0, count($playerIds), '?'));
+        $lock = $this->database->prepare(
+            'SELECT id FROM game_center_publication_outbox '
+            . "WHERE player_id IN ({$placeholders}) ORDER BY player_id ASC, id ASC"
+            . $this->forUpdate()
+        );
+        $lock->execute($playerIds);
+        $lock->fetchAll(PDO::FETCH_COLUMN);
+        $statement = $this->database->prepare(
+            'UPDATE game_center_publication_outbox SET '
+            . 'desired_value = NULL, delivered_value = NULL, '
+            . 'desired_revision = desired_revision + 1, '
+            . "state = 'cancelled', attempt_count = 0, "
+            . 'available_at = ?, updated_at = ?, '
+            . 'lock_token = NULL, locked_at = NULL, apple_submission_id = NULL, '
+            . 'delivered_at = NULL, last_http_status = NULL, '
+            . 'last_error_code = NULL, last_error = NULL '
+            . "WHERE player_id IN ({$placeholders})"
+        );
+        $statement->execute([$timestamp, $timestamp, ...$playerIds]);
+    }
+
+    /** @param list<string> $playerIds */
+    private function deleteBindings(array $playerIds): void
+    {
+        $placeholders = implode(',', array_fill(0, count($playerIds), '?'));
+        $statement = $this->database->prepare(
+            "DELETE FROM player_game_center_bindings WHERE player_id IN ({$placeholders})"
+        );
+        $statement->execute($playerIds);
+    }
+
+    /** @param list<string> $playerIds */
+    private function lockPlayers(array $playerIds, string $currentPlayerId): void
+    {
+        $placeholders = implode(',', array_fill(0, count($playerIds), '?'));
+        $statement = $this->database->prepare(
+            "SELECT id FROM players WHERE id IN ({$placeholders}) ORDER BY id ASC"
+            . $this->forUpdate()
+        );
+        $statement->execute($playerIds);
+        $found = array_values(array_map('strval', $statement->fetchAll(PDO::FETCH_COLUMN)));
+        sort($found, SORT_STRING);
+        if (!in_array($currentPlayerId, $found, true)) {
+            throw new ApiException(401, 'Sign in again to continue.');
+        }
+        if (array_diff($playerIds, $found) !== []) {
+            throw new GameCenterAssignmentRetry(
+                'A displaced Game Center profile disappeared during reassignment.',
+            );
+        }
+    }
+
     /** @return array<string, mixed>|null */
     private function binding(string $playerId, bool $forUpdate): ?array
     {
@@ -802,19 +1107,6 @@ final class GameCenterPublicationRepository
             && is_string($binding['game_player_id_ciphertext'] ?? null)
             && is_string($binding['game_player_id_iv'] ?? null)
             && is_string($binding['game_player_id_tag'] ?? null);
-    }
-
-    private function playerForGamePlayerHash(string $hash, bool $forUpdate): ?string
-    {
-        $statement = $this->database->prepare(
-            'SELECT player_id FROM player_game_center_bindings '
-            . 'WHERE game_player_id_hash = :game_player_id_hash LIMIT 1'
-            . ($forUpdate ? $this->forUpdate() : '')
-        );
-        $statement->bindValue(':game_player_id_hash', $hash, PDO::PARAM_LOB);
-        $statement->execute();
-        $playerId = $statement->fetchColumn();
-        return is_string($playerId) ? strtolower($playerId) : null;
     }
 
     private function bestVerifiedArcadeScore(string $playerId): ?int
@@ -909,6 +1201,11 @@ final class GameCenterPublicationRepository
             . $playerId . "\0" . $teamPlayerIdHash;
     }
 
+    private static function publicationLockName(string $playerId): string
+    {
+        return 'pimpopom-gc-player-' . substr(hash('sha256', $playerId), 0, 40);
+    }
+
     private function forUpdate(): string
     {
         return $this->database->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
@@ -993,4 +1290,8 @@ final class GameCenterPublicationRepository
         $milliseconds = (int) floor(($seconds - $whole) * 1_000);
         return gmdate('Y-m-d H:i:s', $whole) . sprintf('.%03d', $milliseconds);
     }
+}
+
+final class GameCenterAssignmentRetry extends \RuntimeException
+{
 }

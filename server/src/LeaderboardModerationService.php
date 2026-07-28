@@ -232,8 +232,17 @@ final class LeaderboardModerationService
         }
         [$actor, $reason] = $this->validateAuditText($actor, $reason);
 
-        $this->database->beginTransaction();
-        try {
+        $operation = function () use (
+            $entryId,
+            $action,
+            $actor,
+            $reason,
+            $apply,
+            $expectedStatus,
+            $actorPlayerId,
+        ): array {
+            $this->database->beginTransaction();
+            try {
             $targetPlayerId = $this->lockEntryPlayer($entryId);
             $entry = $this->lockEntry($entryId);
             $fromStatus = (string) $entry['verification_status'];
@@ -369,12 +378,21 @@ final class LeaderboardModerationService
                 $this->database->rollBack();
             }
             return $result;
-        } catch (Throwable $error) {
-            if ($this->database->inTransaction()) {
-                $this->database->rollBack();
+            } catch (Throwable $error) {
+                if ($this->database->inTransaction()) {
+                    $this->database->rollBack();
+                }
+                throw $error;
             }
-            throw $error;
+        };
+        if ($this->gameCenterPublication === null) {
+            return $operation();
         }
+        $targetPlayerId = $this->entryPlayerId($entryId);
+        return $this->gameCenterPublication->withPlayerPublicationLock(
+            $targetPlayerId,
+            $operation,
+        );
     }
 
     /** @return array<string, mixed> */
@@ -395,8 +413,15 @@ final class LeaderboardModerationService
         }
         $confirmPlayerId = strtolower(trim($confirmPlayerId));
 
-        $this->database->beginTransaction();
-        try {
+        $operation = function () use (
+            $entryId,
+            $actorPlayerId,
+            $reason,
+            $expectedStatus,
+            $confirmPlayerId,
+        ): array {
+            $this->database->beginTransaction();
+            try {
             $targetPlayerId = $this->lockEntryPlayer($entryId);
             $entry = $this->lockEntry($entryId);
             $this->assertAdminActor($actorPlayerId);
@@ -631,12 +656,21 @@ final class LeaderboardModerationService
                 'status' => 'deleted',
                 ...$details,
             ];
-        } catch (Throwable $error) {
-            if ($this->database->inTransaction()) {
-                $this->database->rollBack();
+            } catch (Throwable $error) {
+                if ($this->database->inTransaction()) {
+                    $this->database->rollBack();
+                }
+                throw $error;
             }
-            throw $error;
+        };
+        if ($this->gameCenterPublication === null) {
+            return $operation();
         }
+        $targetPlayerId = $this->entryPlayerId($entryId);
+        return $this->gameCenterPublication->withPlayerPublicationLock(
+            $targetPlayerId,
+            $operation,
+        );
     }
 
     /**
@@ -874,6 +908,19 @@ final class LeaderboardModerationService
             throw new ApiException(404, 'Leaderboard entry was not found.');
         }
         return $entry;
+    }
+
+    private function entryPlayerId(string $entryId): string
+    {
+        $statement = $this->database->prepare(
+            'SELECT player_id FROM leaderboard_entries WHERE id = :entry_id LIMIT 1'
+        );
+        $statement->execute(['entry_id' => $entryId]);
+        $playerId = $statement->fetchColumn();
+        if (!is_string($playerId) || !Uuid::isValidV4(strtolower($playerId))) {
+            throw new ApiException(404, 'Leaderboard entry was not found.');
+        }
+        return strtolower($playerId);
     }
 
     private function lockEntryPlayer(string $entryId): string

@@ -265,7 +265,6 @@ final class App
             $this->guardMutation($request);
             $this->requireOnlyFields($request->json(), [], 'Game Center link challenge');
             $this->requirePlayer();
-            $this->session->requireRecentPrimaryAuthentication();
             JsonResponse::send(201, [
                 'gameCenter' => $this->session->issueGameCenterChallenge(),
             ]);
@@ -274,7 +273,6 @@ final class App
         if ($request->method === 'POST' && $request->path === '/api/profile/game-center') {
             $this->guardMutation($request);
             $profile = $this->requirePlayer();
-            $this->session->requireRecentPrimaryAuthentication();
             $body = $request->json();
             $this->requireOnlyFields(
                 $body,
@@ -290,12 +288,12 @@ final class App
                 ],
                 'Game Center link',
             );
-            $publish = $body['publish'] ?? false;
-            if (!is_bool($publish)) {
-                throw new ApiException(400, 'Game Center publication choice is invalid.');
+            $publish = $body['publish'] ?? null;
+            if ($publish !== true) {
+                throw new ApiException(400, 'Game Center automatic linking requires publish: true.');
             }
             $gamePlayerId = $body['gamePlayerId'] ?? null;
-            if ($gamePlayerId !== null && !is_string($gamePlayerId)) {
+            if (!is_string($gamePlayerId)) {
                 throw new ApiException(400, 'Game Center gamePlayerID is invalid.');
             }
             $challenge = $this->session->consumeGameCenterChallenge($body['challengeId'] ?? null);
@@ -321,6 +319,7 @@ final class App
                     ...$this->gameCenterPayload($profile['id']),
                     'newlyLinked' => $result['linked'],
                     'gamePlayerIdNewlyBound' => $result['gamePlayerIdNewlyBound'],
+                    'reassigned' => $result['reassigned'],
                 ],
             ]);
         }

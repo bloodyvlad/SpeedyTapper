@@ -8,9 +8,10 @@ use Closure;
 
 /**
  * Verifies GameKit's detached identity signature for a normal (non-Apple
- * Arcade) game. The signed identity is teamPlayerID. A client-supplied
- * gamePlayerID is deliberately not accepted because it is not covered by this
- * signature contract.
+ * Arcade) game. The signed identity is teamPlayerID. This verifier deliberately
+ * accepts no gamePlayerID because Apple's tuple does not cover it; the
+ * publication service handles that separate client assertion without granting
+ * account authority.
  */
 final class GameCenterIdentityVerifier
 {

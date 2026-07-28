@@ -221,12 +221,22 @@ $assertionOne = new GameCenterIdentity(
     hash('sha256', 'assertion-one', true),
     (int) floor(microtime(true) * 1000),
 );
-$gameCenter = $service->linkGameCenter($legacyPlayerId, $assertionOne);
+$gameCenter = $service->linkGameCenter(
+    $legacyPlayerId,
+    $assertionOne,
+    'G:game-player-one',
+    true,
+);
 $assert($gameCenter['linked'] === true, 'A verified Game Center team identity links to a profile.');
 $assert($service->bindings($legacyPlayerId)['gameCenter'], 'Game Center binding is reported.');
 $throwsStatus(
     409,
-    static fn () => $service->linkGameCenter($legacyPlayerId, $assertionOne),
+    static fn () => $service->linkGameCenter(
+        $legacyPlayerId,
+        $assertionOne,
+        'G:game-player-one',
+        true,
+    ),
     'A Game Center assertion cannot be replayed.',
 );
 $sameTeamFreshProof = new GameCenterIdentity(
@@ -235,7 +245,12 @@ $sameTeamFreshProof = new GameCenterIdentity(
     (int) floor(microtime(true) * 1000),
 );
 $assert(
-    $service->linkGameCenter($legacyPlayerId, $sameTeamFreshProof)['linked'] === false,
+    $service->linkGameCenter(
+        $legacyPlayerId,
+        $sameTeamFreshProof,
+        'G:game-player-one',
+        true,
+    )['linked'] === false,
     'A fresh proof for the already linked Game Center account is idempotent.',
 );
 $throwsStatus(
@@ -261,10 +276,10 @@ $throwsStatus(
             hash('sha256', 'assertion-id-without-consent', true),
             (int) floor(microtime(true) * 1000),
         ),
-        'G:unconsented',
+        'G:game-player-one',
         false,
     ),
-    'A gamePlayerID is not accepted without explicit publication consent.',
+    'Automatic Game Center linking requires publish true.',
 );
 $database->prepare(
     'INSERT INTO leaderboard_entries '
@@ -288,43 +303,72 @@ $publicationResult = $service->linkGameCenter(
 $assert(
     !$publicationResult['linked']
         && $publicationResult['publicationEnabled']
-        && $publicationResult['gamePlayerIdNewlyBound']
+        && !$publicationResult['gamePlayerIdNewlyBound']
+        && !$publicationResult['reassigned']
         && (int) $database->query(
             'SELECT COUNT(*) FROM game_center_publication_outbox'
         )->fetchColumn() === 2,
-    'The identity service atomically binds the scoped player and backfills server authority.',
+    'The identity service idempotently backfills server authority without resetting the pair.',
 );
-$throwsStatus(
-    409,
-    static fn () => $service->linkGameCenter(
-        $apple['playerId'],
-        new GameCenterIdentity(
-            'T:team-player-two',
-            hash('sha256', 'assertion-game-player-conflict', true),
-            (int) floor(microtime(true) * 1000),
-        ),
-        'G:game-player-one',
-        true,
+$database->exec(
+    "UPDATE game_center_publication_outbox SET state = 'succeeded', "
+    . 'delivered_value = desired_value, desired_revision = 7, '
+    . "apple_submission_id = 'delivered-before-autolink', delivered_at = CURRENT_TIMESTAMP "
+    . "WHERE player_id = '{$legacyPlayerId}' AND publication_kind = 'leaderboard'"
+);
+$service->linkGameCenter(
+    $legacyPlayerId,
+    new GameCenterIdentity(
+        'T:team-player-one',
+        hash('sha256', 'assertion-idempotent-delivered', true),
+        (int) floor(microtime(true) * 1000),
     ),
-    'The service cannot bind another wallet to the same client-asserted gamePlayerID.',
+    'G:game-player-one',
+    true,
 );
-$throwsStatus(
-    409,
-    static fn () => $service->linkGameCenter($apple['playerId'], new GameCenterIdentity(
+$assert(
+    $database->query(
+        "SELECT state = 'succeeded' AND desired_revision = 7 "
+        . "AND apple_submission_id = 'delivered-before-autolink' "
+        . "FROM game_center_publication_outbox WHERE player_id = '{$legacyPlayerId}' "
+        . "AND publication_kind = 'leaderboard'"
+    )->fetchColumn() == 1,
+    'Foreground auto-link preserves an already delivered identical destination.',
+);
+$reassigned = $service->linkGameCenter(
+    $apple['playerId'],
+    new GameCenterIdentity(
         'T:team-player-one',
         hash('sha256', 'assertion-three', true),
         (int) floor(microtime(true) * 1000),
-    )),
-    'A Game Center identity cannot be attached to a second wallet owner.',
+    ),
+    'G:game-player-one',
+    true,
 );
-$throwsStatus(
-    409,
-    static fn () => $service->linkGameCenter($legacyPlayerId, new GameCenterIdentity(
+$assert(
+    $reassigned['linked']
+        && $reassigned['publicationEnabled']
+        && $reassigned['gamePlayerIdNewlyBound']
+        && $reassigned['reassigned']
+        && !$service->bindings($legacyPlayerId)['gameCenter']
+        && $service->bindings($apple['playerId'])['gameCenter'],
+    'A valid current session takes the active Game Center pair without merging profiles.',
+);
+$replacement = $service->linkGameCenter(
+    $apple['playerId'],
+    new GameCenterIdentity(
         'T:other-team-player',
         hash('sha256', 'assertion-four', true),
         (int) floor(microtime(true) * 1000),
-    )),
-    'A profile cannot replace its Game Center binding implicitly.',
+    ),
+    'G:other-game-player',
+    true,
+);
+$assert(
+    $replacement['linked']
+        && $replacement['gamePlayerIdNewlyBound']
+        && $replacement['reassigned'],
+    'The current profile can replace its own stale Game Center pair.',
 );
 
 $database->prepare('DELETE FROM players WHERE id = :id')->execute(['id' => $legacyPlayerId]);
@@ -333,8 +377,13 @@ $assert(
     'Deleting a player cascades every one of that profile\'s primary identity bindings.',
 );
 $assert(
-    (int) $database->query('SELECT COUNT(*) FROM player_game_center_bindings')->fetchColumn() === 0,
-    'Deleting a player cascades its Game Center binding.',
+    (int) $database->query(
+        "SELECT COUNT(*) FROM player_game_center_bindings WHERE player_id = '{$legacyPlayerId}'"
+    )->fetchColumn() === 0
+        && (int) $database->query(
+            'SELECT COUNT(*) FROM player_game_center_bindings'
+        )->fetchColumn() === 1,
+    'Deleting a player removes only that profile\'s Game Center binding.',
 );
 $assert(
     (int) $database->query('SELECT COUNT(*) FROM game_center_assertion_uses')->fetchColumn() >= 2,

@@ -227,7 +227,8 @@ final class PlayerIdentityService
      *   playerId: string,
      *   linked: bool,
      *   publicationEnabled: bool,
-     *   gamePlayerIdNewlyBound: bool
+     *   gamePlayerIdNewlyBound: bool,
+     *   reassigned: bool
      * }
      */
     public function linkGameCenter(
@@ -237,106 +238,40 @@ final class PlayerIdentityService
         bool $enablePublication = false,
     ): array {
         $playerId = $this->normalizedPlayerId($playerId);
-        if ($enablePublication && $gamePlayerId === null) {
+        if (!$enablePublication) {
+            throw new ApiException(
+                400,
+                'Game Center automatic linking requires publication.',
+            );
+        }
+        if ($gamePlayerId === null) {
             throw new ApiException(
                 400,
                 'A persistent Game Center gamePlayerID is required for server publication.',
             );
         }
-        if (!$enablePublication && $gamePlayerId !== null) {
-            throw new ApiException(
-                400,
-                'Game Center gamePlayerID is accepted only when publication is enabled.',
-            );
-        }
-        if ($enablePublication && $this->gameCenterPublication === null) {
-            throw new ApiException(503, 'Game Center publication storage is not configured.');
-        }
+        $publication = $this->gameCenterPublication
+            ?? throw new ApiException(503, 'Game Center publication storage is not configured.');
         $teamPlayerHash = hash(
             'sha256',
             "game_center\0" . $identity->teamPlayerId,
             true,
         );
-        $now = self::databaseTimestamp();
         $replayExpiresAt = gmdate('Y-m-d H:i:s', time() + 600);
-
-        $this->begin();
-        try {
-            $this->database->exec(
-                'DELETE FROM game_center_assertion_uses WHERE expires_at <= CURRENT_TIMESTAMP'
-            );
-            $replay = $this->database->prepare(
-                'INSERT INTO game_center_assertion_uses (assertion_hash, expires_at) '
-                . 'VALUES (:assertion_hash, :expires_at)'
-            );
-            $replay->bindValue(':assertion_hash', $identity->assertionHash, PDO::PARAM_LOB);
-            $replay->bindValue(':expires_at', $replayExpiresAt);
-            $replay->execute();
-
-            $this->lockPlayer($playerId);
-            $teamOwner = $this->playerIdForGameCenterHash($teamPlayerHash, true);
-            if ($teamOwner !== null && !hash_equals($playerId, $teamOwner)) {
-                throw new ApiException(
-                    409,
-                    'This Game Center account is already linked to another PimPoPom profile.',
-                );
-            }
-            $playerHash = $this->gameCenterHashForPlayer($playerId, true);
-            if ($playerHash !== null && !hash_equals($playerHash, $teamPlayerHash)) {
-                throw new ApiException(
-                    409,
-                    'This PimPoPom profile already has a different Game Center account.',
-                );
-            }
-
-            $linked = $teamOwner === null;
-            if ($linked) {
-                $insert = $this->database->prepare(
-                    'INSERT INTO player_game_center_bindings '
-                    . '(player_id, team_player_id_hash, linked_at, last_verified_at) '
-                    . 'VALUES (:player_id, :team_player_id_hash, :linked_at, :last_verified_at)'
-                );
-                $insert->bindValue(':player_id', $playerId);
-                $insert->bindValue(':team_player_id_hash', $teamPlayerHash, PDO::PARAM_LOB);
-                $insert->bindValue(':linked_at', $now);
-                $insert->bindValue(':last_verified_at', $now);
-                $insert->execute();
-            } else {
-                $update = $this->database->prepare(
-                    'UPDATE player_game_center_bindings SET last_verified_at = :last_verified_at '
-                    . 'WHERE player_id = :player_id'
-                );
-                $update->execute(['last_verified_at' => $now, 'player_id' => $playerId]);
-            }
-            $publication = ['enabled' => false, 'newlyBound' => false];
-            if ($enablePublication) {
-                $publication = $this->gameCenterPublication?->enableInCurrentTransaction(
-                    $playerId,
-                    $teamPlayerHash,
-                    $gamePlayerId
-                        ?? throw new \LogicException('Game Center gamePlayerID is missing.'),
-                ) ?? throw new \LogicException('Game Center publication repository is missing.');
-            }
-            $this->database->commit();
-            return [
-                'playerId' => $playerId,
-                'linked' => $linked,
-                'publicationEnabled' => $publication['enabled'],
-                'gamePlayerIdNewlyBound' => $publication['newlyBound'],
-            ];
-        } catch (PDOException $error) {
-            $this->rollBack();
-            if ($error->getCode() === '23000') {
-                throw new ApiException(
-                    409,
-                    'This Game Center proof was already used or its account was linked elsewhere.',
-                );
-            }
-            throw $error;
-        } catch (Throwable $error) {
-            $this->rollBack();
-            throw $error;
-        }
+        $assignment = $publication->assignCurrentProfile(
+            $playerId,
+            $teamPlayerHash,
+            $gamePlayerId,
+            $identity->assertionHash,
+            $replayExpiresAt,
+        );
+        return [
+            'playerId' => $playerId,
+            'linked' => $assignment['linked'],
+            'publicationEnabled' => $assignment['enabled'],
+            'gamePlayerIdNewlyBound' => $assignment['newlyBound'],
+            'reassigned' => $assignment['reassigned'],
+        ];
     }
 
     /** @return array{google: bool, apple: bool, gameCenter: bool} */
@@ -449,31 +384,6 @@ final class PlayerIdentityService
             . $this->forUpdate($forUpdate)
         );
         $statement->execute(['player_id' => $playerId, 'provider' => $provider]);
-        $hash = $statement->fetchColumn();
-        return is_string($hash) && strlen($hash) === 32 ? $hash : null;
-    }
-
-    private function playerIdForGameCenterHash(string $hash, bool $forUpdate): ?string
-    {
-        $statement = $this->database->prepare(
-            'SELECT player_id FROM player_game_center_bindings '
-            . 'WHERE team_player_id_hash = :team_player_id_hash LIMIT 1'
-            . $this->forUpdate($forUpdate)
-        );
-        $statement->bindValue(':team_player_id_hash', $hash, PDO::PARAM_LOB);
-        $statement->execute();
-        $playerId = $statement->fetchColumn();
-        return is_string($playerId) ? strtolower($playerId) : null;
-    }
-
-    private function gameCenterHashForPlayer(string $playerId, bool $forUpdate): ?string
-    {
-        $statement = $this->database->prepare(
-            'SELECT team_player_id_hash FROM player_game_center_bindings '
-            . 'WHERE player_id = :player_id LIMIT 1'
-            . $this->forUpdate($forUpdate)
-        );
-        $statement->execute(['player_id' => $playerId]);
         $hash = $statement->fetchColumn();
         return is_string($hash) && strlen($hash) === 32 ? $hash : null;
     }

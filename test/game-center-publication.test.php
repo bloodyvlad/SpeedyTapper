@@ -114,6 +114,12 @@ $database->exec(
     . ')'
 );
 $database->exec(
+    'CREATE TABLE game_center_assertion_uses ('
+    . 'assertion_hash BLOB PRIMARY KEY, consumed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+    . 'expires_at TEXT NOT NULL'
+    . ')'
+);
+$database->exec(
     'CREATE TABLE leaderboard_entries ('
     . 'id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
     . 'mode TEXT NOT NULL, score INTEGER NOT NULL, verification_status TEXT NOT NULL, '
@@ -243,15 +249,28 @@ $repository = new GameCenterPublicationRepository(
     str_repeat('publication-secret-', 3),
     true,
 );
-$database->beginTransaction();
-$enabled = $repository->enableInCurrentTransaction(
+$assignmentNumber = 0;
+$assign = static function (
+    string $playerId,
+    string $teamHash,
+    string $gamePlayerId,
+) use ($repository, &$assignmentNumber): array {
+    $assignmentNumber++;
+    return $repository->assignCurrentProfile(
+        $playerId,
+        $teamHash,
+        $gamePlayerId,
+        hash('sha256', 'game-center-publication-proof-' . $assignmentNumber, true),
+        gmdate('Y-m-d H:i:s', time() + 600),
+    );
+};
+$enabled = $assign(
     $playerOne,
     $teamOne,
     'G:game-player-one',
 );
-$database->commit();
 $assert(
-    $enabled === ['enabled' => true, 'newlyBound' => true],
+    $enabled['enabled'] && $enabled['newlyBound'] && !$enabled['reassigned'],
     'A recent verified team link can bind one client-asserted persistent gamePlayerID.',
 );
 $storedBinding = $database->query(
@@ -290,39 +309,15 @@ $assert(
     'Publication readiness is distinct from the underlying identity binding.',
 );
 
-$database->beginTransaction();
-$again = $repository->enableInCurrentTransaction(
+$again = $assign(
     $playerOne,
     $teamOne,
     'G:game-player-one',
 );
-$database->commit();
 $assert(
-    $again === ['enabled' => true, 'newlyBound' => false],
+    $again['enabled'] && !$again['newlyBound'] && !$again['reassigned'],
     'A fresh proof for the same one-to-one association is idempotent.',
 );
-$database->beginTransaction();
-$throwsStatus(
-    409,
-    static fn () => $repository->enableInCurrentTransaction(
-        $playerOne,
-        $teamOne,
-        'G:different-player',
-    ),
-    'A profile cannot silently replace its bound Game Center scoped player.',
-);
-$database->rollBack();
-$database->beginTransaction();
-$throwsStatus(
-    409,
-    static fn () => $repository->enableInCurrentTransaction(
-        $playerTwo,
-        $teamTwo,
-        'G:game-player-one',
-    ),
-    'One Game Center scoped player cannot publish two PimPoPom wallets.',
-);
-$database->rollBack();
 
 $scores->execute([
     'id' => 'e',
@@ -490,8 +485,8 @@ $assert(
     'Account deletion cascades encrypted binding and publication history.',
 );
 
+$assign($playerTwo, $teamTwo, 'G:game-player-two');
 $database->beginTransaction();
-$repository->enableInCurrentTransaction($playerTwo, $teamTwo, 'G:game-player-two');
 $achievements = new AchievementService(
     $database,
     new CoinWalletRepository($database),

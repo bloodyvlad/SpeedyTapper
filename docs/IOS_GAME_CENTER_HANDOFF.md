@@ -2,10 +2,11 @@
 
 ## Outcome
 
-Connect the existing native `GKLocalPlayer` authentication to PimPoPom's
-authoritative PHP account. The iOS app supplies a fresh GameKit identity proof
-and explicitly enables server publication; PHP remains the only component that
-decides leaderboard scores and achievement unlocks. Do **not** call
+Connect the existing native `GKLocalPlayer` authentication to the currently
+authenticated PimPoPom PHP profile. The iOS app automatically supplies a fresh
+GameKit identity proof with `publish: true`; PHP makes that active pair belong
+to the current profile and remains the only component that decides leaderboard
+scores and achievement unlocks. Do **not** call
 `GKLeaderboard.submitScore` or `GKAchievement.report` from the app.
 
 This task changes the separate iOS project only. The PHP contract described
@@ -22,7 +23,9 @@ below is implemented in the SpeedyTapper backend branch that contains migration
 - PHP verifies Apple's signature over `teamPlayerID`, bundle ID, timestamp, and
   salt. Apple does not include the ordinary app's `gamePlayerID` in that signed
   tuple. The accompanying `gamePlayerID` is therefore client-asserted, then
-  bound once one-to-one and encrypted by PHP.
+  freshly encrypted by PHP for the current profile/team association.
+- A valid current session wins a stale Game Center association. This does not
+  merge profiles or move wallets, purchases, results, achievements, or cosmetics.
 - Never send score, percentage, leaderboard ID, achievement ID, bundle ID, or
   `preReleased`; PHP derives/allowlists all of them.
 - Server publication is eventually consistent. An accepted game result must
@@ -46,17 +49,18 @@ the app's existing authenticated PHP cookie/session and
 
 ## API flow
 
-Perform this after both the PimPoPom primary account and Game Center are
-authenticated. The link endpoints require recent Google/Apple primary
-authentication; if the server says reauthentication is required, guide the
-player through the existing primary-provider reauth flow before retrying.
+Perform this automatically after both the PimPoPom PHP session and Game Center
+are authenticated. These two Game Center endpoints do not require another
+recent Google/Apple reauthentication; all other sensitive reauthentication
+rules remain unchanged.
 
 1. Confirm `GKLocalPlayer.local.isAuthenticated`.
 2. Confirm GameKit says scoped IDs are persistent. If not, show a nonfatal
    unavailable state and do not send identifiers.
 3. Read `GET /api/session`.
-4. If the profile is already mirror-ready, no routine relink is required.
-5. To link or re-enable, send:
+4. Request a fresh challenge on initial coordination and whenever either scoped
+   ID changes. Repeating the same pair is safe and reconciles missing work.
+5. Send:
 
    ```http
    POST /api/profile/game-center/challenge
@@ -123,7 +127,8 @@ Link response:
     "heldJobs": 0,
     "needsReset": false,
     "newlyLinked": true,
-    "gamePlayerIdNewlyBound": true
+    "gamePlayerIdNewlyBound": true,
+    "reassigned": false
   }
 }
 ```
@@ -143,18 +148,15 @@ Expose these states separately:
 
 1. `gameCenterSignedOut` — GameKit is not authenticated.
 2. `primaryProfileRequired` — GameKit is authenticated but PimPoPom is not.
-3. `primaryReauthenticationRequired` — linking needs a fresh Google/Apple auth.
-4. `scopedIdsTransient` — GameKit authenticated, but persistent scoped IDs are
+3. `scopedIdsTransient` — GameKit authenticated, but persistent scoped IDs are
    unavailable.
-5. `unlinked` — `identityBindings.gameCenter == false`.
-6. `linkedIdentityOnly` — identity linked, publication disabled/unavailable.
-7. `publicationQueued` — enabled with `pendingJobs > 0`.
-8. `mirrorReady` — enabled and server credential available.
-9. `publicationHeld` — `heldJobs > 0`; PHP progress is safe, but an operator
+4. `unlinked` — `identityBindings.gameCenter == false`.
+5. `linkedIdentityOnly` — identity linked, publication disabled/unavailable.
+6. `publicationQueued` — enabled with `pendingJobs > 0`.
+7. `mirrorReady` — enabled and server credential available.
+8. `publicationHeld` — `heldJobs > 0`; PHP progress is safe, but an operator
    must correct the Apple configuration/catalog problem and explicitly requeue.
-10. `conflict` — HTTP 409; never auto-register, replace, merge, or retry under a
-   different internal UUID.
-11. `resetNeedsSupport` — `needsReset == true`; keep gameplay available and
+9. `resetNeedsSupport` — `needsReset == true`; keep gameplay available and
     present a support/diagnostic message rather than claiming Apple is synced.
 
 Do not describe `serverPublicationAvailable == false` as the player being
@@ -193,14 +195,12 @@ percent when unlocked, regardless of coin-reward claim state.
 
 ## Error handling
 
-- `400`: malformed/unsupported field, transient scoped IDs, or mismatched
-  publication fields. Fix the client payload; do not loop.
-- `401`: expired/consumed challenge, signed proof failure, signed-out profile,
-  or stale primary authentication. Fetch a new challenge after appropriate
-  reauthentication.
-- `409`: replay, `teamPlayerID` conflict, `gamePlayerID` conflict, or attempted
-  replacement. Show account-conflict guidance; never create or merge a profile
-  automatically.
+- `400`: malformed/unsupported field or missing `publish: true`. Reject
+  transient scoped IDs locally before sending. Fix the client payload; do not loop.
+- `401`: expired/consumed challenge, signed proof failure, or signed-out profile.
+  Fetch a new challenge after restoring the authenticated PHP session.
+- `409`: assertion replay. Obtain a new challenge and fresh proof; never create
+  or merge a profile automatically.
 - `503`: Game Center trust, encrypted storage, or publication configuration is
   unavailable. Keep gameplay enabled and allow a later manual retry.
 
@@ -215,8 +215,8 @@ cookie, CSRF token, or complete server error body.
 4. The request is refused when scoped IDs are not persistent.
 5. A new challenge is fetched for every signature/link attempt.
 6. Repeating a fresh proof for the same IDs is idempotent.
-7. Linking either ID to another internal profile yields a visible conflict and
-   moves no wallet/profile state.
+7. A pair previously linked to another internal profile is reassigned to the
+   current profile while moving no wallet/profile state.
 8. Existing verified Arcade best and unlocked achievements backfill after the
    first link.
 9. A later verified personal best appears in the TestFlight Game Center
@@ -232,8 +232,8 @@ cookie, CSRF token, or complete server error body.
 15. The client-asserted `gamePlayerID` limitation remains explicitly visible
     in security documentation; App Attest hardening is deferred and a conflict
     never triggers an automatic merge or account move.
-16. Account deletion removes the PimPoPom binding; a stale native session
-    cannot silently recreate it.
+16. Account deletion removes the PimPoPom binding; without an authenticated PHP
+    session the native Game Center player cannot recreate it.
 
 Run the live-link and dashboard checks on a physical TestFlight device. The PHP
 test suite verifies its own signature/outbox/client behavior but cannot validate
