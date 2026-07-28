@@ -152,9 +152,19 @@ $assert(is_string($devRouter), 'PHP development router must be readable.');
 $assert(str_contains($devRouter, "require \$projectRoot . '/api/index.php'"), 'PHP development router must dispatch API requests.');
 $assert(str_contains($devRouter, '(?:server|vendor|\\.git)'), 'PHP development router must deny internal directories.');
 
-$assert(Nickname::normalize("  Speedy\n  Player  ") === 'Speedy Player', 'Nickname whitespace is normalized.');
+$assert(Nickname::normalize('Speedy_Player') === 'Speedy_Player', 'Underscores remain valid in player names.');
+$assert(Nickname::normalize('кокос') === 'кокос', 'Unicode player names remain valid without whitespace.');
+$throwsApi(static fn () => Nickname::normalize('Player 9551'), 'ASCII spaces are rejected in player names.');
+$throwsApi(static fn () => Nickname::normalize("Player\t9551"), 'Tabs are rejected in player names.');
+$throwsApi(static fn () => Nickname::normalize("Player\n9551"), 'Line breaks are rejected in player names.');
+$throwsApi(static fn () => Nickname::normalize("Player\u{00A0}9551"), 'Unicode spaces are rejected in player names.');
 $throwsApi(static fn () => Nickname::normalize(str_repeat('x', 21)), 'Long nicknames are rejected.');
-$assert((bool) preg_match('/^Player [0-9]{4}$/', Nickname::anonymous()), 'New profiles receive a neutral nickname.');
+$anonymousNickname = Nickname::anonymous('11111111-1111-4111-8111-111111111111');
+$assert(
+    (bool) preg_match('/^Player[0-9a-f]{14}$/', $anonymousNickname)
+        && mb_strlen($anonymousNickname, 'UTF-8') === Nickname::MAX_LENGTH,
+    'New profiles receive a stable no-space neutral nickname.',
+);
 $assert((bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', Uuid::v4()), 'UUIDs are RFC 4122 version 4.');
 $assert(
     PetCatalog::all() === [
@@ -783,9 +793,22 @@ foreach ([
 }
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/profile/nickname/availability', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
+$nicknameAvailabilityRouteStart = strpos($app, "path === '/api/profile/nickname/availability'");
+$profileRouteStart = strpos($app, "path === '/api/profile'", $nicknameAvailabilityRouteStart + 1);
+$nicknameAvailabilityRoute = is_int($nicknameAvailabilityRouteStart) && is_int($profileRouteStart)
+    ? substr($app, $nicknameAvailabilityRouteStart, $profileRouteStart - $nicknameAvailabilityRouteStart)
+    : '';
+$assert(
+    str_contains($nicknameAvailabilityRoute, 'guardMutation($request)')
+        && str_contains($nicknameAvailabilityRoute, 'requirePlayer()')
+        && str_contains($nicknameAvailabilityRoute, 'requireOnlyFields')
+        && str_contains($nicknameAvailabilityRoute, 'nicknameAvailability')
+        && str_contains($app, "\$this->requireOnlyFields(\$body, ['nickname'], 'Profile update')"),
+    'Nickname checks and saves are authenticated, CSRF-protected, and accept only the nickname field.',
+);
 $assert(
     str_contains($app, '/api/admin/leaderboard')
         && str_contains($app, '/entries/([0-9a-fA-F-]{36})/(quarantine|delete-reset)')
@@ -1098,6 +1121,9 @@ $gameCenterKeyConfigurator = file_get_contents(
 $gameCenterMigration = file_get_contents(
     dirname(__DIR__) . '/server/migrations/019_game_center_server_publication.sql'
 );
+$nicknameMigration = file_get_contents(
+    dirname(__DIR__) . '/server/migrations/021_unique_player_nicknames.sql'
+);
 $internalAlphaResetMigration = file_get_contents(
     dirname(__DIR__) . '/server/migrations/020_reset_internal_alpha_player_data.sql'
 );
@@ -1149,6 +1175,15 @@ $assert(
         && str_contains($gameCenterMigration, "'DO 1'")
         && str_contains($gameCenterMigration, 'CREATE TABLE IF NOT EXISTS'),
     'The Game Center migration is retry-safe across auto-committed columns, keys, constraints, and table creation.',
+);
+$assert(
+    is_string($nicknameMigration)
+        && str_contains($nicknameMigration, "nickname REGEXP '[[:space:]]'")
+        && str_contains($nicknameMigration, "CONCAT('Player', LEFT(SHA2(id, 256), 14))")
+        && str_contains($nicknameMigration, 'GENERATED ALWAYS AS')
+        && str_contains($nicknameMigration, 'players_confirmed_nickname_unique')
+        && str_contains($nicknameMigration, 'information_schema.STATISTICS'),
+    'Nickname migration invalidates spaced public names and adds guarded confirmed-name uniqueness.',
 );
 $assert(
     is_string($internalAlphaResetMigration)

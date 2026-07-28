@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SpeedyTapper;
 
 use PDO;
+use PDOException;
 use Throwable;
 
 final class PlayerRepository
@@ -65,11 +66,38 @@ final class PlayerRepository
             'UPDATE players SET nickname = :nickname, nickname_confirmed = 1, '
             . 'updated_at = UTC_TIMESTAMP(3) WHERE id = :id'
         );
-        $statement->execute(['nickname' => $normalized, 'id' => $playerId]);
+        try {
+            $statement->execute(['nickname' => $normalized, 'id' => $playerId]);
+        } catch (PDOException $error) {
+            if (self::isNicknameConflict($error)) {
+                throw new ApiException(409, 'This player name is already taken.');
+            }
+            throw $error;
+        }
         if ($statement->rowCount() === 0 && $this->find($playerId) === null) {
             throw new ApiException(401, 'Sign in again to update this profile.');
         }
         return $this->find($playerId) ?? throw new ApiException(401, 'Sign in again to update this profile.');
+    }
+
+    /** @return array{nickname: string, available: bool} */
+    public function nicknameAvailability(string $playerId, mixed $nickname): array
+    {
+        $normalized = Nickname::normalize($nickname);
+        $statement = $this->database->prepare(
+            'SELECT 1 FROM players '
+            . 'WHERE nickname_confirmed = 1 AND nickname = :nickname AND id <> :player_id '
+            . 'LIMIT 1'
+        );
+        $statement->execute([
+            'nickname' => $normalized,
+            'player_id' => $playerId,
+        ]);
+
+        return [
+            'nickname' => $normalized,
+            'available' => $statement->fetchColumn() === false,
+        ];
     }
 
     private function publicProfile(array $row): array
@@ -104,5 +132,22 @@ final class PlayerRepository
         return (new \DateTimeImmutable($value, new \DateTimeZone('UTC')))
             ->setTimezone(new \DateTimeZone('UTC'))
             ->format('Y-m-d\TH:i:s.v\Z');
+    }
+
+    private static function isNicknameConflict(PDOException $error): bool
+    {
+        if ($error->getCode() !== '23000') {
+            return false;
+        }
+
+        $details = strtolower(implode(' ', array_map(
+            static fn (mixed $value): string => is_scalar($value) ? (string) $value : '',
+            $error->errorInfo ?? [],
+        )));
+        $details .= ' ' . strtolower($error->getMessage());
+
+        return str_contains($details, 'players_confirmed_nickname_unique')
+            || str_contains($details, 'nickname_unique_key')
+            || str_contains($details, 'players.nickname');
     }
 }

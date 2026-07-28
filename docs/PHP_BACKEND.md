@@ -23,6 +23,8 @@ Production artifacts contain an untracked `server/.migrations-pending` marker. O
 
 Migration `020_reset_internal_alpha_player_data.sql` is an exceptional one-time clean-slate migration authorized for the internal alpha. Do not let a public first request apply it. Before running it, verify a database backup, maintenance-gate the API with the artifact-only `server/.maintenance` marker, and pause the Game Center publisher plus StoreKit reconciliation crons. Run `php server/bin/migrate.php` once from the host CLI, verify the player-facing tables are empty and retained StoreKit evidence is detached, then deploy the normal artifact and restore the crons. The SQL also fences all four lane/environment advisory locks and uses an in-transaction data marker, making a post-commit runner retry a no-op. It intentionally preserves transaction IDs, signed observations/notifications, purchased-lot and refund/reversal evidence without a live profile association; deleting that evidence would permit replayed credits and break later Apple settlement. This operational reset does not revoke each Apple authorization and must not be represented as a per-user privacy deletion.
 
+Migration `021_unique_player_nicknames.sql` invalidates confirmed names containing whitespace without deleting their profiles or progress, rewrites unconfirmed legacy placeholders to stable no-space values, and adds a nullable generated key plus unique index for confirmed names. The key inherits `utf8mb4_unicode_ci`, so case- or accent-only variants collide. If historical valid confirmed names already collide, the migration deliberately stops with an operator diagnostic; resolve the specific profiles explicitly and rerun instead of silently renaming or merging them.
+
 Migration `012` extends that sequence with the authoritative theme catalog, paid ownership/selection, `theme_purchase` ledger events, and theme-aware reset audits. It does not clear leaderboard results.
 
 Migration `013` gives the original migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme. It targets the internal UUID only through the durable `leaderboard_admin` role row whose `granted_by` value is `migration-011`; it never uses nickname, email, Google identity, score, or browser state. These ownership rows do not alter coins, selections, visibility, achievements, or `coin_ledger`, and an existing paid purchase is preserved. Default and Disco remain implicit free ownership. A destructive account reward reset removes the one-time grants and the migration runner does not apply them again.
@@ -279,7 +281,23 @@ Clears and expires the server session. Returns the signed-out session shape.
 
 ### `GET` or `PATCH /api/profile`
 
-Authentication required. `PATCH` body: `{ "nickname": "Public name" }`. Saving it sets `nicknameConfirmed: true`. The response contains `profile`, `identityBindings`, `ranks`, and `leaderboard`; use `?mode=normal` or `?mode=zen` to choose the ±2 context shown in `leaderboard`.
+Authentication required. `PATCH` body: `{ "nickname": "Player9551" }`. Saving it sets `nicknameConfirmed: true`. A player name is NFKC-normalized Unicode, has at most 20 characters, contains no Unicode whitespace, and must be unique under the database's case- and accent-insensitive collation. Invalid input returns `400`; a name claimed by another profile returns `409 { "error": "This player name is already taken." }`. The response contains `profile`, `identityBindings`, `ranks`, and `leaderboard`; use `?mode=normal` or `?mode=zen` to choose the ±2 context shown in `leaderboard`.
+
+### `POST /api/profile/nickname/availability`
+
+Authentication, the same-origin cookie session, and `X-SpeedyTapper-CSRF` are required. The body accepts exactly one field:
+
+```json
+{ "nickname": "Player9551" }
+```
+
+An available name returns:
+
+```json
+{ "nickname": "Player9551", "available": true }
+```
+
+A name claimed by another confirmed profile returns `200` with `available: false`; the response never identifies its owner. The current player's unchanged confirmed name returns `available: true`. Invalid or whitespace-containing input returns `400`. This lookup is advisory only: clients must still handle `409` from the final `PATCH /api/profile` because another device can claim the name after an availability response.
 
 ### `GET /api/leaderboard?mode=normal|zen`
 

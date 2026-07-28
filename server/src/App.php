@@ -409,11 +409,23 @@ final class App
             JsonResponse::send(200, [...$result, 'authenticated' => false]);
         }
 
+        if ($request->method === 'POST' && $request->path === '/api/profile/nickname/availability') {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $body = $request->json();
+            $this->requireOnlyFields($body, ['nickname'], 'Nickname availability');
+            JsonResponse::send(
+                200,
+                $this->players->nicknameAvailability($profile['id'], $body['nickname'] ?? null),
+            );
+        }
+
         if ($request->path === '/api/profile' && ($request->method === 'GET' || $request->method === 'PATCH')) {
             $profile = $this->requirePlayer();
             if ($request->method === 'PATCH') {
                 $this->guardMutation($request);
                 $body = $request->json();
+                $this->requireOnlyFields($body, ['nickname'], 'Profile update');
                 $profile = $this->players->updateNickname($profile['id'], $body['nickname'] ?? null);
             }
             $mode = $this->modeFromQuery($request);

@@ -88,7 +88,7 @@ final class PlayerIdentityService
             } else {
                 $insertPlayer->bindValue(':google_subject_hash', null, PDO::PARAM_NULL);
             }
-            $insertPlayer->bindValue(':nickname', Nickname::anonymous());
+            $insertPlayer->bindValue(':nickname', Nickname::anonymous($playerId));
             $insertPlayer->bindValue(':last_login_at', $now);
             $insertPlayer->execute();
 

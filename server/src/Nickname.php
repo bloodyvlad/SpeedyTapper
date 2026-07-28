@@ -17,9 +17,10 @@ final class Nickname
         $normalized = class_exists('Normalizer')
             ? (\Normalizer::normalize($value, \Normalizer::FORM_KC) ?: $value)
             : $value;
+        if (preg_match('/[\p{Z}\s]/u', $normalized) === 1) {
+            throw new ApiException(400, 'Player names cannot contain spaces.');
+        }
         $normalized = preg_replace('/[\p{Cc}\p{Cf}]/u', '', $normalized) ?? '';
-        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? '';
-        $normalized = trim($normalized);
 
         if ($normalized === '') {
             throw new ApiException(400, 'Enter a nickname.');
@@ -31,8 +32,8 @@ final class Nickname
         return $normalized;
     }
 
-    public static function anonymous(): string
+    public static function anonymous(string $playerId): string
     {
-        return 'Player ' . random_int(1000, 9999);
+        return 'Player' . substr(hash('sha256', $playerId), 0, 14);
     }
 }
