@@ -1,5 +1,5 @@
-import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260729-1";
-import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260729-1";
+import { COLORS, GAME_MODES, THEMES, THEME_PALETTES } from "./config.js?v=20260729-2";
+import { GameEngine, GAME_STATES } from "./game-engine.js?v=20260729-2";
 import {
   predatesPresentation,
   reactionDeadline,
@@ -7,7 +7,7 @@ import {
   resolveInputTimestamp,
   scheduleAfterPaint,
   wasCoveredByDeadlineResolution
-} from "./input-timing.js?v=20260729-1";
+} from "./input-timing.js?v=20260729-2";
 import {
   getPet,
   isPetId,
@@ -16,22 +16,22 @@ import {
   normalizeOwnedPetIds,
   PET_CATALOG,
   resolvePetShopAction
-} from "./pet-catalog.js?v=20260729-1";
-import { createPetController } from "./pet-controller.js?v=20260729-1";
-import { createSoundController } from "./sound-controller.js?v=20260729-1";
-import { createMusicController } from "./music-controller.js?v=20260729-1";
+} from "./pet-catalog.js?v=20260729-2";
+import { createPetController } from "./pet-controller.js?v=20260729-2";
+import { createSoundController } from "./sound-controller.js?v=20260729-2";
+import { createMusicController } from "./music-controller.js?v=20260729-2";
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   createProfileClient,
   ProfileApiError
-} from "./profile-client.js?v=20260729-1";
+} from "./profile-client.js?v=20260729-2";
 import {
   getTheme,
   isThemeId,
   normalizeOwnedThemeIds,
   THEME_CATALOG,
   resolveThemeShopAction
-} from "./theme-catalog.js?v=20260729-1";
+} from "./theme-catalog.js?v=20260729-2";
 
 const INTRO_HINTS = Object.freeze([
   "– Tap your color",
@@ -70,7 +70,7 @@ const MOTIVATIONAL_HINT_TONES = Object.freeze(["cyan", "pink", "gold", "green", 
 const MOTIVATIONAL_HINT_TILTS = Object.freeze([-3, 2, -2, 3, -1, 1]);
 const LOGIN_BENEFITS_COPY =
   "Login with your Google account to earn coins, access achievements and Pet Shop.";
-const APP_BUILD_ID = "20260729-1";
+const APP_BUILD_ID = "20260729-2";
 const ADMIN_PAGE_SIZE = 100;
 const THEME_STORAGE_KEY = "speedytapper.theme.v1";
 const COLOR_BLIND_STORAGE_KEY = "speedytapper.colorBlindMode.v1";
@@ -848,6 +848,18 @@ async function startGame(mode) {
     if (ticket?.runId) void profileClient.abandonRun(ticket.runId).catch(() => {});
     return;
   }
+  const ticketMatchesCurrentProof =
+    typeof ticket?.runId === "string" &&
+    ticket.mode === GAME_MODES.NORMAL &&
+    ticket.buildId === APP_BUILD_ID &&
+    ticket.ruleset === "reaction-proof-v3" &&
+    ticket.proofVersion === 2;
+  if (ticket && !ticketMatchesCurrentProof) {
+    if (typeof ticket.runId === "string") {
+      void profileClient.abandonRun(ticket.runId).catch(() => {});
+    }
+    ticket = null;
+  }
   const currentSession = sessionId + 1;
   sessionId = currentSession;
   currentRunTicket = ticket;
@@ -1170,7 +1182,8 @@ function createPendingResult(snapshot, { localPractice = false } = {}) {
     verificationAvailable:
       !localPractice &&
       currentRunTicket?.runId === currentRunId &&
-      currentRunTicket?.ruleset === "reaction-proof-v2",
+      currentRunTicket?.ruleset === "reaction-proof-v3" &&
+      currentRunTicket?.proofVersion === 2,
     mode: snapshot.mode,
     score: snapshot.points,
     hits: snapshot.hits,
@@ -1203,8 +1216,8 @@ function createPendingResult(snapshot, { localPractice = false } = {}) {
 
   if (!localPractice) {
     result.proof = {
-      proofVersion: currentRunTicket?.proofVersion ?? 1,
-      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v2",
+      proofVersion: currentRunTicket?.proofVersion ?? 2,
+      ruleset: currentRunTicket?.ruleset ?? "reaction-proof-v3",
       buildId: currentRunTicket?.buildId ?? APP_BUILD_ID,
       events: engine.getRunProofEvents()
     };

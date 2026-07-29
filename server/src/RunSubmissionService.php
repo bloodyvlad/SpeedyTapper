@@ -158,6 +158,8 @@ final class RunSubmissionService
             $improved = $this->leaderboard->insertResultInTransaction(
                 $playerId,
                 $score,
+                $proof->ruleset,
+                $proof->proofVersion,
                 $verificationStatus,
             );
             if ($verificationStatus === 'verified') {
@@ -187,6 +189,8 @@ final class RunSubmissionService
                 $playerId,
                 (int) $player['economy_generation'],
                 $score,
+                $proof->ruleset,
+                $proof->proofVersion,
                 $serverElapsedMs,
                 $improved,
                 $verificationStatus,
@@ -315,6 +319,8 @@ final class RunSubmissionService
         string $playerId,
         int $economyGeneration,
         ScoreSubmission $score,
+        string $ruleset,
+        int $proofVersion,
         int $serverElapsedMs,
         bool $improved,
         string $verificationStatus,
@@ -364,8 +370,8 @@ final class RunSubmissionService
             'leaderboard_improved' => $improved ? 1 : 0,
             'verification_status' => $verificationStatus,
             'coin_status' => $coinStatus,
-            'ruleset_id' => RunProofValidator::RULESET_ID,
-            'proof_version' => RunProofValidator::PROOF_VERSION,
+            'ruleset_id' => $ruleset,
+            'proof_version' => $proofVersion,
             'server_elapsed_ms' => $serverElapsedMs,
             'credited_play_ms' => $creditedPlayMs,
             'miss_count' => $score->misses,

@@ -30,7 +30,8 @@ final class RunAttemptService
         if ($mode !== 'normal') {
             throw new ApiException(400, 'Ranked mode must be normal.');
         }
-        if (!RunProof::isSupportedBuildId($buildId)) {
+        $contract = RunProof::ticketContract($buildId);
+        if ($contract === null) {
             throw new ApiException(409, 'This game version is out of date. Refresh before starting a ranked run.');
         }
         self::assertBindingHash($sessionBindingHash);
@@ -91,8 +92,8 @@ final class RunAttemptService
             $insert->bindValue(':player_id', $playerId);
             $insert->bindValue(':mode', $mode);
             $insert->bindValue(':build_id', $buildId);
-            $insert->bindValue(':ruleset_id', RunProofValidator::RULESET_ID);
-            $insert->bindValue(':proof_version', RunProofValidator::PROOF_VERSION, PDO::PARAM_INT);
+            $insert->bindValue(':ruleset_id', $contract['ruleset']);
+            $insert->bindValue(':proof_version', $contract['proofVersion'], PDO::PARAM_INT);
             $insert->execute();
 
             $this->database->commit();
@@ -100,8 +101,8 @@ final class RunAttemptService
                 'runId' => $runId,
                 'mode' => $mode,
                 'buildId' => $buildId,
-                'ruleset' => RunProofValidator::RULESET_ID,
-                'proofVersion' => RunProofValidator::PROOF_VERSION,
+                'ruleset' => $contract['ruleset'],
+                'proofVersion' => $contract['proofVersion'],
             ];
         } catch (Throwable $error) {
             if ($this->database->inTransaction()) {

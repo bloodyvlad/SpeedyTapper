@@ -52,8 +52,8 @@ test("run proof records rounded target and hit timing without exposing mutable s
   assert.equal(hit.type, "hit");
 
   const expected = [
-    [0, 100, targetIndex],
-    [1, 250, 252, targetIndex]
+    [0, 100, targetIndex, active.snapshot.playerColorIndex],
+    [1, 250, 252, targetIndex, hit.snapshot.playerColorIndex]
   ];
   const received = engine.getRunProofEvents();
   assert.deepEqual(received, expected);
@@ -156,8 +156,8 @@ test("difficulty uses the same integer proof clock across sub-millisecond phase 
   assert.equal(result.type, "hit");
   assert.equal(result.displayedReactionMs, 914);
   assert.deepEqual(engine.getRunProofEvents().slice(-2), [
-    [0, 23_460, active.snapshot.targetIndex],
-    [1, 24_374, 24_374, active.snapshot.targetIndex]
+    [0, 23_460, active.snapshot.targetIndex, active.snapshot.playerColorIndex],
+    [1, 24_374, 24_374, active.snapshot.targetIndex, result.snapshot.playerColorIndex]
   ]);
 });
 
@@ -281,7 +281,7 @@ test("run proof records independent decoy opportunities that cannot spawn", () =
 
   assert.deepEqual(engine.getRunProofEvents(), [
     [6, 10_000],
-    [3, 10_150, 1, active.decoy.cellIndex, 1_000],
+    [3, 10_150, 1, active.decoy.cellIndex, active.decoy.colorIndex, 1_000],
     [6, 10_151]
   ]);
 });
@@ -370,8 +370,8 @@ test("run proof records decoy activations and grouped natural expiry", () => {
   engine.expireDecoys(second.decoy.expiresAt);
 
   assert.deepEqual(engine.getRunProofEvents(), [
-    [3, 75_000, first.decoy.id, first.decoy.cellIndex, 1_000],
-    [3, 75_010, second.decoy.id, second.decoy.cellIndex, 1_000],
+    [3, 75_000, first.decoy.id, first.decoy.cellIndex, first.decoy.colorIndex, 1_000],
+    [3, 75_010, second.decoy.id, second.decoy.cellIndex, second.decoy.colorIndex, 1_000],
     [4, 76_010, first.decoy.id, second.decoy.id]
   ]);
 });
@@ -480,7 +480,7 @@ test("a lost life creates an engine-enforced quiet recovery for targets and deco
   assert.equal(engine.activateDecoy(recoveryEnds).type, "decoy-active");
 });
 
-test("empty-board taps remain mistakes during recovery and restart the quiet period", () => {
+test("board taps are ignored during the life-loss recovery pause", () => {
   const engine = makeEngine();
   engine.start(0, GAME_MODES.NORMAL);
 
@@ -488,13 +488,14 @@ test("empty-board taps remain mistakes during recovery and restart the quiet per
   assert.equal(firstMiss.type, "miss");
   assert.equal(firstMiss.snapshot.lives, 2);
 
-  const secondMiss = engine.tap(0, 200);
-  assert.equal(secondMiss.type, "miss");
-  assert.equal(secondMiss.reason, "empty");
-  assert.equal(secondMiss.snapshot.lives, 1);
-  assert.equal(secondMiss.snapshot.recoveryRemainingMs, GAME_CONFIG.lifeLossRecoveryMs);
-  assert.equal(engine.activateRound(1_699).reason, "recovering");
-  assert.equal(engine.activateRound(1_700).type, "round-active");
+  const ignored = engine.tap(0, 200);
+  assert.equal(ignored.type, "ignored");
+  assert.equal(ignored.reason, "recovering");
+  assert.equal(ignored.snapshot.lives, 2);
+  assert.equal(ignored.snapshot.recoveryRemainingMs, 1_400);
+  assert.deepEqual(engine.getRunProofEvents(), [[2, 100, 100, 0, 0]]);
+  assert.equal(engine.activateRound(1_599).reason, "recovering");
+  assert.equal(engine.activateRound(1_600).type, "round-active");
 });
 
 test("reaction contact time stays separate from the visible recovery start", () => {
@@ -549,9 +550,9 @@ test("run proof distinguishes empty, wrong, and timer misses and finishes on the
 
   assert.deepEqual(engine.getRunProofEvents(), [
     [2, 100, 105, 0, 0],
-    [0, 2_000, secondRound.snapshot.targetIndex],
+    [0, 2_000, secondRound.snapshot.targetIndex, secondRound.snapshot.playerColorIndex],
     [2, 2_100, 2_102, 1, wrongCell],
-    [0, 4_000, finalRound.snapshot.targetIndex],
+    [0, 4_000, finalRound.snapshot.targetIndex, finalRound.snapshot.playerColorIndex],
     [2, 5_000, 5_000, 2, -1],
     [5, 5_000, 5_000]
   ]);
@@ -562,13 +563,13 @@ test("Arcade survival uses the same integer logical instant as the terminal proo
   engine.start(0.4, GAME_MODES.NORMAL);
 
   engine.tap(0, 100.7, 101.2);
-  engine.tap(0, 201.1, 201.6);
-  const result = engine.tap(0, 301.2, 306.7);
+  engine.tap(0, 1_601.3, 1_601.8);
+  const result = engine.tap(0, 3_102, 3_107.5);
   const proof = engine.getRunProofEvents();
   const finish = proof.at(-1);
 
   assert.equal(result.snapshot.elapsedMs, finish[1]);
-  assert.deepEqual(finish, [5, 301, 306]);
+  assert.deepEqual(finish, [5, 3_102, 3_107]);
 });
 
 test("Zen is endless practice and records mistakes without losing lives", () => {

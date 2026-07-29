@@ -113,6 +113,8 @@ final class LeaderboardRepository
     public function insertResultInTransaction(
         string $playerId,
         ScoreSubmission $score,
+        string $ruleset,
+        int $proofVersion,
         string $verificationStatus = 'verified',
     ): bool
     {
@@ -123,12 +125,20 @@ final class LeaderboardRepository
             throw new LogicException('A new result must be verified, held for review, or quarantined.');
         }
 
-        return $this->insertResultRow($playerId, $score, $verificationStatus);
+        return $this->insertResultRow(
+            $playerId,
+            $score,
+            $ruleset,
+            $proofVersion,
+            $verificationStatus,
+        );
     }
 
     private function insertResultRow(
         string $playerId,
         ScoreSubmission $score,
+        string $ruleset,
+        int $proofVersion,
         string $verificationStatus,
     ): bool
     {
@@ -146,7 +156,12 @@ final class LeaderboardRepository
         $current = $select->fetch();
         $improved = $verificationStatus === 'verified'
             && (!is_array($current) || $score->isBetterThan($current));
-        $parameters = $this->scoreParameters($playerId, $score);
+        $parameters = $this->scoreParameters(
+            $playerId,
+            $score,
+            $ruleset,
+            $proofVersion,
+        );
         $parameters['id'] = $score->runId;
         $parameters['verification_status'] = $verificationStatus;
         $parameters['risk_score'] = $score->riskScore;
@@ -169,7 +184,12 @@ final class LeaderboardRepository
         return $improved;
     }
 
-    private function scoreParameters(string $playerId, ScoreSubmission $score): array
+    private function scoreParameters(
+        string $playerId,
+        ScoreSubmission $score,
+        string $ruleset,
+        int $proofVersion,
+    ): array
     {
         return [
             'season_id' => $this->seasonId,
@@ -185,8 +205,8 @@ final class LeaderboardRepository
             'perfect_count' => $score->perfectCount,
             'great_count' => $score->greatCount,
             'good_count' => $score->goodCount,
-            'ruleset_id' => RunProofValidator::RULESET_ID,
-            'proof_version' => RunProofValidator::PROOF_VERSION,
+            'ruleset_id' => $ruleset,
+            'proof_version' => $proofVersion,
         ];
     }
 

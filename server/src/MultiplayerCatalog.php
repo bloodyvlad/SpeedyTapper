@@ -24,6 +24,7 @@ final class MultiplayerCatalog
 
     public static function supportsBuildId(mixed $buildId): bool
     {
-        return is_string($buildId) && hash_equals(RunProof::BUILD_ID, $buildId);
+        return is_string($buildId)
+            && in_array($buildId, ['20260729-1', RunProof::BUILD_ID], true);
     }
 }

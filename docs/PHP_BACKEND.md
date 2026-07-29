@@ -25,12 +25,12 @@ Migration `020_reset_internal_alpha_player_data.sql` is an exceptional one-time 
 
 Migration `021_unique_player_nicknames.sql` invalidates confirmed names containing whitespace without deleting their profiles or progress, rewrites unconfirmed legacy placeholders to stable no-space values, and adds a nullable generated key plus unique index for confirmed names. The key inherits `utf8mb4_unicode_ci`, so case- or accent-only variants collide. If historical valid confirmed names already collide, the migration deliberately stops with an operator diagnostic; resolve the specific profiles explicitly and rerun instead of silently renaming or merging them.
 
-Unreleased migration `022_multiplayer_leaderboard.sql` adds 2–4 player
+Migration `022_multiplayer_leaderboard.sql` adds 2–4 player
 own-color match/lobby state, stable seat/color assignments, unanimous GameKit
 roster confirmations, immutable start manifests, per-participant matching proof
 submissions, global trace replay claims, derived results, and the separate
 multiplayer leaderboard indexes. It does not add a websocket or put PHP in the
-reaction-critical path. It has not been deployed.
+reaction-critical path.
 
 Migration `012` extends that sequence with the authoritative theme catalog, paid ownership/selection, `theme_purchase` ledger events, and theme-aware reset audits. It does not clear leaderboard results.
 
@@ -347,7 +347,7 @@ Returns only the public top-five entries and never opens a PHP session or reads 
 
 ### `POST /api/runs`
 
-Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "<the exact compatible client build>" }`; `20260718-1` is a retained legacy-compatible example, while the current persistent-decoy client uses `20260729-1`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "<the exact compatible client build>" }`; `20260718-1` is a retained legacy-compatible example, installed iOS uses `20260729-1`, and the current browser uses `20260729-2`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. It issues `reaction-proof-v3`/proof 2 to both current clients and v2/proof 1 to supported builds through `20260728-2`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -362,27 +362,29 @@ Authentication and a confirmed public nickname are required. The body contains t
   "runId": "server-run-uuid",
   "mode": "normal",
   "buildId": "<the exact build ID returned by the run ticket>",
-  "ruleset": "reaction-proof-v2",
-  "proofVersion": 1,
+  "ruleset": "reaction-proof-v3",
+  "proofVersion": 2,
   "events": [
     [2, 100, 102, 0, 0],
-    [2, 200, 202, 0, 0],
-    [2, 300, 302, 0, 0],
-    [5, 300, 302]
+    [2, 1700, 1702, 0, 0],
+    [2, 3300, 3302, 0, 0],
+    [5, 3300, 3302]
   ]
 }
 ```
 
-Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Active ranked proofs are Arcade-only and require the third life loss. The server refuses both ranked Zen ticket creation and Zen result submission; Zen runs locally as endless no-decoy practice and never enter the proof, leaderboard, achievement, or coin paths. The validator retains support for historical three-minute Zen proofs only so existing audit data and deterministic legacy checks remain interpretable. The server clock must cover an Arcade proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, `verifiedResult`, and the current achievement snapshot. The browser patches its current profile/rank state from this response instead of immediately requesting session, achievements, and leaderboard again. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
+Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. In v3, target tuples are `[0, at, cell, playerColorIndex]`, hit tuples are `[1, inputAt, handledAt, cell, resultingPlayerColorIndex]`, and decoy tuples are `[3, at, id, cell, decoyColorIndex, lifetimeMs]`; other opcode shapes remain unchanged. PHP validates their lifecycle, color transitions, independent timer windows, response windows, and streak rules, then derives the canonical score. Active ranked proofs are Arcade-only and require the third life loss. The server refuses both ranked Zen ticket creation and Zen result submission; Zen runs locally as endless no-decoy practice and never enter the proof, leaderboard, achievement, or coin paths. The validator retains support for historical three-minute Zen proofs only so existing audit data and deterministic legacy checks remain interpretable. The server clock must cover an Arcade proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, `verifiedResult`, and the current achievement snapshot. The browser patches its current profile/rank state from this response instead of immediately requesting session, achievements, and leaderboard again. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
 
-The current build ID is `20260729-1`. Its Arcade decoys live for
-1–3 seconds, persist across correct hits, reserve live and just-expired cells
-from target selection, permit more than one only after 70 seconds, and reduce
-the post-50-second response window by 5 ms per correct hit to a 200 ms floor.
-`20260728-2` remains supported through the legacy validator branch with its
-450–750 ms, clear-on-hit, 10 ms-per-hit rules. The two build contracts are
-deliberately replayed separately rather than interpreting an old proof with new
-balancing.
+The current browser build ID is `20260729-2`; installed iOS remains
+`20260729-1`. Both use v3/proof 2 and Arcade decoys that live for 1–3 seconds,
+persist across correct hits, reserve live and just-expired cells from target
+selection, permit more than one only after 70 seconds, and reduce the
+post-50-second response window by 5 ms per correct hit to a 200 ms floor.
+`20260728-2` and earlier supported builds remain on the legacy v2/proof-1
+validator branch with 450–750 ms, clear-on-hit, 10 ms-per-hit rules. An
+already-issued `20260729-1` browser v2/proof-1 ticket may finish, but all new
+tickets for that build use v3/proof 2. The contracts are replayed separately
+rather than interpreting an old proof with new semantics.
 
 ### `GET /api/achievements` and `POST /api/achievements/claim`
 

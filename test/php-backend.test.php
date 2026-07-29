@@ -90,13 +90,24 @@ try {
     rmdir($configFixtureRoot);
 }
 
-$proofPayload = static function (string $runId, string $mode, array $events): array {
+$proofPayload = static function (
+    string $runId,
+    string $mode,
+    array $events,
+    string $buildId = RunProof::BUILD_ID,
+    ?string $ruleset = null,
+    ?int $proofVersion = null,
+): array {
+    $contract = RunProof::ticketContract($buildId);
+    if ($contract === null) {
+        throw new RuntimeException('The proof fixture build must be supported.');
+    }
     return [
         'runId' => $runId,
         'mode' => $mode,
-        'buildId' => RunProof::BUILD_ID,
-        'ruleset' => RunProof::RULESET,
-        'proofVersion' => RunProof::PROOF_VERSION,
+        'buildId' => $buildId,
+        'ruleset' => $ruleset ?? $contract['ruleset'],
+        'proofVersion' => $proofVersion ?? $contract['proofVersion'],
         'events' => $events,
     ];
 };
@@ -104,17 +115,21 @@ $proofPayload = static function (string $runId, string $mode, array $events): ar
 $normalProof = static function (string $runId, array $reactions = [100]) use ($proofPayload): array {
     $events = [];
     $handledAt = 0;
+    $playerColor = 0;
     foreach ($reactions as $hit => $reactionMs) {
         $targetAt = $handledAt + 600;
         $cell = $hit < 4 ? 0 : $hit % 4;
         $inputAt = $targetAt + $reactionMs;
         $handledAt = $inputAt + 2;
-        $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell];
-        $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell];
+        $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell, $playerColor];
+        if ($inputAt >= 10_000) {
+            $playerColor = ($playerColor + 1) % 6;
+        }
+        $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell, $playerColor];
     }
 
     for ($miss = 0; $miss < 3; $miss++) {
-        $inputAt = $handledAt + 100;
+        $inputAt = $handledAt + ($miss === 0 ? 100 : 1_600);
         $handledAt = $inputAt + 2;
         $events[] = [RunProof::EVENT_MISS, $inputAt, $handledAt, RunProof::MISS_EMPTY, 0];
     }
@@ -126,6 +141,7 @@ $zenProof = static function (string $runId) use ($proofPayload): array {
     $events = [];
     $handledAt = 0;
     $hits = 0;
+    $playerColor = 0;
     $targetDelayMs = 1_000.0;
 
     while (true) {
@@ -133,18 +149,50 @@ $zenProof = static function (string $runId) use ($proofPayload): array {
         if ($targetAt >= 180_000) break;
         $dimension = $targetAt >= 40_000 ? 4 : ($hits >= 4 ? 2 : 1);
         $cell = $hits % ($dimension ** 2);
-        $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell];
+        $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell, $playerColor];
         $reactionMs = 90 + ($hits % 21);
         if ($targetAt + $reactionMs >= 180_000) break;
         $inputAt = $targetAt + $reactionMs;
         $handledAt = $inputAt + 2;
-        $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell];
+        if ($inputAt >= 10_000) {
+            $playerColor = ($playerColor + 1) % 6;
+        }
+        $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell, $playerColor];
         $targetDelayMs += 0.5 * ($reactionMs - $targetDelayMs);
         $hits++;
     }
 
     $events[] = [RunProof::EVENT_FINISH, 180_000, 180_000];
     return $proofPayload($runId, 'zen', $events);
+};
+
+$toLegacyPayload = static function (
+    array $payload,
+    string $buildId = '20260728-2',
+) use ($proofPayload): array {
+    $events = array_map(
+        static fn (array $event): array => match ($event[0]) {
+            RunProof::EVENT_TARGET => array_slice($event, 0, 3),
+            RunProof::EVENT_HIT => array_slice($event, 0, 4),
+            RunProof::EVENT_DECOY_ACTIVATE => [
+                $event[0],
+                $event[1],
+                $event[2],
+                $event[3],
+                $event[count($event) - 1],
+            ],
+            default => $event,
+        },
+        $payload['events'],
+    );
+    return $proofPayload(
+        $payload['runId'],
+        $payload['mode'],
+        $events,
+        $buildId,
+        RunProof::LEGACY_RULESET,
+        RunProof::LEGACY_PROOF_VERSION,
+    );
 };
 
 $devRouter = file_get_contents(dirname(__DIR__) . '/server/dev-router.php');
@@ -352,10 +400,43 @@ try {
 
 $singleHitPayload = $normalProof('4f27f9de-37de-4c31-8090-279a037bf76a');
 $singleHit = ScoreSubmission::fromArray($singleHitPayload);
+$nativeMinimalProof = $proofPayload(
+    '4aac9228-f18c-449a-acbf-1d4eefcc577e',
+    'normal',
+    [
+        [RunProof::EVENT_MISS, 100, 100, RunProof::MISS_EMPTY, 0],
+        [RunProof::EVENT_MISS, 1_600, 1_600, RunProof::MISS_EMPTY, 0],
+        [RunProof::EVENT_MISS, 3_100, 3_100, RunProof::MISS_EMPTY, 0],
+        [RunProof::EVENT_FINISH, 3_100, 3_100],
+    ],
+    '20260729-1',
+);
+$nativeMinimalRun = ScoreSubmission::fromArray($nativeMinimalProof);
+$assert(
+    $nativeMinimalRun->score === 0
+        && $nativeMinimalRun->misses === 3
+        && $nativeMinimalRun->survivalMs === 3_100,
+    'The exact native v3 recovery-boundary fixture replays successfully.',
+);
+$assert(
+    RunProof::ticketContract('20260729-1') === [
+        'ruleset' => RunProof::RULESET,
+        'proofVersion' => RunProof::PROOF_VERSION,
+    ]
+        && RunProof::ticketContract(RunProof::BUILD_ID) === [
+            'ruleset' => RunProof::RULESET,
+            'proofVersion' => RunProof::PROOF_VERSION,
+        ]
+        && RunProof::ticketContract('20260728-2') === [
+            'ruleset' => RunProof::LEGACY_RULESET,
+            'proofVersion' => RunProof::LEGACY_PROOF_VERSION,
+        ],
+    'Run tickets dispatch the color-aware contract only to current native and web builds.',
+);
 $assert($singleHit->score === 829, 'The server derives the rounded one-hit reaction score.');
 $assert($singleHit->hits === 1 && $singleHit->misses === 3, 'The server derives hit and miss totals from proof events.');
 $assert($singleHit->godlikeCount === 1 && $singleHit->averageReactionMs === 100, 'The server derives reaction ratings and timing.');
-$assert($singleHit->survivalMs === 1_006, 'Arcade survival ends at the third pointer contact.');
+$assert($singleHit->survivalMs === 4_006, 'Arcade survival ends at the third pointer contact after recovery pauses.');
 $assert(strlen($singleHit->proofHash) === 32 && strlen($singleHit->payloadHash()) === 32, 'Proof and result hashes are fixed binary SHA-256 values.');
 $assert($singleHit->isBetterThan(['score' => 800, 'duration_ms' => 10_000, 'correct_taps' => 9]), 'Score remains the first ranking criterion.');
 
@@ -398,6 +479,31 @@ $wrongCell = $normalProof('1ae1e67d-ec40-48e5-863e-f79239cfcb86', array_fill(0, 
 $wrongCell['events'][9][3] = 2;
 $throwsApi(static fn () => ScoreSubmission::fromArray($wrongCell), 'A claimed hit must match the active target cell.');
 
+$openingColorChange = $normalProof('f92a554e-efc2-4442-bf56-af6b2988dc8d');
+$openingColorChange['events'][1][4] = 1;
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($openingColorChange),
+    'The player color cannot change during the fixed-color opening.',
+);
+
+$targetColorMismatch = $normalProof(
+    'f76ec068-5f23-4c50-9cf3-20cf04e38d85',
+    [100, 100],
+);
+$targetColorMismatch['events'][2][3] = 1;
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($targetColorMismatch),
+    'Every target must carry the current player color established by the preceding hit.',
+);
+
+$recoveryInput = $normalProof('ae7406ba-38d1-4cf4-b03e-257d5de0dbf0');
+$recoveryInput['events'][3][1] = $recoveryInput['events'][2][2] + 100;
+$recoveryInput['events'][3][2] = $recoveryInput['events'][3][1] + 2;
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($recoveryInput),
+    'The v3 proof cannot record board input during the life-loss recovery pause.',
+);
+
 $compressed = $normalProof('17bfc901-b1b4-461d-9ed8-e2e63d5e18be');
 $compressed['events'][0][1] = 100;
 $compressed['events'][1][1] = 200;
@@ -405,7 +511,7 @@ $compressed['events'][1][2] = 202;
 $throwsApi(static fn () => ScoreSubmission::fromArray($compressed), 'Targets cannot appear before their quiet interval.');
 
 $deadlineHit = $normalProof('a737e938-4d5a-4bc3-a948-152dce3db7ef');
-$deadlineHit['events'][1] = [RunProof::EVENT_HIT, 1_600, 1_602, 0];
+$deadlineHit['events'][1] = [RunProof::EVENT_HIT, 1_600, 1_602, 0, 0];
 $throwsApi(
     static fn () => ScoreSubmission::fromArray($deadlineHit),
     'A contact exactly on the response deadline cannot be forged as a correct hit.',
@@ -442,18 +548,18 @@ $assert(
 );
 
 $persistentZen = $proofPayload('08fc9d30-f3e1-4e6f-9cb8-b223f6df6ec5', 'zen', [
-    [RunProof::EVENT_TARGET, 1_000, 0],
-    [RunProof::EVENT_HIT, 1_100, 1_102, 0],
-    [RunProof::EVENT_TARGET, 1_652, 0],
-    [RunProof::EVENT_HIT, 1_752, 1_754, 0],
-    [RunProof::EVENT_TARGET, 2_079, 0],
-    [RunProof::EVENT_HIT, 2_179, 2_181, 0],
-    [RunProof::EVENT_TARGET, 2_394, 0],
-    [RunProof::EVENT_HIT, 2_494, 2_496, 0],
-    [RunProof::EVENT_TARGET, 2_652, 0],
+    [RunProof::EVENT_TARGET, 1_000, 0, 0],
+    [RunProof::EVENT_HIT, 1_100, 1_102, 0, 0],
+    [RunProof::EVENT_TARGET, 1_652, 0, 0],
+    [RunProof::EVENT_HIT, 1_752, 1_754, 0, 0],
+    [RunProof::EVENT_TARGET, 2_079, 0, 0],
+    [RunProof::EVENT_HIT, 2_179, 2_181, 0, 0],
+    [RunProof::EVENT_TARGET, 2_394, 0, 0],
+    [RunProof::EVENT_HIT, 2_494, 2_496, 0, 0],
+    [RunProof::EVENT_TARGET, 2_652, 0, 0],
     [RunProof::EVENT_MISS, 3_082, 3_084, RunProof::MISS_WRONG, 1],
-    [RunProof::EVENT_HIT, 3_882, 3_884, 0],
-    [RunProof::EVENT_TARGET, 4_577, 0],
+    [RunProof::EVENT_HIT, 3_882, 3_884, 0, 0],
+    [RunProof::EVENT_TARGET, 4_577, 0, 0],
     [RunProof::EVENT_FINISH, 180_000, 180_000],
 ]);
 $persistentZenScore = ScoreSubmission::fromArray($persistentZen);
@@ -480,20 +586,20 @@ for ($hit = 0; $hit < 14; $hit++) {
     $cell = $hit < 4 ? 0 : $hit % 4;
     $inputAt = $targetAt + 100;
     $handledAt = $inputAt + 2;
-    $equalMillisecondEvents[] = [RunProof::EVENT_TARGET, $targetAt, $cell];
-    $equalMillisecondEvents[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell];
+    $equalMillisecondEvents[] = [RunProof::EVENT_TARGET, $targetAt, $cell, 0];
+    $equalMillisecondEvents[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell, 0];
 }
-$equalMillisecondEvents[] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 1_000];
-$equalMillisecondEvents[] = [RunProof::EVENT_TARGET, 10_450, 2];
-$equalMillisecondEvents[] = [RunProof::EVENT_HIT, 10_550, 10_552, 2];
+$equalMillisecondEvents[] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 1, 1_000];
+$equalMillisecondEvents[] = [RunProof::EVENT_TARGET, 10_450, 2, 0];
+$equalMillisecondEvents[] = [RunProof::EVENT_HIT, 10_550, 10_552, 2, 2];
 $equalMillisecondEvents[] = [RunProof::EVENT_DECOY_EXPIRE, 11_000, 1];
 $handledAt = 11_000;
 for ($miss = 0; $miss < 3; $miss++) {
-    $inputAt = $handledAt + 100;
+    $inputAt = $handledAt + ($miss === 0 ? 100 : 1_600);
     $handledAt = $inputAt + 2;
     $equalMillisecondEvents[] = [RunProof::EVENT_MISS, $inputAt, $handledAt, RunProof::MISS_EMPTY, 0];
 }
-$equalMillisecondEvents[] = [RunProof::EVENT_FINISH, 11_304, 11_306];
+$equalMillisecondEvents[] = [RunProof::EVENT_FINISH, $inputAt, $handledAt];
 $equalMillisecondProof = $proofPayload(
     '6615c12b-41d0-4f1f-b1f1-62308f06f8de',
     'normal',
@@ -504,33 +610,109 @@ $assert(
     $equalMillisecondRun->hits === 15 && $equalMillisecondRun->dodges === 1,
     'Proof replay keeps a decoy alive through a correct tap and awards its later independent expiry.',
 );
-$legacyEvents = $equalMillisecondEvents;
-$legacyEvents[28] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 750];
-array_splice($legacyEvents, 31, 1);
-$legacyEvents[count($legacyEvents) - 1] = [
-    RunProof::EVENT_FINISH,
-    $legacyEvents[count($legacyEvents) - 2][1],
-    $legacyEvents[count($legacyEvents) - 2][2],
+$expiryResolver = new ReflectionMethod(RunProofValidator::class, 'resolveDecoyExpiryEvent');
+$sameRoundedExpiryDecoys = [
+    1 => ['id' => 1, 'cell' => 1, 'color' => 1, 'expiresAt' => 11_000],
+    2 => ['id' => 2, 'cell' => 2, 'color' => 2, 'expiresAt' => 11_000],
 ];
-$legacyPayload = $proofPayload(
-    '68e210a5-36d5-4eb8-a8f5-d9365eb43113',
-    'normal',
-    $legacyEvents,
+$resolvedRoundedExpiry = $expiryResolver->invoke(
+    new RunProofValidator(),
+    $sameRoundedExpiryDecoys,
+    11_000,
+    [1],
+    0,
 );
-$legacyPayload['buildId'] = '20260728-2';
-$legacyRun = ScoreSubmission::fromArray($legacyPayload);
+$assert(
+    array_column($resolvedRoundedExpiry, 'id') === [1],
+    'A native decoy expiry may settle one of multiple real expiries rounded to the same millisecond.',
+);
+$strictRoundedExpiryDecoys = $sameRoundedExpiryDecoys;
+$strictRoundedExpiryDecoys[2]['expiresAt'] = 10_999;
+$throwsApi(
+    static fn () => $expiryResolver->invoke(
+        new RunProofValidator(),
+        $strictRoundedExpiryDecoys,
+        11_000,
+        [1],
+        0,
+    ),
+    'A decoy that expired before the rounded event millisecond remains mandatory.',
+);
+$queuedBoundaryEvents = [];
+$handledAt = 0;
+for ($hit = 0; $hit < 13; $hit++) {
+    $targetAt = $handledAt + 600;
+    $cell = $hit < 4 ? 0 : $hit % 4;
+    $inputAt = $targetAt + 100;
+    $handledAt = $inputAt + 2;
+    $queuedBoundaryEvents[] = [RunProof::EVENT_TARGET, $targetAt, $cell, 0];
+    $queuedBoundaryEvents[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell, 0];
+}
+$queuedBoundaryEvents[] = [RunProof::EVENT_TARGET, 9_800, 0, 0];
+$queuedBoundaryEvents[] = [RunProof::EVENT_DECOY_TICK, 10_000];
+$queuedBoundaryEvents[] = [RunProof::EVENT_HIT, 9_999, 10_002, 0, 1];
+$queuedBoundaryEvents[] = [RunProof::EVENT_MISS, 10_102, 10_104, RunProof::MISS_EMPTY, 0];
+$queuedBoundaryEvents[] = [RunProof::EVENT_MISS, 11_604, 11_606, RunProof::MISS_EMPTY, 0];
+$queuedBoundaryEvents[] = [RunProof::EVENT_MISS, 13_106, 13_108, RunProof::MISS_EMPTY, 0];
+$queuedBoundaryEvents[] = [RunProof::EVENT_FINISH, 13_106, 13_108];
+$queuedBoundaryProof = $proofPayload(
+    '643a38df-9ef7-481e-a2c8-a2a482edab70',
+    'normal',
+    $queuedBoundaryEvents,
+);
+$queuedBoundaryRun = ScoreSubmission::fromArray($queuedBoundaryProof);
+$assert(
+    $queuedBoundaryRun->hits === 14 && $queuedBoundaryRun->misses === 3,
+    'A queued native hit uses the clamped proof clock when it crosses the color-change boundary.',
+);
+$playerColorDecoy = $equalMillisecondProof;
+$playerColorDecoy['runId'] = '615c9e9c-daef-41aa-9e29-25fbe1548f1d';
+$playerColorDecoy['events'][28][4] = 0;
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($playerColorDecoy),
+    'A decoy cannot use the current player color.',
+);
+$unsafeResultingColor = $equalMillisecondProof;
+$unsafeResultingColor['runId'] = 'e71f0492-1379-43c1-9844-671c6c131f00';
+$unsafeResultingColor['events'][30][4] = 1;
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($unsafeResultingColor),
+    'A post-opening color transition cannot select a visible decoy color.',
+);
+$legacyProofPayload = $toLegacyPayload($equalMillisecondProof);
+$legacyProofPayload['events'][28] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 750];
+array_splice($legacyProofPayload['events'], 31, 1);
+$legacyProofPayload['events'][count($legacyProofPayload['events']) - 1] = [
+    RunProof::EVENT_FINISH,
+    $legacyProofPayload['events'][count($legacyProofPayload['events']) - 2][1],
+    $legacyProofPayload['events'][count($legacyProofPayload['events']) - 2][2],
+];
+$legacyProofPayload['runId'] = '68e210a5-36d5-4eb8-a8f5-d9365eb43113';
+$legacyRun = ScoreSubmission::fromArray($legacyProofPayload);
 $assert(
     $legacyRun->hits === 15 && $legacyRun->dodges === 0,
     'The immediately previous build retains its 750ms tap-cleared decoy verifier during rollout.',
+);
+$transitionalBrowserPayload = $toLegacyPayload($singleHitPayload, '20260729-1');
+$transitionalBrowserPayload['runId'] = 'e56a41e9-6986-45e7-9a45-4ada34a42db9';
+$assert(
+    ScoreSubmission::fromArray($transitionalBrowserPayload)->score === $singleHit->score,
+    'An already-issued browser v2/1 attempt from build 20260729-1 can finish during rollout.',
+);
+$currentBuildLegacyContract = $toLegacyPayload($singleHitPayload, RunProof::BUILD_ID);
+$currentBuildLegacyContract['runId'] = '194385ff-c0a4-4c76-aa29-1e6d0e93e166';
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($currentBuildLegacyContract),
+    'The refreshed web build cannot downgrade from its v3/proof-2 contract.',
 );
 $assert(
     RunProof::usesPersistentDecoyRules('20260729-1')
         && !RunProof::usesPersistentDecoyRules('20260728-2'),
     'Persistent decoy replay stays pinned to its immutable introduction build.',
 );
-$newBuildWithLegacyLifetime = $legacyPayload;
+$newBuildWithLegacyLifetime = $equalMillisecondProof;
 $newBuildWithLegacyLifetime['runId'] = '145fd5f8-06bd-4ea8-8dc3-5874129d9e37';
-$newBuildWithLegacyLifetime['buildId'] = RunProof::BUILD_ID;
+$newBuildWithLegacyLifetime['events'][28][5] = 750;
 $throwsApi(
     static fn () => ScoreSubmission::fromArray($newBuildWithLegacyLifetime),
     'The new build rejects legacy sub-second decoy lifetimes.',
@@ -609,6 +791,20 @@ $throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot clai
 
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
+$nativeBuildPayload = $singleHitPayload;
+$nativeBuildPayload['buildId'] = '20260729-1';
+$nativeBuildProof = RunProof::fromArray($nativeBuildPayload);
+$assert(
+    $nativeBuildProof->ruleset === RunProof::RULESET
+        && $nativeBuildProof->proofVersion === RunProof::PROOF_VERSION
+        && (new RunProofValidator())->validate($nativeBuildProof)->score === $singleHit->score,
+    'The installed native build receives and replays the current color-aware proof contract.',
+);
+$assert(
+    !hash_equals($parsedProof->proofHash(), $nativeBuildProof->proofHash())
+        && hash_equals($parsedProof->traceHash(), $nativeBuildProof->traceHash()),
+    'The proof hash binds the native build while same-contract trace-clone detection remains stable.',
+);
 $compatibleBuildProofs = [];
 foreach ([
     '20260718-1',
@@ -620,9 +816,9 @@ foreach ([
     '20260727-1',
     '20260727-2',
     '20260727-3',
+    '20260728-2',
 ] as $compatibleBuildId) {
-    $compatibleBuildPayload = $singleHitPayload;
-    $compatibleBuildPayload['buildId'] = $compatibleBuildId;
+    $compatibleBuildPayload = $toLegacyPayload($singleHitPayload, $compatibleBuildId);
     $compatibleBuildProofs[$compatibleBuildId] = RunProof::fromArray($compatibleBuildPayload);
     $assert(
         $compatibleBuildProofs[$compatibleBuildId]->buildId === $compatibleBuildId
@@ -631,9 +827,8 @@ foreach ([
     );
 }
 $assert(
-    !hash_equals($parsedProof->proofHash(), $compatibleBuildProofs['20260718-1']->proofHash())
-        && hash_equals($parsedProof->traceHash(), $compatibleBuildProofs['20260718-1']->traceHash()),
-    'The proof hash binds a compatible build while cross-build trace-clone detection remains stable.',
+    hash_equals($parsedProof->traceHash(), $compatibleBuildProofs['20260718-1']->traceHash()),
+    'Trace-clone detection remains stable across colorless and color-aware proof generations.',
 );
 $unsupportedBuildPayload = $singleHitPayload;
 $unsupportedBuildPayload['buildId'] = 'future-build';
@@ -661,6 +856,12 @@ $assert(
 $invalidTuple = $singleHitPayload;
 $invalidTuple['events'][0][1] = 600.5;
 $throwsApi(static fn () => RunProof::fromArray($invalidTuple), 'Proof tuple values must be integers.');
+$missingColorTuple = $singleHitPayload;
+array_pop($missingColorTuple['events'][0]);
+$throwsApi(
+    static fn () => RunProof::fromArray($missingColorTuple),
+    'The current proof contract requires a color on every target tuple.',
+);
 
 $firstHalfMinute = CoinProgression::accrue(0, 30_000);
 $secondHalfMinute = CoinProgression::accrue($firstHalfMinute->remainderMs, 30_000);
@@ -672,7 +873,7 @@ $assert(
     'The generic progression helper remains duration-based; unranked Zen is rejected before accounting.',
 );
 $assert(
-    CoinProgression::accrue(0, $singleHit->survivalMs) == CoinProgression::accrue(0, 1_006),
+    CoinProgression::accrue(0, $singleHit->survivalMs) == CoinProgression::accrue(0, 4_006),
     'Coin accounting depends on derived play time, not score or multiplier.',
 );
 

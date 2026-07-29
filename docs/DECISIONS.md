@@ -1149,3 +1149,71 @@ until the legacy build is retired.
 Revisit when: Legacy build support can be removed, playtests show persistent
 decoys obscure targets, the 70-second concurrency threshold is too gentle or
 too harsh, or the 5 ms ramp no longer produces the intended session length.
+
+## D-077 — Bind Arcade proof generations to explicit client builds
+
+- Date: 2026-07-29
+- Status: Accepted for Hostinger release `20260729-2`
+
+Context: Installed iOS build `20260729-1` requires
+`reaction-proof-v3`/proof 2 and emits target, hit, and decoy colors, while the
+PHP release still issued `reaction-proof-v2`/proof 1. The browser had also used
+`20260729-1` while emitting the older colorless tuples. A global constant swap
+would either keep native Arcade blocked or reinterpret retained proofs under
+the wrong tuple and color semantics.
+
+Decision: Advance the browser and PHP release graph to `20260729-2`. Issue
+v3/proof 2 to installed native build `20260729-1` and browser build
+`20260729-2`; issue v2/proof 1 to explicitly supported builds through
+`20260728-2`. Permit `20260729-1` with v2/proof 1 only when an already-issued
+stored attempt has that exact contract, so an in-flight old browser run may
+finish but no new downgrade ticket can be created.
+
+V3 target tuples include the current player color, hit tuples include the
+resulting player color, and decoy tuples include the decoy color. Replay
+validates six-color bounds, a fixed opening color, target/current agreement,
+decoys differing from the player color, post-opening selection excluding every
+visible decoy color, and suppression of inputs during the 1.5-second life-loss
+recovery. Leaderboard and completed-run rows store the submitted proof's actual
+ruleset/version instead of current global constants. Multiplayer continues to
+accept native `20260729-1` as well as the refreshed browser release.
+
+Consequences: TestFlight Arcade can obtain its compiled ticket and the
+refreshed browser emits the same color-aware proof generation. Legacy results
+remain replayable under their original rules, and persisted audit metadata
+identifies the contract that actually produced each result. An old cached
+browser shell must complete its normal service-worker refresh before starting
+a new ranked run.
+
+Revisit when: Every v2/proof-1 client and in-flight transition ticket can be
+retired, the native app advances its compiled build ID, or another proof
+generation requires a new immutable tuple contract.
+
+## D-078 — Continue product development on native iOS plus PHP
+
+- Date: 2026-07-29
+- Status: Accepted
+
+Context: The browser proof of concept established the reaction loop and remains
+useful as a deployed reference, but maintaining UI, audio, input, and gameplay
+parity across browser and native implementations now spends effort without
+advancing the intended App Store product.
+
+Decision: Treat native iOS and the authoritative PHP/MySQL API as the active
+product path. Freeze the browser game as a maintenance and compatibility
+surface after release `20260729-2`; do not add browser-first gameplay or UI
+features and do not require browser UI/manual-device testing for backend-only
+releases. Keep deterministic browser tests available when a change actually
+touches the deployed web runtime, service worker, or cache graph, but use PHP
+tests and backend contract fixtures as the release gate for backend-only work.
+
+Consequences: New gameplay contracts, Game Center, StoreKit, multiplayer, and
+account work are designed for iOS first and verified against PHP. The hosted
+browser prototype remains available but is not promised feature parity with
+the native app. A backend change must still preserve any explicitly retained
+browser API contract or deliberately disable it rather than accidentally
+reinterpret its proofs.
+
+Revisit when: Android development begins, the browser becomes an actively
+supported product again, or a shared cross-platform engine replaces the
+separate clients.

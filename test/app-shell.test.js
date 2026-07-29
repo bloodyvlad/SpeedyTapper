@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260729-1");
+  assert.equal(buildId, "20260729-2");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -1134,6 +1134,9 @@ test("normal play uses one ranked start and one ranked finish request", () => {
   )?.[0] ?? "";
 
   assert.match(startGameSource, /profileClient\.startRun\(mode, APP_BUILD_ID\)/);
+  assert.match(startGameSource, /ticket\.ruleset === "reaction-proof-v3"/);
+  assert.match(startGameSource, /ticket\.proofVersion === 2/);
+  assert.match(startGameSource, /ticket\.buildId === APP_BUILD_ID/);
   assert.doesNotMatch(startGameSource, /refreshTopScore/);
   assert.doesNotMatch(completedRunSource, /refreshTopScore/);
   assert.match(submitSource, /profileClient\.submitResult/);

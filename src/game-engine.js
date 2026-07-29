@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260729-1";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260729-2";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -414,7 +414,12 @@ export class GameEngine {
     this.activeAt = now;
     this.targetIndex = targetIndex;
     this.proofTargetAt = this.#proofElapsed(now);
-    this.#recordProofEvent([0, this.proofTargetAt, targetIndex]);
+    this.#recordProofEvent([
+      0,
+      this.proofTargetAt,
+      targetIndex,
+      this.playerColorIndex
+    ]);
 
     return Object.freeze({
       type: "round-active",
@@ -508,6 +513,7 @@ export class GameEngine {
       this.#proofElapsed(now),
       decoy.id,
       decoy.cellIndex,
+      decoy.colorIndex,
       lifetimeMs
     ]);
 
@@ -552,6 +558,8 @@ export class GameEngine {
     const settled = this.#settleExpiredDecoys(now);
 
     if (this.state === GAME_STATES.WAITING) {
+      const recoveryGuard = this.#recoveryGuard(now);
+      if (recoveryGuard) return recoveryGuard;
       return this.#miss("empty", now, null, settled, resolvedAt, cellIndex);
     }
 
@@ -574,12 +582,7 @@ export class GameEngine {
     const speedRating = classifyReaction(reactionMs);
     const scoredReactionMs = speedRating.displayedMs;
     const proofInputAt = (this.proofTargetAt ?? this.#proofElapsed(this.activeAt)) + scoredReactionMs;
-    this.#recordProofEvent([
-      1,
-      proofInputAt,
-      Math.max(proofInputAt, this.#proofElapsed(resolvedAt)),
-      cellIndex
-    ]);
+    const proofHandledAt = Math.max(proofInputAt, this.#proofElapsed(resolvedAt));
     const multiplierUsed = this.multiplier;
     this.maximumMultiplierUsed = Math.max(this.maximumMultiplierUsed, multiplierUsed);
     const basePointsAwarded = scoreReaction(
@@ -617,6 +620,13 @@ export class GameEngine {
         this.activeDecoys.map(({ colorIndex }) => colorIndex)
       );
     }
+    this.#recordProofEvent([
+      1,
+      proofInputAt,
+      proofHandledAt,
+      cellIndex,
+      this.playerColorIndex
+    ]);
 
     return Object.freeze({
       type: "hit",

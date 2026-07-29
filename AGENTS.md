@@ -41,7 +41,10 @@ Proposed decisions and uncommitted experiments must not appear under README comm
 - Install exact dependencies with `npm ci` when setup is needed.
 - Install PHP dependencies with `composer install` when backend setup is needed.
 - Start the local app with `npm run dev`; it listens on port 4173 by default.
-- Run `npm run check` before every implementation handoff.
+- Run `npm run check` before a handoff that changes the browser runtime. For a
+  backend-only PHP release, run `npm run check:php`, the relevant targeted PHP
+  tests, and `git diff --check`; browser UI/manual-device testing is not a
+  backend release gate.
 - Run `git diff --check` before staging or committing.
 - Add or update tests whenever behavior changes.
 - When adding a shipped JavaScript module, update the `npm run check` command to syntax-check it explicitly and add deterministic test/import coverage.
@@ -70,8 +73,8 @@ Keep balancing in configuration, rules in the engine, and platform effects in co
 
 - Normal mode is endless and ends only after all three lives are lost.
 - Zen is endless, unranked, no-coin practice. It never removes lives, spawns decoys, issues a ranked run ticket, submits a result, or ends automatically. Its target persists through mistakes, has no response deadline, and the next target delay moves halfway toward the previous correct reaction from a 1,000 ms start. Its in-game End run action freezes an ephemeral local Results view; restarting or returning to the menu discards it.
-- Wrong colors, inactive cells, empty-board taps, and expired correct targets remain mistakes in Normal mode.
-- Arcade build `20260729-1` uses independent 1–3 second decoys that never use the player's color, reserve their cells until expiry, persist through correct targets, and can overlap only after 70 seconds. Natural expiry awards a dodge worth 550 Arcade points; life loss, restart, and run end clear live decoys without a dodge. The 16-cell challenge response window shortens by 5 ms per correct tap to its 200 ms floor. PHP retains build-aware compatibility for `20260728-2` and earlier accepted proofs, whose 450–750 ms decoys were cleared by a correct tap.
+- Wrong colors, inactive cells, empty-board taps, and expired correct targets remain mistakes in Normal mode, except that board input during the 1.5-second life-loss recovery pause is ignored and emits no ranked proof event.
+- Web Arcade build `20260729-2` and native build `20260729-1` use `reaction-proof-v3`/proof 2 with explicit target, resulting-player, and decoy colors. They use independent 1–3 second decoys that never use the player's color, reserve their cells until expiry, persist through correct targets, and can overlap only after 70 seconds. Natural expiry awards a dodge worth 550 Arcade points; life loss, restart, and run end clear live decoys without a dodge. The 16-cell challenge response window shortens by 5 ms per correct tap to its 200 ms floor. PHP retains build-aware `reaction-proof-v2`/proof 1 compatibility for `20260728-2` and earlier accepted proofs, whose 450–750 ms decoys were cleared by a correct tap; only an already-issued `20260729-1` v2/1 browser ticket may use the transitional combination.
 - Speed ratings use the same rounded milliseconds shown to the player: under 250 Godlike, under 350 Perfect, under 450 Great, otherwise Good.
 - New Hostinger leaderboard submissions are Arcade-only and store every accepted run as an immutable result. Public reads show the top five; authenticated profile reads add that player's best result with two neighboring ranks, while a successful submission adds that exact result and its neighbors. Retrying the same run UUID remains idempotent. Retained Zen rows are historical and read-only.
 - Godlike taps add two steps and Perfect taps add one to a five-step boost meter; overflow carries into the next tier. Great and Good preserve the meter without advancing it. Every five steps unlocks the next multiplier for subsequent taps, up to 5×; every mistake resets the boost to 1×; dodges are neutral and unmultiplied. Apply a multiplier only to the current tap award—never retroactively to the accumulated run score and never to time-based coins.

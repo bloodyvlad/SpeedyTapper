@@ -1,9 +1,10 @@
 # Multiplayer iOS handoff
 
-> **Status (2026-07-29): backend release `20260729-1`.**
+> **Status (2026-07-29): backend release `20260729-2`.**
 > The PHP/MySQL API is part of the Hostinger release. The iOS/GameKit UI and
 > transport are not implemented here, and the App Store Connect multiplayer
-> leaderboard has not been created.
+> leaderboard has not been created. Installed iOS remains an explicitly
+> supported multiplayer client build at `20260729-1`.
 
 ## Ownership boundary
 

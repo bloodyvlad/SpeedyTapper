@@ -16,6 +16,10 @@ PimPoPom was implemented end to end through natural-language collaboration with 
 
 PimPoPom is an installable, offline-capable browser proof of concept for validating the core reaction loop before choosing the architecture of the eventual Steam, mobile, Roblox, or console products. The repository, domain, PHP namespace, storage keys, and compatibility API retain the internal SpeedyTapper name.
 
+Active product development now targets native iOS plus the authoritative
+PHP/MySQL API. The hosted browser game is retained as a frozen prototype and
+compatibility surface rather than a feature-parity client.
+
 PHP release target: <https://speedytapper.otcsoft.com>
 
 Legacy Vercel rollback: <https://speedytapper.vercel.app>
@@ -161,7 +165,7 @@ Account deletion requires same-origin CSRF protection, the exact `DELETE MY ACCO
 
 ## Multiplayer backend and Arcade balance
 
-Release `20260729-1` contains a PHP/MySQL backend for 2–4 player own-color
+Release `20260729-2` contains the PHP/MySQL backend for 2–4 player own-color
 matches. PHP coordinates private lobbies and immutable
 manifests, maps each lobby to a GameKit `playerGroup`, requires unanimous live
 GameKit roster confirmation, replays matching peer submissions, stores
@@ -174,19 +178,24 @@ iOS UI work remains unimplemented here. See
 [`docs/MULTIPLAYER_IOS_HANDOFF.md`](./docs/MULTIPLAYER_IOS_HANDOFF.md) for the
 exact routes, payloads, transcript tuples, and client tasks.
 
-The same release changes single-player Arcade decoys. Build `20260729-1` gives
-them 1–3 second lifetimes, preserves them across correct
-hits, reserves live and just-expired decoy cells from target selection, permits
+The same release aligns ranked Arcade with `reaction-proof-v3`, proof version
+2. Web build `20260729-2` and installed native build `20260729-1` emit explicit
+player/target/decoy colors in their proof tuples. Both builds give decoys 1–3
+second lifetimes, preserve them across correct
+hits, reserve live and just-expired decoy cells from target selection, permit
 more than one only after 70 seconds, and reduces the post-50-second response
 window by 5 ms per correct hit to the existing 200 ms floor. Build
 `20260728-2` remains accepted only through the legacy-compatible proof path and
-retains its prior 450–750 ms, clear-on-hit, 10 ms-per-hit behavior.
+retains its prior 450–750 ms, clear-on-hit, 10 ms-per-hit behavior. A
+`20260729-1` browser attempt that the server already issued under v2/proof 1
+may finish with that exact stored ticket during rollout; newly issued
+`20260729-1` tickets always use v3/proof 2.
 
 ## Current committed rules
 
 These are accepted product rules for the PHP generation, not a description of every dirty working-tree experiment. Verify the target commit and Hostinger deployment before describing them as production behavior.
 
-- **Arcade Mode** has three lives. Wrong colors, empty-board taps, inactive cells, and expired correct targets each cost one life. Its internal storage, API, and engine identifier remains `normal` for compatibility.
+- **Arcade Mode** has three lives. Wrong colors, empty-board taps, inactive cells, and expired correct targets each cost one life outside the 1.5-second life-loss recovery pause; input during that pause is ignored. Its internal storage, API, and engine identifier remains `normal` for compatibility.
 - **Zen** is endless, unranked practice with no decoys, deadline, leaderboard submission, achievements, or coins. The HUD shows elapsed time, an infinity symbol for lives, and one neutral non-glowing **Your color** field whose permanent **Any** label and colorful yin-yang swatch make clear that every live target is valid; the historical ranked top score is omitted. A correct target remains present through misses and has no response deadline; its next quiet interval starts at 1,000 ms and moves halfway toward the previous reaction time after every correct tap. Its single in-game **End run** control freezes the local score and reaction statistics and opens a **Results** screen; nothing is submitted or rewarded.
 - A random quiet interval precedes each Arcade target; Zen uses its reaction-adaptive quiet interval.
 - Correct taps award 100–1,000 points based on reaction time.
@@ -198,7 +207,7 @@ These are accepted product rules for the PHP generation, not a description of ev
 - 30–40 seconds: up to two independent decoys may overlap at random positions.
 - At 40 seconds the board becomes 4×4, target lifetime resets to 1,000 ms, and decoy pressure eases back to one at a time.
 - In that legacy rule set, at 50 seconds the target lifetime falls by 10 ms per correct tap toward a 200 ms floor. Every ten challenge taps can add another simultaneous decoy, up to six, and shortens both target and decoy quiet intervals without reducing the decoy-opportunity gap below 600 ms.
-- A legacy decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges. The current `20260729-1` exception is documented above.
+- A legacy decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges. The current web `20260729-2` and native `20260729-1` persistent-decoy exception is documented above.
 - Arcade has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Arcade survival time is shown live and freezes when the final life is lost.
 - A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.
