@@ -127,6 +127,7 @@ final class AccountDeletionService
             // internal UUID from those rows without deleting the other
             // player's result or ledger.
             $this->anonymizeModerationActorReferences($playerId);
+            $this->purgeMultiplayerGameplayHistory($playerId);
 
             // These history tables intentionally have restrictive or no player
             // foreign keys. Remove them explicitly before the player row so no
@@ -355,6 +356,68 @@ final class AccountDeletionService
             . 'WHERE actor_player_id = :player_id'
         );
         $rewardResets->execute(['player_id' => $playerId]);
+    }
+
+    private function purgeMultiplayerGameplayHistory(string $playerId): void
+    {
+        $matchIds = 'SELECT participant.match_id FROM multiplayer_participants participant '
+            . 'WHERE participant.player_id = :player_id';
+        $nonSettledMatchIds = 'SELECT match_row.id FROM multiplayer_matches match_row '
+            . 'WHERE match_row.id IN (' . $matchIds . ") AND match_row.state <> 'settled'";
+
+        // A participant's account deletion invalidates the shared transcript
+        // as retained gameplay evidence. Remove every participant copy and its
+        // replay claim before the player cascade removes only this player's
+        // participant/result rows. Peers keep their settled aggregate result.
+        foreach (
+            [
+                ['multiplayer_submissions', 'match_id'],
+                ['multiplayer_trace_claims', 'first_match_id'],
+                ['multiplayer_roster_confirmations', 'match_id'],
+            ] as [$table, $matchColumn]
+        ) {
+            $this->executeDelete(
+                'DELETE FROM ' . $table . ' WHERE ' . $matchColumn
+                    . ' IN (' . $matchIds . ')',
+                $playerId,
+            );
+        }
+
+        // Review and other non-settled aggregates are not durable peer
+        // achievements. Once one participant erases the shared evidence,
+        // remove every participant's derived rows for those matches.
+        $this->executeDelete(
+            'DELETE FROM multiplayer_results WHERE match_id IN ('
+                . $nonSettledMatchIds . ')',
+            $playerId,
+        );
+
+        // The match-state constraint requires a cancelled pre-settlement match
+        // to have no start/manifest markers. Clear all gameplay-derived
+        // metadata for active, collecting, review, already-cancelled, and
+        // expired matches.
+        $cancel = $this->database->prepare(
+            "UPDATE multiplayer_matches SET state = CASE "
+            . "WHEN state = 'expired' THEN 'expired' ELSE 'cancelled' END, "
+            . 'manifest_hash = NULL, '
+            . 'roster_hash = NULL, coordinator_participant_id = NULL, transcript_hash = NULL, '
+            . 'duration_ms = NULL, risk_score = 0, risk_reasons = NULL, review_reason = NULL, '
+            . 'started_at = NULL, submission_deadline_at = NULL, settled_at = NULL, '
+            . 'updated_at = UTC_TIMESTAMP(3) '
+            . 'WHERE id IN (' . $matchIds . ') '
+            . "AND state <> 'settled'"
+        );
+        $cancel->execute(['player_id' => $playerId]);
+
+        // Settled peer results may remain, but the shared roster/transcript and
+        // coordinator association may not survive one participant's deletion.
+        $purgeSharedMarkers = $this->database->prepare(
+            'UPDATE multiplayer_matches SET roster_hash = NULL, '
+            . 'coordinator_participant_id = NULL, transcript_hash = NULL, '
+            . 'updated_at = UTC_TIMESTAMP(3) '
+            . 'WHERE id IN (' . $matchIds . ')'
+        );
+        $purgeSharedMarkers->execute(['player_id' => $playerId]);
     }
 
     /** @param array<string, scalar|null> $extraParameters */

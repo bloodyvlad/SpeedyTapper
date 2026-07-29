@@ -125,6 +125,60 @@ CREATE TABLE game_center_publication_outbox (
     delivered_at TEXT NULL,
     UNIQUE (player_id, publication_kind, vendor_identifier, pre_released)
 );
+CREATE TABLE multiplayer_matches (
+    id TEXT PRIMARY KEY,
+    created_by_player_id TEXT NULL REFERENCES players(id) ON DELETE SET NULL,
+    state TEXT NOT NULL,
+    manifest_hash BLOB NULL,
+    roster_hash BLOB NULL,
+    coordinator_participant_id TEXT NULL,
+    transcript_hash BLOB NULL,
+    duration_ms INTEGER NULL,
+    risk_score INTEGER NOT NULL DEFAULT 0,
+    risk_reasons TEXT NULL,
+    review_reason TEXT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT NULL,
+    submission_deadline_at TEXT NULL,
+    settled_at TEXT NULL
+);
+CREATE TABLE multiplayer_participants (
+    match_id TEXT NOT NULL REFERENCES multiplayer_matches(id) ON DELETE CASCADE,
+    participant_id TEXT NOT NULL UNIQUE,
+    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    PRIMARY KEY (match_id, player_id)
+);
+CREATE TABLE multiplayer_roster_confirmations (
+    match_id TEXT NOT NULL REFERENCES multiplayer_matches(id) ON DELETE CASCADE,
+    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    roster_hash BLOB NOT NULL,
+    coordinator_participant_id TEXT NOT NULL
+        REFERENCES multiplayer_participants(participant_id) ON DELETE CASCADE,
+    PRIMARY KEY (match_id, player_id)
+);
+CREATE TABLE multiplayer_submissions (
+    id TEXT PRIMARY KEY,
+    match_id TEXT NOT NULL REFERENCES multiplayer_matches(id) ON DELETE CASCADE,
+    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    manifest_hash BLOB NOT NULL,
+    transcript_hash BLOB NOT NULL,
+    proof_json BLOB NOT NULL,
+    UNIQUE (match_id, player_id)
+);
+CREATE TABLE multiplayer_trace_claims (
+    trace_hash BLOB PRIMARY KEY,
+    first_match_id TEXT NOT NULL UNIQUE
+        REFERENCES multiplayer_matches(id) ON DELETE CASCADE
+);
+CREATE TABLE multiplayer_results (
+    id TEXT PRIMARY KEY,
+    match_id TEXT NOT NULL REFERENCES multiplayer_matches(id) ON DELETE CASCADE,
+    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    participant_id TEXT NOT NULL
+        REFERENCES multiplayer_participants(participant_id) ON DELETE CASCADE,
+    score INTEGER NOT NULL,
+    UNIQUE (match_id, player_id)
+);
 CREATE TABLE player_pets (
     player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     pet_id TEXT NOT NULL,
@@ -301,6 +355,160 @@ $insert(
         'vendor' => 'com.otcsoftware.pimpopom.achievement.complete_arcade',
     ],
 );
+$insert(
+    $database,
+    'INSERT INTO multiplayer_matches '
+        . '(id, created_by_player_id, state, manifest_hash, roster_hash, '
+        . 'coordinator_participant_id, transcript_hash, duration_ms, risk_reasons, '
+        . 'updated_at, started_at, submission_deadline_at, settled_at) VALUES '
+        . "('match-settled', :player, 'settled', :manifest, :roster, "
+        . "'participant-target-settled', :transcript, 120000, '[]', "
+        . 'CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+    [
+        'player' => $target,
+        'manifest' => random_bytes(32),
+        'roster' => random_bytes(32),
+        'transcript' => random_bytes(32),
+    ],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_matches '
+        . '(id, created_by_player_id, state, manifest_hash, roster_hash, '
+        . 'coordinator_participant_id, transcript_hash, duration_ms, risk_reasons, '
+        . 'updated_at, started_at, submission_deadline_at) VALUES '
+        . "('match-active', :player, 'active', :manifest, :roster, "
+        . "'participant-target-active', :transcript, 60000, '[]', "
+        . 'CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+    [
+        'player' => $target,
+        'manifest' => random_bytes(32),
+        'roster' => random_bytes(32),
+        'transcript' => random_bytes(32),
+    ],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_matches '
+        . '(id, created_by_player_id, state, manifest_hash, roster_hash, '
+        . 'coordinator_participant_id, transcript_hash, duration_ms, risk_score, '
+        . 'risk_reasons, review_reason, updated_at, started_at, '
+        . 'submission_deadline_at, settled_at) VALUES '
+        . "('match-review', :player, 'review', :manifest, :roster, "
+        . "'participant-target-review', :transcript, 90000, 100, "
+        . "'[\"implausibly_fast_reactions\"]', 'Held for review', "
+        . 'CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+    [
+        'player' => $target,
+        'manifest' => random_bytes(32),
+        'roster' => random_bytes(32),
+        'transcript' => random_bytes(32),
+    ],
+);
+foreach (
+    [
+        ['match-settled', 'participant-target-settled', $target],
+        ['match-settled', 'participant-peer-settled', $other],
+        ['match-active', 'participant-target-active', $target],
+        ['match-active', 'participant-peer-active', $other],
+        ['match-review', 'participant-target-review', $target],
+        ['match-review', 'participant-peer-review', $other],
+    ] as [$matchId, $participantId, $playerId]
+) {
+    $insert(
+        $database,
+        'INSERT INTO multiplayer_participants (match_id, participant_id, player_id) '
+            . 'VALUES (:match_id, :participant_id, :player_id)',
+        [
+            'match_id' => $matchId,
+            'participant_id' => $participantId,
+            'player_id' => $playerId,
+        ],
+    );
+}
+foreach (
+    [
+        ['match-settled', $target, 'participant-target-settled'],
+        ['match-settled', $other, 'participant-target-settled'],
+        ['match-active', $target, 'participant-target-active'],
+        ['match-active', $other, 'participant-target-active'],
+        ['match-review', $target, 'participant-target-review'],
+        ['match-review', $other, 'participant-target-review'],
+    ] as [$matchId, $playerId, $coordinatorId]
+) {
+    $insert(
+        $database,
+        'INSERT INTO multiplayer_roster_confirmations '
+            . '(match_id, player_id, roster_hash, coordinator_participant_id) '
+            . 'VALUES (:match_id, :player_id, :roster_hash, :coordinator)',
+        [
+            'match_id' => $matchId,
+            'player_id' => $playerId,
+            'roster_hash' => random_bytes(32),
+            'coordinator' => $coordinatorId,
+        ],
+    );
+    $insert(
+        $database,
+        'INSERT INTO multiplayer_submissions '
+            . '(id, match_id, player_id, manifest_hash, transcript_hash, proof_json) '
+            . 'VALUES (:id, :match_id, :player_id, :manifest, :transcript, :proof)',
+        [
+            'id' => 'submission-' . $matchId . '-' . ($playerId === $target ? 'target' : 'peer'),
+            'match_id' => $matchId,
+            'player_id' => $playerId,
+            'manifest' => random_bytes(32),
+            'transcript' => random_bytes(32),
+            'proof' => '{"events":[]}',
+        ],
+    );
+}
+$insert(
+    $database,
+    'INSERT INTO multiplayer_trace_claims (trace_hash, first_match_id) '
+        . "VALUES (:trace_hash, 'match-settled')",
+    ['trace_hash' => random_bytes(32)],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_trace_claims (trace_hash, first_match_id) '
+        . "VALUES (:trace_hash, 'match-active')",
+    ['trace_hash' => random_bytes(32)],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_trace_claims (trace_hash, first_match_id) '
+        . "VALUES (:trace_hash, 'match-review')",
+    ['trace_hash' => random_bytes(32)],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_results (id, match_id, player_id, participant_id, score) '
+        . "VALUES ('mp-result-target', 'match-settled', :player, "
+        . "'participant-target-settled', 12345)",
+    ['player' => $target],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_results (id, match_id, player_id, participant_id, score) '
+        . "VALUES ('mp-result-peer', 'match-settled', :player, "
+        . "'participant-peer-settled', 23456)",
+    ['player' => $other],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_results (id, match_id, player_id, participant_id, score) '
+        . "VALUES ('mp-review-target', 'match-review', :player, "
+        . "'participant-target-review', 34567)",
+    ['player' => $target],
+);
+$insert(
+    $database,
+    'INSERT INTO multiplayer_results (id, match_id, player_id, participant_id, score) '
+        . "VALUES ('mp-review-peer', 'match-review', :player, "
+        . "'participant-peer-review', 45678)",
+    ['player' => $other],
+);
 $insert($database, 'INSERT INTO player_pets VALUES (:player, :pet)', ['player' => $target, 'pet' => 'foka']);
 $insert($database, 'INSERT INTO player_pet_selection VALUES (:player, :pet)', ['player' => $target, 'pet' => 'foka']);
 $insert($database, 'INSERT INTO player_themes VALUES (:player, :theme)', ['player' => $target, 'theme' => 'pixel']);
@@ -391,6 +599,72 @@ $assert($count($database, 'leaderboard_entries') === 1, 'Only the unrelated publ
 $assert($count($database, 'completed_runs') === 1, 'Only the unrelated completed run remains.');
 $assert($count($database, 'leaderboard_moderation_events') === 1, 'Only unrelated moderation history remains.');
 $assert($count($database, 'coin_ledger') === 1, 'Only the unrelated economy ledger remains.');
+$assert(
+    $count($database, 'multiplayer_participants', 'player_id = :player', ['player' => $target]) === 0
+        && $count($database, 'multiplayer_results', 'player_id = :player', ['player' => $target]) === 0,
+    'The deleted player no longer has multiplayer participants or results.',
+);
+$assert(
+    $count($database, 'multiplayer_participants', 'player_id = :player', ['player' => $other]) === 3
+        && $count($database, 'multiplayer_results', 'player_id = :player', ['player' => $other]) === 1,
+    'Peer participation and only the settled peer result survive another player deleting their account.',
+);
+$assert(
+    $database->query(
+        "SELECT state FROM multiplayer_matches WHERE id = 'match-active'"
+    )->fetchColumn() === 'cancelled',
+    'A nonterminal multiplayer match is cancelled when a participant deletes their account.',
+);
+$assert(
+    $database->query(
+        "SELECT state FROM multiplayer_matches WHERE id = 'match-settled'"
+    )->fetchColumn() === 'settled',
+    'A settled multiplayer match remains settled for surviving peer results.',
+);
+$reviewAfterDeletion = $database->query(
+    "SELECT state, manifest_hash, duration_ms, risk_score, risk_reasons, review_reason, "
+        . "started_at, submission_deadline_at, settled_at "
+        . "FROM multiplayer_matches WHERE id = 'match-review'"
+)->fetch();
+$assert(
+    is_array($reviewAfterDeletion)
+        && $reviewAfterDeletion['state'] === 'cancelled'
+        && $reviewAfterDeletion['manifest_hash'] === null
+        && $reviewAfterDeletion['duration_ms'] === null
+        && (int) $reviewAfterDeletion['risk_score'] === 0
+        && $reviewAfterDeletion['risk_reasons'] === null
+        && $reviewAfterDeletion['review_reason'] === null
+        && $reviewAfterDeletion['started_at'] === null
+        && $reviewAfterDeletion['submission_deadline_at'] === null
+        && $reviewAfterDeletion['settled_at'] === null,
+    'Deleting a participant purges non-settled review aggregates and match evidence.',
+);
+$assert(
+    $count($database, 'multiplayer_submissions') === 0
+        && $count($database, 'multiplayer_trace_claims') === 0
+        && $count($database, 'multiplayer_roster_confirmations') === 0,
+    'Shared multiplayer submissions, replay claims, and roster confirmations are purged.',
+);
+$assert(
+    $count(
+        $database,
+        'multiplayer_matches',
+        'roster_hash IS NOT NULL OR transcript_hash IS NOT NULL '
+            . 'OR coordinator_participant_id IS NOT NULL',
+    ) === 0,
+    'No shared multiplayer roster hash, transcript hash, or coordinator marker survives.',
+);
+$activeMarkers = $database->query(
+    "SELECT manifest_hash, started_at, submission_deadline_at "
+        . "FROM multiplayer_matches WHERE id = 'match-active'"
+)->fetch();
+$assert(
+    is_array($activeMarkers)
+        && $activeMarkers['manifest_hash'] === null
+        && $activeMarkers['started_at'] === null
+        && $activeMarkers['submission_deadline_at'] === null,
+    'Cancelled multiplayer matches no longer retain active manifest or timing markers.',
+);
 $assert(
     $database->query("SELECT moderated_by FROM leaderboard_entries WHERE id = 'entry-other'")->fetchColumn()
         === 'deleted-account'

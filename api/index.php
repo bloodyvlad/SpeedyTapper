@@ -22,6 +22,9 @@ use SpeedyTapper\HttpRequest;
 use SpeedyTapper\JsonResponse;
 use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\LeaderboardModerationService;
+use SpeedyTapper\MultiplayerLeaderboardRepository;
+use SpeedyTapper\MultiplayerMatchService;
+use SpeedyTapper\MultiplayerProofValidator;
 use SpeedyTapper\PetShopService;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\PlayerIdentityService;
@@ -60,6 +63,11 @@ try {
     $config = Config::load($projectRoot);
     $database = Database::connect($config);
     $leaderboard = new LeaderboardRepository(
+        $database,
+        $config->seasonId,
+        $config->seasonName,
+    );
+    $multiplayerLeaderboard = new MultiplayerLeaderboardRepository(
         $database,
         $config->seasonId,
         $config->seasonName,
@@ -163,6 +171,14 @@ try {
                 ?? throw new ApiException(503, 'Game Center trust is not configured.'),
         ),
         gameCenterPublication: $gameCenterPublication,
+        multiplayer: new MultiplayerMatchService(
+            $database,
+            $config->seasonId,
+            $config->seasonName,
+            new MultiplayerProofValidator(),
+            $gameCenterPublication,
+        ),
+        multiplayerLeaderboard: $multiplayerLeaderboard,
     );
     $app->dispatch($request);
 } catch (ApiException $error) {

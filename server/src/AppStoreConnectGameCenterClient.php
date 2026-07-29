@@ -37,9 +37,15 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
 
     public function submitLeaderboard(
         string $scopedPlayerId,
+        string $vendorIdentifier,
         int $score,
         bool $preReleased,
     ): string {
+        if (!GameCenterCatalog::supportsLeaderboardVendorIdentifier($vendorIdentifier)) {
+            throw new \InvalidArgumentException(
+                'Unknown Game Center leaderboard identifier.',
+            );
+        }
         if ($score < 0) {
             throw new \InvalidArgumentException('Game Center score cannot be negative.');
         }
@@ -48,7 +54,7 @@ final class AppStoreConnectGameCenterClient implements GameCenterSubmissionClien
             'gameCenterLeaderboardEntrySubmissions',
             [
                 'bundleId' => $this->config->storeKitBundleId,
-                'vendorIdentifier' => GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
+                'vendorIdentifier' => $vendorIdentifier,
                 'scopedPlayerId' => self::normalizedScopedPlayerId($scopedPlayerId),
                 // Apple's submission example and live endpoint require a
                 // decimal JSON string despite conflicting schema metadata.

@@ -38,8 +38,11 @@ final class RunProofValidator
     private const FOUR_BY_FOUR_STARTS_AT_MS = 40_000;
     private const FOUR_BY_FOUR_CHALLENGE_STARTS_AT_MS = 50_000;
 
-    private const DECOY_LIFETIME_MIN_MS = 450;
-    private const DECOY_LIFETIME_MAX_MS = 750;
+    private const MULTIPLE_DECOYS_STARTS_AT_MS = 70_000;
+    private const LEGACY_DECOY_LIFETIME_MIN_MS = 450;
+    private const LEGACY_DECOY_LIFETIME_MAX_MS = 750;
+    private const PERSISTENT_DECOY_LIFETIME_MIN_MS = 1_000;
+    private const PERSISTENT_DECOY_LIFETIME_MAX_MS = 3_000;
     private const DECOY_RETRY_MS = 150;
     private const DODGE_POINTS = 550;
 
@@ -61,6 +64,7 @@ final class RunProofValidator
         }
 
         $mode = $proof->mode;
+        $persistentDecoyRules = RunProof::usesPersistentDecoyRules($proof->buildId);
         $state = 'waiting';
         $gameOver = false;
         $finished = false;
@@ -107,6 +111,7 @@ final class RunProofValidator
             $challengeStartHits,
             $mode,
             $zenTargetDelayMs,
+            $persistentDecoyRules,
         );
         $targetScheduleSamples = 0;
         $targetAtMinimumSamples = 0;
@@ -177,7 +182,12 @@ final class RunProofValidator
                 $missingDecoyTransitions++;
                 $difficulty = $state === 'active' && $targetDifficulty !== null
                     ? $targetDifficulty
-                    : $this->difficulty($hits, $processedAt, $challengeStartHits);
+                    : $this->difficulty(
+                        $hits,
+                        $processedAt,
+                        $challengeStartHits,
+                        $persistentDecoyRules,
+                    );
                 $decoySchedule = $this->decoyScheduleAfterOpportunity($processedAt, $difficulty);
             }
 
@@ -214,7 +224,12 @@ final class RunProofValidator
                 if ($at >= self::FOUR_BY_FOUR_CHALLENGE_STARTS_AT_MS && $challengeStartHits === null) {
                     $challengeStartHits = $hits;
                 }
-                $difficulty = $this->difficulty($hits, $at, $challengeStartHits);
+                $difficulty = $this->difficulty(
+                    $hits,
+                    $at,
+                    $challengeStartHits,
+                    $persistentDecoyRules,
+                );
                 $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
                 if (isset($targetCellsByDimension[$difficulty['gridDimension']])) {
                     $targetCellsByDimension[$difficulty['gridDimension']][] = $cell;
@@ -243,6 +258,9 @@ final class RunProofValidator
             } elseif ($type === RunProof::EVENT_HIT) {
                 [, $inputAt, $handledAt, $cell] = $event;
                 $this->assertHandledAt($inputAt, $handledAt, $lastHandledAt, $eventIndex);
+                if ($persistentDecoyRules) {
+                    $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
+                }
                 $handlerLags[] = $handledAt - $inputAt;
                 if ($state !== 'active' || $targetAt === null || $targetDifficulty === null) {
                     $this->invalid('A correct tap has no active target.', $eventIndex);
@@ -288,7 +306,9 @@ final class RunProofValidator
                 $targetAt = null;
                 $targetCell = null;
                 $targetDifficulty = null;
-                $activeDecoys = [];
+                if (!$persistentDecoyRules) {
+                    $activeDecoys = [];
+                }
                 $targetSchedule = $this->targetSchedule(
                     $handledAt,
                     0,
@@ -296,11 +316,15 @@ final class RunProofValidator
                     $challengeStartHits,
                     $mode,
                     $zenTargetDelayMs,
+                    $persistentDecoyRules,
                 );
                 $lastHandledAt = $handledAt;
             } elseif ($type === RunProof::EVENT_MISS) {
                 [, $inputAt, $handledAt, $reason, $cell] = $event;
                 $this->assertHandledAt($inputAt, $handledAt, $lastHandledAt, $eventIndex);
+                if ($persistentDecoyRules) {
+                    $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
+                }
                 $handlerLags[] = $handledAt - $inputAt;
                 if (!in_array($reason, [RunProof::MISS_EMPTY, RunProof::MISS_WRONG, RunProof::MISS_LATE], true)) {
                     $this->invalid('Miss reason is invalid.', $eventIndex);
@@ -313,7 +337,12 @@ final class RunProofValidator
                     if ($inputAt > $targetSchedule['maximum'] + self::MAX_TRANSITION_LAG_MS) {
                         $this->invalid('An empty-board tap occurs after a target should have appeared.', $eventIndex);
                     }
-                    $difficulty = $this->difficulty($hits, $inputAt, $challengeStartHits);
+                    $difficulty = $this->difficulty(
+                        $hits,
+                        $inputAt,
+                        $challengeStartHits,
+                        $persistentDecoyRules,
+                    );
                     $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
                 } elseif ($state === 'active' && $targetAt !== null && $targetDifficulty !== null) {
                     $reactionMs = $inputAt - $targetAt;
@@ -374,12 +403,14 @@ final class RunProofValidator
                             self::LIFE_LOSS_RECOVERY_MS,
                             $hits,
                             $challengeStartHits,
+                            persistentDecoyRules: $persistentDecoyRules,
                         );
                         $decoySchedule = $this->nextDecoySchedule(
                             $handledAt,
                             self::LIFE_LOSS_RECOVERY_MS,
                             $hits,
                             $challengeStartHits,
+                            $persistentDecoyRules,
                         );
                     }
                 } elseif (!$retainZenTarget && $state !== 'waiting') {
@@ -387,7 +418,17 @@ final class RunProofValidator
                 }
             } elseif ($type === RunProof::EVENT_DECOY_ACTIVATE) {
                 [, $at, $id, $cell, $lifetime] = $event;
-                if ($id !== $nextDecoyId || $lifetime < self::DECOY_LIFETIME_MIN_MS || $lifetime > self::DECOY_LIFETIME_MAX_MS) {
+                $minimumLifetime = $persistentDecoyRules
+                    ? self::PERSISTENT_DECOY_LIFETIME_MIN_MS
+                    : self::LEGACY_DECOY_LIFETIME_MIN_MS;
+                $maximumLifetime = $persistentDecoyRules
+                    ? self::PERSISTENT_DECOY_LIFETIME_MAX_MS
+                    : self::LEGACY_DECOY_LIFETIME_MAX_MS;
+                if (
+                    $id !== $nextDecoyId
+                    || $lifetime < $minimumLifetime
+                    || $lifetime > $maximumLifetime
+                ) {
                     $this->invalid('Decoy identity or lifetime is invalid.', $eventIndex);
                 }
                 if ($at + self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS < $decoySchedule['minimum']) {
@@ -410,7 +451,12 @@ final class RunProofValidator
                 $this->assertNoExpiredDecoys($activeDecoys, $at, $eventIndex);
                 $difficulty = $state === 'active' && $targetDifficulty !== null
                     ? $targetDifficulty
-                    : $this->difficulty($hits, $at, $challengeStartHits);
+                    : $this->difficulty(
+                        $hits,
+                        $at,
+                        $challengeStartHits,
+                        $persistentDecoyRules,
+                    );
                 $cellCount = $difficulty['gridDimension'] ** 2;
                 $capacity = min($difficulty['maximumActiveDecoys'], max(0, $cellCount - 1));
                 if ($difficulty['decoyDelayRangeMs'] === null || $capacity === 0 || count($activeDecoys) >= $capacity) {
@@ -447,7 +493,12 @@ final class RunProofValidator
                 $this->assertNoExpiredDecoys($activeDecoys, $at, $eventIndex);
                 $difficulty = $state === 'active' && $targetDifficulty !== null
                     ? $targetDifficulty
-                    : $this->difficulty($hits, $at, $challengeStartHits);
+                    : $this->difficulty(
+                        $hits,
+                        $at,
+                        $challengeStartHits,
+                        $persistentDecoyRules,
+                    );
                 $cellCount = $difficulty['gridDimension'] ** 2;
                 $capacity = min($difficulty['maximumActiveDecoys'], max(0, $cellCount - 1));
                 $canActivate = $difficulty['decoyDelayRangeMs'] !== null
@@ -577,7 +628,12 @@ final class RunProofValidator
         );
     }
 
-    private function difficulty(int $hits, int $elapsedMs, ?int $challengeStartHits): array
+    private function difficulty(
+        int $hits,
+        int $elapsedMs,
+        ?int $challengeStartHits,
+        bool $persistentDecoyRules,
+    ): array
     {
         $gridDimension = $elapsedMs >= self::FOUR_BY_FOUR_STARTS_AT_MS
             ? 4
@@ -603,7 +659,7 @@ final class RunProofValidator
             $responseWindowMs = 750;
             $spawnRange = [475, 900];
             $decoyRange = [600, 3_400];
-            $maximumActiveDecoys = 2;
+            $maximumActiveDecoys = $persistentDecoyRules ? 1 : 2;
         }
         if ($elapsedMs >= self::FOUR_BY_FOUR_STARTS_AT_MS) {
             $responseWindowMs = 1_000;
@@ -614,13 +670,20 @@ final class RunProofValidator
         if ($elapsedMs >= self::FOUR_BY_FOUR_CHALLENGE_STARTS_AT_MS) {
             $challengeHits = $challengeStartHits === null ? 0 : max(0, $hits - $challengeStartHits);
             $tier = intdiv($challengeHits, 10);
-            $responseWindowMs = max(200, 1_000 - $challengeHits * 10);
+            $responseWindowMs = max(
+                200,
+                1_000 - $challengeHits * ($persistentDecoyRules ? 5 : 10),
+            );
             $spawnRange = [
                 max(250, 425 - $tier * 15),
                 max(500, 825 - $tier * 25),
             ];
             $decoyRange = [600, max(1_100, 2_000 - $tier * 170)];
-            $maximumActiveDecoys = min(6, 2 + $tier);
+            $maximumActiveDecoys = $persistentDecoyRules
+                ? ($elapsedMs >= self::MULTIPLE_DECOYS_STARTS_AT_MS
+                    ? min(6, 2 + $tier)
+                    : 1)
+                : min(6, 2 + $tier);
         }
 
         return [
@@ -639,13 +702,19 @@ final class RunProofValidator
         ?int $challengeStartHits,
         string $mode = 'normal',
         float $zenTargetDelayMs = self::ZEN_INITIAL_TARGET_DELAY_MS,
+        bool $persistentDecoyRules = false,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
         if ($mode === 'zen') {
             $targetAt = $readyAt + $zenTargetDelayMs;
             return ['minimum' => $targetAt, 'maximum' => $targetAt];
         }
-        $range = $this->difficulty($hits, $readyAt, $challengeStartHits)['spawnDelayRangeMs'];
+        $range = $this->difficulty(
+            $hits,
+            $readyAt,
+            $challengeStartHits,
+            $persistentDecoyRules,
+        )['spawnDelayRangeMs'];
         return ['minimum' => $readyAt + $range[0], 'maximum' => $readyAt + $range[1]];
     }
 
@@ -654,6 +723,7 @@ final class RunProofValidator
         int $recoveryMs,
         int $hits,
         ?int $challengeStartHits,
+        bool $persistentDecoyRules,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
         if ($readyAt < self::COLOR_PATIENCE_STARTS_AT_MS) {
@@ -662,7 +732,12 @@ final class RunProofValidator
                 'maximum' => self::COLOR_PATIENCE_STARTS_AT_MS,
             ];
         }
-        $difficulty = $this->difficulty($hits, $readyAt, $challengeStartHits);
+        $difficulty = $this->difficulty(
+            $hits,
+            $readyAt,
+            $challengeStartHits,
+            $persistentDecoyRules,
+        );
         if ($difficulty['gridDimension'] < 2 || $difficulty['decoyDelayRangeMs'] === null) {
             return [
                 'minimum' => $readyAt + self::DECOY_RETRY_MS,

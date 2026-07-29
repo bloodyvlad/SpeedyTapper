@@ -190,12 +190,12 @@ test("the endless challenge accelerates targets and independent decoy opportunit
   const capped = resolveDifficulty(500, 180_000, 480);
 
   assert.equal(start.responseWindowMs, 1_000);
-  assert.equal(start.maximumActiveDecoys, 2);
+  assert.equal(start.maximumActiveDecoys, 1);
   assert.deepEqual(start.decoySpawnDelayRangeMs, [600, 2_000]);
-  assert.equal(tenHits.responseWindowMs, 900);
-  assert.equal(tenHits.maximumActiveDecoys, 3);
+  assert.equal(tenHits.responseWindowMs, 950);
+  assert.equal(tenHits.maximumActiveDecoys, 1);
   assert.deepEqual(tenHits.decoySpawnDelayRangeMs, [600, 1_830]);
-  assert.equal(fortyHits.responseWindowMs, 600);
+  assert.equal(fortyHits.responseWindowMs, 800);
   assert.equal(fortyHits.maximumActiveDecoys, 6);
   assert.deepEqual(fortyHits.decoySpawnDelayRangeMs, [600, 1_320]);
   assert.equal(capped.responseWindowMs, 200);
@@ -224,16 +224,17 @@ test("configured decoy gaps keep the doubled mean while permitting occasional ov
   assert.ok(challenge[0] < MAX_DECOY_LIFETIME_MS);
 });
 
-test("decoys can appear while waiting or during a target and can overlap", () => {
+test("decoys can appear while waiting or during a target and overlap after 70 seconds", () => {
   const engine = makeEngine(() => 0.25);
   engine.start(0);
-  engine.hits = 4;
+  engine.hits = 40;
+  engine.challengeStartHits = 20;
 
-  const waitingDecoy = engine.activateDecoy(35_000);
+  const waitingDecoy = engine.activateDecoy(75_000);
   assert.equal(waitingDecoy.type, "decoy-active");
-  const active = engine.activateRound(35_020);
+  const active = engine.activateRound(75_020);
   assert.equal(active.type, "round-active");
-  const activeDecoy = engine.activateDecoy(35_040);
+  const activeDecoy = engine.activateDecoy(75_040);
   assert.equal(activeDecoy.type, "decoy-active");
   assert.equal(activeDecoy.snapshot.activeDecoys.length, 2);
   assert.equal(activeDecoy.snapshot.cells.filter((cell) => cell.kind === "decoy").length, 2);
@@ -280,16 +281,16 @@ test("run proof records independent decoy opportunities that cannot spawn", () =
 
   assert.deepEqual(engine.getRunProofEvents(), [
     [6, 10_000],
-    [3, 10_150, 1, active.decoy.cellIndex, 450],
+    [3, 10_150, 1, active.decoy.cellIndex, 1_000],
     [6, 10_151]
   ]);
 });
 
-test("decoy lifetimes vary from 450 ms through the 750 ms hard cap", () => {
+test("decoy lifetimes vary from 1 to 3 seconds", () => {
   const minimumEngine = makeEngine(() => 0);
   minimumEngine.start(0);
   minimumEngine.hits = 4;
-  assert.equal(minimumEngine.activateDecoy(10_100).lifetimeMs, 450);
+  assert.equal(minimumEngine.activateDecoy(10_100).lifetimeMs, 1_000);
 
   const engine = makeEngine(() => 0.999999);
   engine.start(0);
@@ -346,9 +347,10 @@ test("self-expiring decoys award one dodge and configured average points", () =>
 test("one expiry callback can settle several independently expired decoys", () => {
   const engine = makeEngine(() => 0);
   engine.start(0);
-  engine.hits = 4;
-  const first = engine.activateDecoy(35_000);
-  const second = engine.activateDecoy(35_010);
+  engine.hits = 40;
+  engine.challengeStartHits = 20;
+  const first = engine.activateDecoy(75_000);
+  const second = engine.activateDecoy(75_010);
 
   const result = engine.expireDecoys(second.decoy.expiresAt);
   assert.equal(result.type, "decoys-dodged");
@@ -360,20 +362,21 @@ test("one expiry callback can settle several independently expired decoys", () =
 test("run proof records decoy activations and grouped natural expiry", () => {
   const engine = makeEngine(() => 0);
   engine.start(1_000);
-  engine.hits = 4;
+  engine.hits = 40;
+  engine.challengeStartHits = 20;
 
-  const first = engine.activateDecoy(36_000);
-  const second = engine.activateDecoy(36_010);
+  const first = engine.activateDecoy(76_000);
+  const second = engine.activateDecoy(76_010);
   engine.expireDecoys(second.decoy.expiresAt);
 
   assert.deepEqual(engine.getRunProofEvents(), [
-    [3, 35_000, first.decoy.id, first.decoy.cellIndex, 450],
-    [3, 35_010, second.decoy.id, second.decoy.cellIndex, 450],
-    [4, 35_460, first.decoy.id, second.decoy.id]
+    [3, 75_000, first.decoy.id, first.decoy.cellIndex, 1_000],
+    [3, 75_010, second.decoy.id, second.decoy.cellIndex, 1_000],
+    [4, 76_010, first.decoy.id, second.decoy.id]
   ]);
 });
 
-test("a correct target tap clears live decoys without awarding dodge points", () => {
+test("a correct target tap keeps live decoys reserved until independent expiry", () => {
   const engine = makeEngine(() => 0);
   engine.start(0);
   engine.hits = 4;
@@ -384,23 +387,25 @@ test("a correct target tap clears live decoys without awarding dodge points", ()
   assert.equal(result.type, "hit");
   assert.equal(result.dodgesAwarded, 0);
   assert.equal(result.snapshot.dodges, 0);
-  assert.equal(result.snapshot.activeDecoys.length, 0);
-  assert.equal(engine.expireDecoys(decoy.decoy.expiresAt).reason, "not-expired");
+  assert.equal(result.snapshot.activeDecoys.length, 1);
+  const expiry = engine.expireDecoys(decoy.decoy.expiresAt);
+  assert.equal(expiry.type, "decoys-dodged");
+  assert.equal(expiry.dodgesAwarded, 1);
 });
 
-test("a visually present decoy cleared by a correct tap never earns a delayed dodge", () => {
+test("a decoy expiring just before a correct tap still awards its independent dodge", () => {
   const engine = makeEngine(() => 0);
   engine.start(0);
   engine.hits = 4;
-  const active = engine.activateRound(35_000);
-  const decoy = engine.activateDecoy(35_050);
+  const decoy = engine.activateDecoy(35_000);
+  const active = engine.activateRound(35_900);
   const inputAt = decoy.decoy.expiresAt + 1;
 
   const result = engine.tap(active.snapshot.targetIndex, inputAt);
   assert.equal(result.type, "hit");
-  assert.equal(result.dodgesAwarded, 0);
-  assert.equal(result.dodgePointsAwarded, 0);
-  assert.equal(result.snapshot.dodges, 0);
+  assert.equal(result.dodgesAwarded, 1);
+  assert.equal(result.dodgePointsAwarded, GAME_CONFIG.dodgePoints);
+  assert.equal(result.snapshot.dodges, 1);
   assert.equal(result.snapshot.activeDecoys.length, 0);
 });
 
@@ -423,7 +428,7 @@ test("tapping a live decoy is a mistake and clears it without a dodge", () => {
 test("target expiry clears still-live decoys without awarding dodge", () => {
   const engine = makeEngine(() => 0);
   engine.start(0, GAME_MODES.NORMAL);
-  engine.hits = 100;
+  engine.hits = 180;
   engine.challengeStartHits = 20;
   const active = engine.activateRound(130_000);
   const decoy = engine.activateDecoy(130_010);

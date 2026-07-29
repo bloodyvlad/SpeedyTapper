@@ -72,6 +72,13 @@ $database->exec(
     . ')'
 );
 $database->exec(
+    'CREATE TABLE multiplayer_results ('
+    . 'id TEXT PRIMARY KEY, '
+    . 'player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'score INTEGER NOT NULL, verification_status TEXT NOT NULL'
+    . ')'
+);
+$database->exec(
     'CREATE TABLE player_achievements ('
     . 'player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
     . 'achievement_key TEXT NOT NULL, PRIMARY KEY (player_id, achievement_key)'

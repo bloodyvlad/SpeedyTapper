@@ -39,6 +39,7 @@ final class GameCenterOutboxWorker
                         if ($kind === 'leaderboard') {
                             $submissionId = $this->apple->submitLeaderboard(
                                 $target['scopedPlayerId'],
+                                $target['vendorIdentifier'],
                                 $target['desiredValue'],
                                 (bool) $job['pre_released'],
                             );

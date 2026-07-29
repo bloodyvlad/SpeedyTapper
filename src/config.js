@@ -76,14 +76,15 @@ export const GAME_CONFIG = Object.freeze({
     gentleRampStartsAtMs: 20_000,
     rareDecoysStartAtMs: 30_000,
     fourByFourStartsAtMs: 40_000,
-    fourByFourChallengeStartsAtMs: 50_000
+    fourByFourChallengeStartsAtMs: 50_000,
+    multipleDecoysStartAtMs: 70_000
   }),
   responseWindowsMs: Object.freeze({
     comfortable: 1_000,
     gentleMinimum: 750,
     fourByFourStart: 1_000,
     fourByFourMinimum: 200,
-    fourByFourDecreasePerHit: 10
+    fourByFourDecreasePerHit: 5
   }),
   endlessDifficulty: Object.freeze({
     hitsPerTier: 10,
@@ -105,8 +106,8 @@ export const GAME_CONFIG = Object.freeze({
     fourByFourChallenge: Object.freeze([425, 825])
   }),
   decoys: Object.freeze({
-    maximumLifetimeMs: 750,
-    lifetimeRangeMs: Object.freeze([450, 750]),
+    maximumLifetimeMs: 3_000,
+    lifetimeRangeMs: Object.freeze([1_000, 3_000]),
     retryDelayMs: 150,
     spawnDelayRangesMs: Object.freeze({
       colorPatience: Object.freeze([2_200, 3_600]),

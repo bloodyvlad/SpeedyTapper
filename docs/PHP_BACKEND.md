@@ -1,6 +1,6 @@
 # PHP/MySQL backend integration
 
-This document describes the PHP backend shipped from `main` to the independent Hostinger production site. The retained Vercel generation is a separate legacy rollback and is not evidence of current production state.
+This document describes the PHP backend shipped from `main` to the independent Hostinger production site. The retained Vercel generation is a separate legacy rollback and is not evidence of current production state. Sections explicitly marked **unreleased** describe the current integration working tree, not Hostinger.
 
 ## Runtime and setup
 
@@ -24,6 +24,13 @@ Production artifacts contain an untracked `server/.migrations-pending` marker. O
 Migration `020_reset_internal_alpha_player_data.sql` is an exceptional one-time clean-slate migration authorized for the internal alpha. Do not let a public first request apply it. Before running it, verify a database backup, maintenance-gate the API with the artifact-only `server/.maintenance` marker, and pause the Game Center publisher plus StoreKit reconciliation crons. Run `php server/bin/migrate.php` once from the host CLI, verify the player-facing tables are empty and retained StoreKit evidence is detached, then deploy the normal artifact and restore the crons. The SQL also fences all four lane/environment advisory locks and uses an in-transaction data marker, making a post-commit runner retry a no-op. It intentionally preserves transaction IDs, signed observations/notifications, purchased-lot and refund/reversal evidence without a live profile association; deleting that evidence would permit replayed credits and break later Apple settlement. This operational reset does not revoke each Apple authorization and must not be represented as a per-user privacy deletion.
 
 Migration `021_unique_player_nicknames.sql` invalidates confirmed names containing whitespace without deleting their profiles or progress, rewrites unconfirmed legacy placeholders to stable no-space values, and adds a nullable generated key plus unique index for confirmed names. The key inherits `utf8mb4_unicode_ci`, so case- or accent-only variants collide. If historical valid confirmed names already collide, the migration deliberately stops with an operator diagnostic; resolve the specific profiles explicitly and rerun instead of silently renaming or merging them.
+
+Unreleased migration `022_multiplayer_leaderboard.sql` adds 2–4 player
+own-color match/lobby state, stable seat/color assignments, unanimous GameKit
+roster confirmations, immutable start manifests, per-participant matching proof
+submissions, global trace replay claims, derived results, and the separate
+multiplayer leaderboard indexes. It does not add a websocket or put PHP in the
+reaction-critical path. It has not been deployed.
 
 Migration `012` extends that sequence with the authoritative theme catalog, paid ownership/selection, `theme_purchase` ledger events, and theme-aware reset audits. It does not clear leaderboard results.
 
@@ -160,7 +167,7 @@ Run `php server/bin/reconcile-storekit.php --limit=100` from a bounded cron or o
 
 ### Account deletion and retained evidence
 
-Deletion requires an authenticated profile, same-origin CSRF, the exact case-sensitive confirmation `DELETE MY ACCOUNT`, and a Google or Apple primary login no more than 15 minutes old. For an Apple-bound profile, the server decrypts and revokes the retained Apple refresh token before local erasure; failure aborts deletion. One database transaction then removes the player row and therefore every primary-subject digest, encrypted Apple authorization, Game Center binding, public nickname, achievements, pet/theme ownership and selection, roles, every opaque browser-session mapping, public leaderboard entry, completed/issued run, proof, trace claim, moderation row targeting the player, and ordinary gameplay/economy ledger history. References where the deleted account acted on another player's retained moderation history are anonymized rather than deleting that other player's evidence.
+Deletion requires an authenticated profile, same-origin CSRF, the exact case-sensitive confirmation `DELETE MY ACCOUNT`, and a Google or Apple primary login no more than 15 minutes old. For an Apple-bound profile, the server decrypts and revokes the retained Apple refresh token before local erasure; failure aborts deletion. One database transaction then removes the player row and therefore every primary-subject digest, encrypted Apple authorization, Game Center binding, public nickname, achievements, pet/theme ownership and selection, roles, every opaque browser-session mapping, public leaderboard entry, completed/issued run, proof, trace claim, moderation row targeting the player, and ordinary gameplay/economy ledger history. In the unreleased multiplayer schema, it also cancels every joined nonterminal match, purges shared roster/transcript/risk evidence and non-settled aggregate results, and lets the player foreign-key cascade remove that player's participant/result rows while preserving already-settled peer results. References where the deleted account acted on another player's retained moderation history are anonymized rather than deleting that other player's evidence.
 
 Only the minimum StoreKit settlement graph remains: signed transaction and observation metadata, notification hashes/status, purchased lots, entitlement-source rows, purchased spend allocations, exact refund-debt settlements, refund-revoked cosmetics, cosmetic-restore debts, and Family Sharing tombstones. Those rows are detached by setting `player_id` to null; raw account bindings and retained raw `appTransactionId` values are removed, and linkable spend/family/account references use domain-separated HMAC-SHA-256 pseudonyms under the private retention key. Ordinary earned allocation history is deleted, except an earned credit already used to settle an outstanding App Store refund is retained only as pseudonymized settlement provenance.
 
@@ -340,7 +347,7 @@ Returns only the public top-five entries and never opens a PHP session or reads 
 
 ### `POST /api/runs`
 
-Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "20260718-1" }`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
+Starts a ranked Arcade run before the first board presentation. Authentication and a confirmed public nickname are required. Body: `{ "mode": "normal", "buildId": "<the exact compatible client build>" }`; `20260718-1` is a retained legacy-compatible example, while the unreleased persistent-decoy client uses `20260729-1`. The server returns a one-time `runId`, mode, build, `ruleset`, and `proofVersion`. The attempt is bound to the player and current browser session; issuing a new attempt abandons that player's older unsubmitted attempt. `mode: "zen"` is rejected because Zen is always endless local practice. A failed Arcade request may still start a local practice game, but that result is never rankable and never earns coins.
 
 ### `POST /api/runs/abandon`
 
@@ -354,7 +361,7 @@ Authentication and a confirmed public nickname are required. The body contains t
 {
   "runId": "server-run-uuid",
   "mode": "normal",
-  "buildId": "20260718-1",
+  "buildId": "<the exact build ID returned by the run ticket>",
   "ruleset": "reaction-proof-v2",
   "proofVersion": 1,
   "events": [
@@ -367,6 +374,15 @@ Authentication and a confirmed public nickname are required. The body contains t
 ```
 
 Event opcodes represent target presentation, accepted pointer input, misses, decoy creation, natural decoy expiry, an ignored decoy opportunity, and completion. PHP validates their lifecycle, independent timer windows, response windows, and streak rules, then derives the canonical score. Active ranked proofs are Arcade-only and require the third life loss. The server refuses both ranked Zen ticket creation and Zen result submission; Zen runs locally as endless no-decoy practice and never enter the proof, leaderboard, achievement, or coin paths. The validator retains support for historical three-minute Zen proofs only so existing audit data and deterministic legacy checks remain interpretable. The server clock must cover an Arcade proof's handled timeline without an unexplained submission gap. Every accepted run is inserted as an immutable result using `runId` as its entry ID, and a trace hash prevents the same event stream from being credited under a second run ID. A response has the leaderboard shape above plus `rank`, `submittedRank`, `submittedEntryId`, `improved`, `verificationStatus`, coin accounting, `verifiedResult`, and the current achievement snapshot. The browser patches its current profile/rank state from this response instead of immediately requesting session, achievements, and leaderboard again. Repeating the same run ID returns idempotently without another row or coin award; reusing its event trace under another ID is quarantined and revoked rather than sent to an approvable review queue. A `review` result is stored for audit but has no submitted rank and earns no coins unless an operator explicitly approves it.
+
+The unreleased current build ID is `20260729-1`. Its Arcade decoys live for
+1–3 seconds, persist across correct hits, reserve live and just-expired cells
+from target selection, permit more than one only after 70 seconds, and reduce
+the post-50-second response window by 5 ms per correct hit to a 200 ms floor.
+`20260728-2` remains supported through the legacy validator branch with its
+450–750 ms, clear-on-hit, 10 ms-per-hit rules. The two build contracts are
+deliberately replayed separately rather than interpreting an old proof with new
+balancing.
 
 ### `GET /api/achievements` and `POST /api/achievements/claim`
 
@@ -384,6 +400,52 @@ Selection requires authentication, same-origin CSRF, and body `{ "themeId": "sta
 
 Legacy `POST /api/leaderboard` aggregate submission returns HTTP 410 and can never award a result.
 
+### Unreleased multiplayer API
+
+The unreleased native API is rooted at `/api/mobile/v1/multiplayer`:
+
+- `GET /leaderboard`
+- `GET /lobbies?limit=1..50`
+- `POST /matches` with
+  `{ "mode": "own_color", "capacity": 2|3|4, "buildId": "20260729-1" }`
+- `GET /matches/{uuid}`
+- `POST /matches/{uuid}/join`
+- `POST /matches/{uuid}/leave`
+- `PATCH /matches/{uuid}/readiness` with `{ "ready": true|false }`
+- `POST /matches/{uuid}/gamekit-roster`
+- `POST /matches/{uuid}/start`
+- `POST /matches/{uuid}/submissions`
+- `GET /matches/{uuid}/settlement`
+
+Login, a confirmed nickname, and an enabled Game Center link are required;
+create/join/roster/start additionally require a proof refreshed within 10
+minutes. Mutations require same-origin CSRF. PHP returns a unique positive
+`playerGroup` for `GKMatchRequest`, then requires every participant to confirm
+the identical 2–4 player live GameKit roster and coordinator. The start response
+freezes ruleset `multiplayer-own-color-v1`, protocol/proof version 1, a random
+manifest nonce named `seed`, three lives, seats/colors, and an
+unpadded-base64url manifest hash. Protocol v1 does not define a seed-derived
+PRNG; the coordinator schedules within PHP-validated bounds and replicates the
+same ordered events to every peer. Every peer submits the same compact
+seat-only transcript; PHP derives scores and persists results only after all
+hashes agree and replay succeeds.
+
+This path awards no coins or achievements. The separate leaderboard ranks every
+immutable verified participant result and returns public top five plus the
+signed-in player's best ±2 context. The Game Center publisher contains the
+allowlisted vendor ID
+`com.otcsoftware.pimpopom.multiplayer.verified`, but the App Store Connect
+component and iOS implementation do not exist in this backend change. The exact
+payloads, event tuples, `playerGroup` bridge, and iOS tasks are in
+[`MULTIPLAYER_IOS_HANDOFF.md`](./MULTIPLAYER_IOS_HANDOFF.md).
+
+The global multiplayer trace claim blocks a retained event stream from being
+copied into another match. Account deletion intentionally erases ordinary
+gameplay proofs and trace claims under the product's privacy contract, retaining
+only legally justified pseudonymized StoreKit evidence. Clone detection
+therefore cannot recognize a trace whose original claim was erased by account
+deletion. This is an explicit privacy/security tradeoff, not human attestation.
+
 ### Leaderboard administrator API
 
 Every route below requires a current primary-authenticated profile whose internal UUID has the database role `leaderboard_admin`. The profile and session payload expose only the derived `isAdmin` boolean; the browser cannot grant the role. Migration `011` bootstraps the initial administrator only when the exact production result IDs `d4e98497-9212-475e-8664-283171ce3910` and `82ee646d-28d9-43f8-9e38-e4e234a02db1` still belong to the same player. No score, nickname, rank, email, or client flag is consulted after that migration.
@@ -400,6 +462,7 @@ Both mutations require same-origin CSRF protection and a Google or Apple primary
 - The session cookie, same-origin mutation guard, per-session CSRF token, and single-use Apple/Game Center challenges prevent common cross-site and replay mutations, while Google or Apple verifies primary account ownership.
 - Google and Apple subjects and Game Center team identities are irreversibly, domain-separately digested before storage. Raw identity tokens, provider subjects, `teamPlayerID`, email claims, and passwords are never stored. The only reversible identity data is narrowly retained as authenticated ciphertext: Apple's refresh token for deletion-time revocation and the client-asserted `gamePlayerID` needed for server publication.
 - PHP issues the run ID, binds it to one confirmed player and browser session, permits only one issued attempt per player, bounds elapsed time with its own clock, replays the chronological proof, derives all result fields, and consumes the run once. Start and completion limits are persisted by internal player UUID, so re-login does not clear them.
+- The unreleased multiplayer service is absent from live tap/HUD traffic. Matching peer submissions and PHP replay prevent a lone coordinator from changing the settled transcript, but colluding or modified clients can submit matching fabricated evidence. Describe accepted rows as **protocol-verified, peer-consistent**, never human-verified or bot-proof. New submissions after the stored deadline move the match to review, while an exact already-stored retry remains idempotent; an absent peer can still leave a match collecting until another participant submits or a future bounded cleanup task processes it. Reconnect, forfeit, post-start host migration, scheduled stale-match cleanup, and multiplayer browser moderation remain iOS/backend follow-up work.
 - Requests are capped at 256 KiB and 10,000 proof events. An authenticated per-session finish limit is consumed before proof JSON is parsed, while persisted per-minute and daily player limits run before replay or proof persistence. Rejected proofs retain hashes and compact audit metadata rather than attacker-controlled event JSON. The bounded maintenance command removes stale unranked attempts. Shared-hosting or edge-level IP throttling remains recommended for broader availability protection.
 - This is protocol verification, not proof of human input. A sufficiently modified browser, scripted client, or computer-vision bot can still create plausible real-time play. High-risk distributions can be held for manual review; never describe the board as bot-proof.
 - Existing aggregate rows are `legacy` because they cannot be retrospectively verified. `server/bin/leaderboard-admin.php` can list all records or filter suspected/non-ranked states and supports exact-ID `approve`, `reject`, `quarantine`, `restore`, and logical `delete`; mutations are dry-run by default. Quarantine is reversible. Coin reconciliation recomputes only earned eligibility, earned cosmetic allocations, and achievement rewards while preserving purchased balances/lots, IAP/refund history, active paid entitlements, paid/mixed-funded cosmetics, and refund debt. Revoked earned value becomes earned debt when spent, or reopens its exact StoreKit refund-debt settlement when that is where the credit went.

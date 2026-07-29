@@ -76,7 +76,7 @@ const manifestSource = await readFile(new URL("../manifest.webmanifest", import.
 test("the complete browser module graph uses one release version", () => {
   const buildId = workerSource.match(/const BUILD_ID = "([^"]+)";/)?.[1];
   assert.ok(buildId, "The service worker must declare a build ID.");
-  assert.equal(buildId, "20260728-2");
+  assert.equal(buildId, "20260729-1");
 
   assert.match(indexHtml, new RegExp(`styles\\.css\\?v=${buildId}`));
   assert.match(indexHtml, new RegExp(`manifest\\.webmanifest\\?v=${buildId}`));
@@ -879,8 +879,8 @@ test("endless unranked Zen has no decoys, deadline, proof submission, or coins",
   assert.match(configSource, /decoysEnabled:\s*false/);
   assert.match(configSource, /ranked:\s*false/);
   assert.match(configSource, /awardsCoins:\s*false/);
-  assert.match(configSource, /maximumLifetimeMs:\s*750/);
-  assert.match(configSource, /lifetimeRangeMs:\s*Object\.freeze\(\[450, 750\]\)/);
+  assert.match(configSource, /maximumLifetimeMs:\s*3_000/);
+  assert.match(configSource, /lifetimeRangeMs:\s*Object\.freeze\(\[1_000, 3_000\]\)/);
   assert.match(configSource, /rareDecoys:\s*Object\.freeze\(\[600, 3_400\]\)/);
   assert.match(engineSource, /recentlyExpiredDecoyIndexes/);
   assert.match(indexHtml, /id="zen-button"[^>]+aria-label="Zen mode\. No coins awarded\."[^>]*>[\s\S]*?<span>Zen<\/span>[\s\S]*?<small>No coins awarded<\/small>/);
@@ -918,6 +918,10 @@ test("endless unranked Zen has no decoys, deadline, proof submission, or coins",
   assert.match(mainSource, /engine\.getNextDecoyDelayMs\(now\(\)\)/);
   assert.match(mainSource, /engine\.activateDecoy\(visibleAt\)/);
   assert.match(mainSource, /engine\.expireDecoys\(expiredAt\)/);
+  assert.match(
+    mainSource,
+    /if \(result\.type === "hit"\)[\s\S]*scheduleRound\(sessionId\);\s*\/\/ Correct taps preserve Arcade decoys[\s\S]*scheduleDecoyExpiry\(sessionId\);/
+  );
   assert.match(mainSource, /function cancelDecoyCadence\(\)[\s\S]*decoyCadenceId \+= 1/);
   assert.match(
     mainSource,

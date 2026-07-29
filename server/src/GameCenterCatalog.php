@@ -8,6 +8,14 @@ final class GameCenterCatalog
 {
     public const LEADERBOARD_ARCADE_VERIFIED =
         'com.otcsoftware.pimpopom.arcade.verified';
+    public const LEADERBOARD_MULTIPLAYER_VERIFIED =
+        'com.otcsoftware.pimpopom.multiplayer.verified';
+
+    /** @var list<string> */
+    private const LEADERBOARDS = [
+        self::LEADERBOARD_ARCADE_VERIFIED,
+        self::LEADERBOARD_MULTIPLAYER_VERIFIED,
+    ];
 
     /** @var array<string, string> */
     private const ACHIEVEMENTS = [
@@ -35,6 +43,18 @@ final class GameCenterCatalog
     public static function supportsAchievement(string $achievementId): bool
     {
         return array_key_exists($achievementId, self::ACHIEVEMENTS);
+    }
+
+    public static function supportsLeaderboardVendorIdentifier(
+        string $vendorIdentifier,
+    ): bool {
+        return in_array($vendorIdentifier, self::LEADERBOARDS, true);
+    }
+
+    /** @return list<string> */
+    public static function leaderboards(): array
+    {
+        return self::LEADERBOARDS;
     }
 
     public static function achievementIdForVendorIdentifier(string $vendorIdentifier): string

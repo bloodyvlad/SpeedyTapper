@@ -28,6 +28,8 @@ final class App
         private readonly ?AppleCredentialRepository $appleCredentials,
         private readonly GameCenterIdentityVerifier $gameCenter,
         private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
+        private readonly ?MultiplayerMatchService $multiplayer = null,
+        private readonly ?MultiplayerLeaderboardRepository $multiplayerLeaderboard = null,
     ) {
     }
 
@@ -49,6 +51,22 @@ final class App
                 200,
                 $this->leaderboard->topPayload($this->modeFromQuery($request)),
                 ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'],
+            );
+        }
+
+        if (
+            $request->method === 'GET'
+            && $request->path === '/api/mobile/v1/multiplayer/leaderboard'
+        ) {
+            $leaderboard = $this->requireMultiplayerLeaderboard();
+            $playerId = $this->session->playerId();
+            $this->session->close();
+            JsonResponse::send(
+                200,
+                $leaderboard->payload($playerId),
+                $playerId === null
+                    ? ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30']
+                    : [],
             );
         }
 
@@ -434,7 +452,7 @@ final class App
                 'identityBindings' => $this->identities->bindings($profile['id']),
                 'gameCenter' => $this->gameCenterPayload($profile['id']),
                 ...$this->storeKitAccounts->state($profile['id']),
-                'ranks' => $this->leaderboard->rankings($profile['id']),
+                'ranks' => $this->rankings($profile['id']),
                 'leaderboard' => $this->leaderboard->payload($mode, $profile['id']),
             ]);
         }
@@ -590,6 +608,127 @@ final class App
             JsonResponse::send($result['duplicate'] ? 200 : 201, $result);
         }
 
+        if (
+            $request->method === 'GET'
+            && $request->path === '/api/mobile/v1/multiplayer/lobbies'
+        ) {
+            $profile = $this->requirePlayer();
+            $limit = $this->boundedQueryInteger(
+                $request->query['limit'] ?? '20',
+                'limit',
+                1,
+                50,
+            );
+            $this->session->close();
+            JsonResponse::send(
+                200,
+                $this->requireMultiplayer()->listLobbies($profile['id'], $limit),
+            );
+        }
+
+        if (
+            $request->method === 'POST'
+            && $request->path === '/api/mobile/v1/multiplayer/matches'
+        ) {
+            $this->guardMutation($request);
+            $profile = $this->requirePlayer();
+            $body = $request->json();
+            $this->requireOnlyFields(
+                $body,
+                ['mode', 'capacity', 'buildId'],
+                'Multiplayer match creation',
+            );
+            $this->session->close();
+            JsonResponse::send(201, $this->requireMultiplayer()->create(
+                $profile['id'],
+                $body['mode'] ?? null,
+                $body['capacity'] ?? null,
+                $body['buildId'] ?? null,
+            ));
+        }
+
+        if (
+            preg_match(
+                '#^/api/mobile/v1/multiplayer/matches/([0-9a-fA-F-]{36})(?:/(join|leave|readiness|gamekit-roster|start|submissions|settlement))?$#D',
+                $request->path,
+                $matches,
+            ) === 1
+        ) {
+            $profile = $this->requirePlayer();
+            $matchId = $matches[1];
+            $action = $matches[2] ?? null;
+            $multiplayer = $this->requireMultiplayer();
+
+            if ($request->method === 'GET' && $action === null) {
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->show($profile['id'], $matchId));
+            }
+            if ($request->method === 'GET' && $action === 'settlement') {
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->settlement($profile['id'], $matchId));
+            }
+
+            $this->guardMutation($request);
+            $body = $request->json();
+            if ($request->method === 'POST' && $action === 'join') {
+                $this->requireOnlyFields($body, [], 'Multiplayer join');
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->join($profile['id'], $matchId));
+            }
+            if ($request->method === 'POST' && $action === 'leave') {
+                $this->requireOnlyFields($body, [], 'Multiplayer leave');
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->leave($profile['id'], $matchId));
+            }
+            if ($request->method === 'PATCH' && $action === 'readiness') {
+                $this->requireOnlyFields($body, ['ready'], 'Multiplayer readiness');
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->setReady(
+                    $profile['id'],
+                    $matchId,
+                    $body['ready'] ?? null,
+                ));
+            }
+            if ($request->method === 'POST' && $action === 'gamekit-roster') {
+                $this->requireOnlyFields(
+                    $body,
+                    [
+                        'localGamePlayerId',
+                        'observedGamePlayerIds',
+                        'coordinatorGamePlayerId',
+                    ],
+                    'GameKit roster confirmation',
+                );
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->confirmGameKitRoster(
+                    $profile['id'],
+                    $matchId,
+                    $body['localGamePlayerId'] ?? null,
+                    $body['observedGamePlayerIds'] ?? null,
+                    $body['coordinatorGamePlayerId'] ?? null,
+                ));
+            }
+            if ($request->method === 'POST' && $action === 'start') {
+                $this->requireOnlyFields($body, [], 'Multiplayer start');
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->start($profile['id'], $matchId));
+            }
+            if ($request->method === 'POST' && $action === 'submissions') {
+                $this->requireOnlyFields(
+                    $body,
+                    ['manifestHash', 'transcript'],
+                    'Multiplayer submission',
+                );
+                $this->session->close();
+                JsonResponse::send(200, $multiplayer->submit(
+                    $profile['id'],
+                    $matchId,
+                    $body['manifestHash'] ?? null,
+                    $body['transcript'] ?? null,
+                ));
+            }
+        }
+
         if ($request->path === '/api/leaderboard' && $request->method === 'POST') {
             throw new ApiException(410, 'Aggregate score submission is retired. Refresh before playing again.');
         }
@@ -726,7 +865,7 @@ final class App
                 'adFree' => false,
                 'storeKit' => null,
             ] : $this->storeKitAccounts->state($profile['id'])),
-            'ranks' => $profile === null ? null : $this->leaderboard->rankings($profile['id']),
+            'ranks' => $profile === null ? null : $this->rankings($profile['id']),
             'achievementSnapshot' => $profile === null
                 ? $this->achievements->payload(null)
                 : $this->achievements->currentPayload($profile['id'], (int) $profile['coins']),
@@ -766,6 +905,33 @@ final class App
         $status = $this->gameCenterPublication->status($playerId);
         $status['mirrorReady'] = $status['publicationEnabled'] && $publicationAvailable;
         return [...$base, ...$status];
+    }
+
+    private function requireMultiplayer(): MultiplayerMatchService
+    {
+        return $this->multiplayer
+            ?? throw new ApiException(503, 'Multiplayer is not configured.');
+    }
+
+    private function requireMultiplayerLeaderboard(): MultiplayerLeaderboardRepository
+    {
+        return $this->multiplayerLeaderboard
+            ?? throw new ApiException(503, 'Multiplayer leaderboard is not configured.');
+    }
+
+    private function rankings(string $playerId): array
+    {
+        $rankings = $this->leaderboard->rankings($playerId);
+        if ($this->multiplayerLeaderboard === null) {
+            return $rankings;
+        }
+        $multiplayer = $this->multiplayerLeaderboard->payload($playerId);
+        $rankings['multiplayer'] = [
+            'rank' => $multiplayer['playerRank'],
+            'totalEntries' => $multiplayer['totalEntries'],
+            'topPercent' => $multiplayer['topPercent'],
+        ];
+        return $rankings;
     }
 
     private function guardMutation(HttpRequest $request): void

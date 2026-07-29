@@ -12,7 +12,7 @@ namespace SpeedyTapper;
  */
 final readonly class RunProof
 {
-    public const BUILD_ID = '20260728-2';
+    public const BUILD_ID = '20260729-1';
     public const SUPPORTED_BUILD_IDS = [
         '20260718-1',
         '20260719-1',
@@ -23,11 +23,15 @@ final readonly class RunProof
         '20260727-1',
         '20260727-2',
         '20260727-3',
+        '20260728-2',
         self::BUILD_ID,
     ];
     public const RULESET = 'reaction-proof-v2';
     public const PROOF_VERSION = 1;
     public const MAX_EVENTS = 10_000;
+    private const PERSISTENT_DECOY_BUILD_IDS = [
+        '20260729-1',
+    ];
 
     public const EVENT_TARGET = 0;
     public const EVENT_HIT = 1;
@@ -106,6 +110,12 @@ final readonly class RunProof
     public static function isSupportedBuildId(mixed $buildId): bool
     {
         return is_string($buildId) && in_array($buildId, self::SUPPORTED_BUILD_IDS, true);
+    }
+
+    public static function usesPersistentDecoyRules(mixed $buildId): bool
+    {
+        return is_string($buildId)
+            && in_array($buildId, self::PERSISTENT_DECOY_BUILD_IDS, true);
     }
 
     public function eventCount(): int

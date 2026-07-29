@@ -419,20 +419,51 @@ final class GameCenterPublicationRepository
 
     public function enqueueBestScoreInCurrentTransaction(string $playerId): void
     {
+        $this->enqueueBestLeaderboardScoreInCurrentTransaction(
+            $playerId,
+            GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
+        );
+    }
+
+    public function enqueueBestMultiplayerScoreInCurrentTransaction(
+        string $playerId,
+    ): void {
+        $this->enqueueBestLeaderboardScoreInCurrentTransaction(
+            $playerId,
+            GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED,
+        );
+    }
+
+    private function enqueueBestLeaderboardScoreInCurrentTransaction(
+        string $playerId,
+        string $vendorIdentifier,
+    ): void
+    {
         $this->requireTransaction();
         $playerId = self::normalizedPlayerId($playerId);
+        if (!GameCenterCatalog::supportsLeaderboardVendorIdentifier($vendorIdentifier)) {
+            throw new \InvalidArgumentException(
+                'Unknown Game Center leaderboard identifier.',
+            );
+        }
         if (!$this->publicationIsActive($playerId, true)) {
             return;
         }
-        $best = $this->bestVerifiedArcadeScore($playerId);
+        $best = $this->authoritativeLeaderboardScore(
+            $playerId,
+            $vendorIdentifier,
+        );
         if ($best === null) {
-            $this->markLeaderboardWithoutDesiredScore($playerId);
+            $this->markLeaderboardWithoutDesiredScore(
+                $playerId,
+                $vendorIdentifier,
+            );
             return;
         }
         $this->queueDesired(
             $playerId,
             'leaderboard',
-            GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
+            $vendorIdentifier,
             $best,
         );
     }
@@ -458,6 +489,7 @@ final class GameCenterPublicationRepository
     {
         $this->requireTransaction();
         $this->enqueueBestScoreInCurrentTransaction($playerId);
+        $this->enqueueBestMultiplayerScoreInCurrentTransaction($playerId);
         $statement = $this->database->prepare(
             'SELECT achievement_key FROM player_achievements WHERE player_id = :player_id'
         );
@@ -640,7 +672,11 @@ final class GameCenterPublicationRepository
      * Rechecks current PHP authority immediately before the HTTP request.
      *
      * @param array<string, mixed> $job
-     * @return null|array{scopedPlayerId: string, desiredValue: int}
+     * @return null|array{
+     *   scopedPlayerId: string,
+     *   vendorIdentifier: string,
+     *   desiredValue: int
+     * }
      */
     public function prepareClaimForDelivery(array $job): ?array
     {
@@ -684,9 +720,27 @@ final class GameCenterPublicationRepository
                 ? null
                 : (int) $current['desired_value'];
             if ($kind === 'leaderboard') {
-                $authoritative = $this->bestVerifiedArcadeScore($playerId);
+                $vendorIdentifier = (string) $current['vendor_identifier'];
+                if (
+                    !GameCenterCatalog::supportsLeaderboardVendorIdentifier(
+                        $vendorIdentifier,
+                    )
+                ) {
+                    $this->cancelClaim(
+                        $id,
+                        $lockToken,
+                        $revision,
+                        'INVALID_LEADERBOARD_IDENTIFIER',
+                    );
+                    $this->database->commit();
+                    return null;
+                }
+                $authoritative = $this->authoritativeLeaderboardScore(
+                    $playerId,
+                    $vendorIdentifier,
+                );
                 if ($authoritative === null) {
-                    $this->markClaimNeedsReset($current);
+                    $this->markClaimNeedsReset($current, $vendorIdentifier);
                     $this->database->commit();
                     return null;
                 }
@@ -721,6 +775,7 @@ final class GameCenterPublicationRepository
             $this->database->commit();
             return [
                 'scopedPlayerId' => $scopedPlayerId,
+                'vendorIdentifier' => (string) $current['vendor_identifier'],
                 'desiredValue' => $desired
                     ?? throw new \RuntimeException('Game Center desired value is missing.'),
             ];
@@ -865,12 +920,14 @@ final class GameCenterPublicationRepository
         ]);
     }
 
-    private function markLeaderboardWithoutDesiredScore(string $playerId): void
-    {
+    private function markLeaderboardWithoutDesiredScore(
+        string $playerId,
+        string $vendorIdentifier,
+    ): void {
         $existing = $this->outboxRow(
             $playerId,
             'leaderboard',
-            GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
+            $vendorIdentifier,
             true,
         );
         if (!is_array($existing)) {
@@ -887,8 +944,9 @@ final class GameCenterPublicationRepository
             'state' => $state,
             'error_code' => $state === 'needs_reset' ? 'APPLE_SCORE_RESET_REQUIRED' : 'NO_VERIFIED_SCORE',
             'last_error' => $state === 'needs_reset'
-                ? 'No verified Arcade score remains; Apple has no documented per-player reset in this API.'
-                : 'No verified Arcade score remains.',
+                ? 'No verified score remains for this leaderboard; '
+                    . 'Apple has no documented per-player reset in this API.'
+                : 'No verified score remains for this leaderboard.',
             'updated_at' => self::timestamp(),
             'id' => $existing['id'],
         ]);
@@ -915,8 +973,15 @@ final class GameCenterPublicationRepository
     }
 
     /** @param array<string, mixed> $current */
-    private function markClaimNeedsReset(array $current): void
-    {
+    private function markClaimNeedsReset(
+        array $current,
+        string $vendorIdentifier,
+    ): void {
+        if (!GameCenterCatalog::supportsLeaderboardVendorIdentifier($vendorIdentifier)) {
+            throw new \InvalidArgumentException(
+                'Unknown Game Center leaderboard identifier.',
+            );
+        }
         $state = $current['delivered_value'] === null ? 'cancelled' : 'needs_reset';
         $update = $this->database->prepare(
             'UPDATE game_center_publication_outbox SET desired_value = NULL, '
@@ -928,8 +993,9 @@ final class GameCenterPublicationRepository
             'state' => $state,
             'error_code' => $state === 'needs_reset' ? 'APPLE_SCORE_RESET_REQUIRED' : 'NO_VERIFIED_SCORE',
             'last_error' => $state === 'needs_reset'
-                ? 'No verified Arcade score remains; Apple has no documented per-player reset in this API.'
-                : 'No verified Arcade score remains.',
+                ? 'No verified score remains for this leaderboard; '
+                    . 'Apple has no documented per-player reset in this API.'
+                : 'No verified score remains for this leaderboard.',
             'updated_at' => self::timestamp(),
             'id' => $current['id'],
             'lock_token' => $current['lock_token'],
@@ -1118,6 +1184,32 @@ final class GameCenterPublicationRepository
         $statement->execute(['player_id' => $playerId]);
         $value = $statement->fetchColumn();
         return $value === false || $value === null ? null : (int) $value;
+    }
+
+    private function bestVerifiedMultiplayerScore(string $playerId): ?int
+    {
+        $statement = $this->database->prepare(
+            'SELECT MAX(score) FROM multiplayer_results WHERE player_id = :player_id '
+            . "AND verification_status = 'verified'"
+        );
+        $statement->execute(['player_id' => $playerId]);
+        $value = $statement->fetchColumn();
+        return $value === false || $value === null ? null : (int) $value;
+    }
+
+    private function authoritativeLeaderboardScore(
+        string $playerId,
+        string $vendorIdentifier,
+    ): ?int {
+        return match ($vendorIdentifier) {
+            GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED =>
+                $this->bestVerifiedArcadeScore($playerId),
+            GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED =>
+                $this->bestVerifiedMultiplayerScore($playerId),
+            default => throw new \InvalidArgumentException(
+                'Unknown Game Center leaderboard identifier.',
+            ),
+        };
     }
 
     /** @return array<string, mixed>|null */

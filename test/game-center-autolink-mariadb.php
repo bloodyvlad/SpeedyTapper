@@ -34,6 +34,7 @@ foreach ([
     'game_center_publication_outbox',
     'game_center_assertion_uses',
     'player_achievements',
+    'multiplayer_results',
     'leaderboard_entries',
     'player_game_center_bindings',
     'players',
@@ -63,6 +64,14 @@ $database->exec(
     . 'id VARCHAR(64) PRIMARY KEY, player_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, '
     . 'mode VARCHAR(16) NOT NULL, score BIGINT NOT NULL, verification_status VARCHAR(16) NOT NULL, '
     . 'CONSTRAINT gc_score_player_fk FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE'
+    . ') ENGINE=InnoDB'
+);
+$database->exec(
+    'CREATE TABLE multiplayer_results ('
+    . 'id VARCHAR(64) PRIMARY KEY, player_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, '
+    . 'score BIGINT UNSIGNED NOT NULL, verification_status VARCHAR(16) NOT NULL, '
+    . 'CONSTRAINT gc_multiplayer_result_player_fk '
+    . 'FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE'
     . ') ENGINE=InnoDB'
 );
 $database->exec(

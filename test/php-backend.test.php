@@ -483,16 +483,17 @@ for ($hit = 0; $hit < 14; $hit++) {
     $equalMillisecondEvents[] = [RunProof::EVENT_TARGET, $targetAt, $cell];
     $equalMillisecondEvents[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell];
 }
-$equalMillisecondEvents[] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 450];
+$equalMillisecondEvents[] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 1_000];
 $equalMillisecondEvents[] = [RunProof::EVENT_TARGET, 10_450, 2];
 $equalMillisecondEvents[] = [RunProof::EVENT_HIT, 10_550, 10_552, 2];
-$handledAt = 10_552;
+$equalMillisecondEvents[] = [RunProof::EVENT_DECOY_EXPIRE, 11_000, 1];
+$handledAt = 11_000;
 for ($miss = 0; $miss < 3; $miss++) {
     $inputAt = $handledAt + 100;
     $handledAt = $inputAt + 2;
     $equalMillisecondEvents[] = [RunProof::EVENT_MISS, $inputAt, $handledAt, RunProof::MISS_EMPTY, 0];
 }
-$equalMillisecondEvents[] = [RunProof::EVENT_FINISH, 10_856, 10_858];
+$equalMillisecondEvents[] = [RunProof::EVENT_FINISH, 11_304, 11_306];
 $equalMillisecondProof = $proofPayload(
     '6615c12b-41d0-4f1f-b1f1-62308f06f8de',
     'normal',
@@ -500,8 +501,54 @@ $equalMillisecondProof = $proofPayload(
 );
 $equalMillisecondRun = ScoreSubmission::fromArray($equalMillisecondProof);
 $assert(
-    $equalMillisecondRun->hits === 15 && $equalMillisecondRun->dodges === 0,
-    'Integer-ms proof replay accepts a target that rounded to the same millisecond as a still-live decoy expiry.',
+    $equalMillisecondRun->hits === 15 && $equalMillisecondRun->dodges === 1,
+    'Proof replay keeps a decoy alive through a correct tap and awards its later independent expiry.',
+);
+$legacyEvents = $equalMillisecondEvents;
+$legacyEvents[28] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 750];
+array_splice($legacyEvents, 31, 1);
+$legacyEvents[count($legacyEvents) - 1] = [
+    RunProof::EVENT_FINISH,
+    $legacyEvents[count($legacyEvents) - 2][1],
+    $legacyEvents[count($legacyEvents) - 2][2],
+];
+$legacyPayload = $proofPayload(
+    '68e210a5-36d5-4eb8-a8f5-d9365eb43113',
+    'normal',
+    $legacyEvents,
+);
+$legacyPayload['buildId'] = '20260728-2';
+$legacyRun = ScoreSubmission::fromArray($legacyPayload);
+$assert(
+    $legacyRun->hits === 15 && $legacyRun->dodges === 0,
+    'The immediately previous build retains its 750ms tap-cleared decoy verifier during rollout.',
+);
+$assert(
+    RunProof::usesPersistentDecoyRules('20260729-1')
+        && !RunProof::usesPersistentDecoyRules('20260728-2'),
+    'Persistent decoy replay stays pinned to its immutable introduction build.',
+);
+$newBuildWithLegacyLifetime = $legacyPayload;
+$newBuildWithLegacyLifetime['runId'] = '145fd5f8-06bd-4ea8-8dc3-5874129d9e37';
+$newBuildWithLegacyLifetime['buildId'] = RunProof::BUILD_ID;
+$throwsApi(
+    static fn () => ScoreSubmission::fromArray($newBuildWithLegacyLifetime),
+    'The new build rejects legacy sub-second decoy lifetimes.',
+);
+$difficultyMethod = new ReflectionMethod(RunProofValidator::class, 'difficulty');
+$newDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0, true);
+$legacyDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0, false);
+$assert(
+    $newDifficulty['responseWindowMs'] === 900
+        && $newDifficulty['maximumActiveDecoys'] === 1
+        && $legacyDifficulty['responseWindowMs'] === 800
+        && $legacyDifficulty['maximumActiveDecoys'] === 4,
+    'The new verifier uses a 5ms ramp and defers overlapping decoys while legacy builds keep 10ms overlap rules.',
+);
+$newLateDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 70_000, 0, true);
+$assert(
+    $newLateDifficulty['maximumActiveDecoys'] === 4,
+    'The new verifier permits multiple independent decoys only from 70 seconds onward.',
 );
 $falseTickProof = $equalMillisecondProof;
 $falseTickProof['runId'] = 'ce3cefda-0507-420f-b89c-304d287f5168';
@@ -516,7 +563,7 @@ $lagRisk = $riskMethod->invoke(
     new RunProofValidator(),
     array_fill(0, 30, 300),
     array_fill(0, 30, 2),
-    [451, 503, 557, 609, 661],
+    [1_001, 1_503, 1_557, 2_609, 2_661],
     [0.8, 0.9, 0.7, 0.85, 0.95],
     array_fill(0, 30, 0.5),
     [2 => [0, 1, 2, 3], 4 => range(0, 15)],
@@ -538,7 +585,7 @@ $eliteBotRisk = $riskMethod->invoke(
     new RunProofValidator(),
     [...array_fill(0, 90, 180), ...array_fill(0, 10, 320)],
     array_fill(0, 100, 2),
-    [451, 503, 557, 609, 661],
+    [1_001, 1_503, 1_557, 2_609, 2_661],
     [0.2, 0.4, 0.6, 0.8, 0.5],
     array_fill(0, 100, 0.5),
     [2 => [0, 1, 2, 3], 4 => range(0, 15)],
@@ -1330,6 +1377,51 @@ $assert(
         && str_contains($apiBootstrap, 'pets: $pets')
         && str_contains($apiBootstrap, 'themes: $themes'),
     'The API injects shared pet and theme services into profile reads and shop mutations.',
+);
+$multiplayerMigration = file_get_contents(
+    dirname(__DIR__) . '/server/migrations/022_multiplayer_leaderboard.sql',
+);
+$multiplayerServiceSource = file_get_contents(
+    dirname(__DIR__) . '/server/src/MultiplayerMatchService.php',
+);
+$multiplayerValidatorSource = file_get_contents(
+    dirname(__DIR__) . '/server/src/MultiplayerProofValidator.php',
+);
+$assert(
+    is_string($multiplayerMigration)
+        && str_contains($multiplayerMigration, 'CREATE TABLE IF NOT EXISTS multiplayer_matches')
+        && str_contains($multiplayerMigration, 'CREATE TABLE IF NOT EXISTS multiplayer_lobby_creation_events')
+        && str_contains($multiplayerMigration, 'CREATE TABLE IF NOT EXISTS multiplayer_roster_confirmations')
+        && str_contains($multiplayerMigration, 'CREATE TABLE IF NOT EXISTS multiplayer_submissions')
+        && str_contains($multiplayerMigration, 'CREATE TABLE IF NOT EXISTS multiplayer_trace_claims')
+        && str_contains($multiplayerMigration, 'CREATE TABLE IF NOT EXISTS multiplayer_results')
+        && str_contains($multiplayerMigration, 'ON DELETE CASCADE'),
+    'Multiplayer persistence has bounded lobbies, unanimous evidence, replay claims, and immutable results.',
+);
+$assert(
+    is_string($multiplayerServiceSource)
+        && str_contains($multiplayerServiceSource, 'confirmGameKitRoster')
+        && str_contains($multiplayerServiceSource, 'peer_consistent_v1')
+        && str_contains($multiplayerServiceSource, 'enqueueBestMultiplayerScoreInCurrentTransaction')
+        && str_contains($multiplayerServiceSource, 'GAME_CENTER_FRESHNESS_SECONDS')
+        && !str_contains($multiplayerServiceSource, 'coin'),
+    'Multiplayer is Game Center-gated, settles peer-consistent proofs, publishes only accepted bests, and awards no coins.',
+);
+$assert(
+    is_string($multiplayerValidatorSource)
+        && str_contains($multiplayerValidatorSource, 'DECOY_LIFETIME_MIN_MS = 1_000')
+        && str_contains($multiplayerValidatorSource, 'DECOY_LIFETIME_MAX_MS = 3_000')
+        && str_contains($multiplayerValidatorSource, 'MULTIPLE_DECOYS_START_AT_MS = 70_000')
+        && str_contains($multiplayerValidatorSource, "* 5"),
+    'Multiplayer replay shares the persistent 1–3 second decoys and gentler 5ms ramp.',
+);
+$assert(
+    str_contains($app, '/api/mobile/v1/multiplayer/lobbies')
+        && str_contains($app, '/api/mobile/v1/multiplayer/leaderboard')
+        && str_contains($app, 'gamekit-roster|start|submissions|settlement')
+        && str_contains($apiBootstrap, 'new MultiplayerMatchService')
+        && str_contains($apiBootstrap, 'new MultiplayerLeaderboardRepository'),
+    'The PHP boundary exposes authenticated multiplayer coordination, settlement, and leaderboard routes.',
 );
 
 $configSource = file_get_contents(dirname(__DIR__) . '/server/src/Config.php');

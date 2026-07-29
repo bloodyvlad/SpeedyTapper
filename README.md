@@ -77,7 +77,7 @@ For a fully installable/offline iPhone version, open the HTTPS production URL in
 | `src/pet-catalog.js`, `src/pet-controller.js` | Stable companion catalog plus menu/game pose, direction, and idle behavior |
 | `src/theme-catalog.js`, `src/theme-audio.js` | Stable theme prices/actions plus selected-theme audio manifests |
 | `src/profile-client.js` | Current same-origin browser Google profile, cosmetic-shop, and leaderboard client |
-| `server/src/` | PHP identity, CSRF/session handling, server-issued runs, proof replay, achievements, debt-aware coin accounting, pets, paid themes, moderation, and MySQL repositories |
+| `server/src/` | PHP identity, CSRF/session handling, server-issued runs, proof replay, achievements, debt-aware coin accounting, pets, paid themes, moderation, and the unreleased multiplayer coordination/leaderboard services |
 | `server/migrations/` | Repeatable MySQL schema migrations |
 | `api/index.php` | Extensionless PHP `/api/*` HTTP boundary |
 | `lib/leaderboard-model.js`, `api/leaderboard.js` | Retained legacy Vercel rollback backend |
@@ -112,7 +112,7 @@ Production must always correspond to a tested Git commit plus a recorded artifac
 2. Create a temporary staging tree from `git archive <commit>`, not from the working checkout. Keep only browser runtime files, `api/`, `server/`, `.htaccess`, and production Composer `vendor/`; exclude tests, docs, package files, source/rollback audio masters, `assets/pets/sources/` art masters, `.git`, and every `.env` file.
 3. Install production Composer dependencies in staging. The Google-supported cleanup hook retains only the OAuth2 service wrapper used by this app instead of shipping tens of thousands of unrelated API wrappers. Inject the untracked production configuration only into the staging tree, set it to mode `0600`, and create the artifact-only `server/.migrations-pending` marker. Verify the archive is root-flat and record its SHA-256 digest. Never add that marker to the source checkout.
 4. Deploy the prebuilt archive to the exact independent addon domain with Hostinger MCP `hosting_deployStaticWebsite`. Despite its static-oriented name, this endpoint transports and extracts prebuilt PHP files without a build step; PHP execution was validated on the isolated target before this workflow was accepted.
-5. The first API request that sees the artifact-only marker applies ordinary pending migrations under a database advisory lock, ensures the configured season, and deletes the marker. The exceptional destructive migration `020` must instead be applied from the private host CLI during its documented maintenance window; never expose an artifact that lets a public first request trigger it. Ordinary API requests never inspect migration history or upsert the season. Migration `004_clear_leaderboard_for_multiplier_scoring.sql` historically removed pre-multiplier rows once; migration `005_allow_multiple_leaderboard_results.sql` preserves existing results; migrations `006`–`010` add verified run proofs, pets, achievements, the debt-aware economy ledger, and persistent pet visibility without clearing the board; migration `011` adds database-backed leaderboard administration and generation-safe reward resets; migration `012` adds paid-theme ownership/selection, theme purchase ledger events, and theme-aware reset audit fields without clearing the leaderboard; migration `013` gives the migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme without changing coins, selections, achievements, or ledger history; migration `021` invalidates legacy spaced public names and adds a database-unique confirmed-name namespace without merging profiles or deleting results. Local and shell-capable environments continue to use `php server/bin/migrate.php` explicitly.
+5. The first API request that sees the artifact-only marker applies ordinary pending migrations under a database advisory lock, ensures the configured season, and deletes the marker. The exceptional destructive migration `020` must instead be applied from the private host CLI during its documented maintenance window; never expose an artifact that lets a public first request trigger it. Ordinary API requests never inspect migration history or upsert the season. Migration `004_clear_leaderboard_for_multiplier_scoring.sql` historically removed pre-multiplier rows once; migration `005_allow_multiple_leaderboard_results.sql` preserves existing results; migrations `006`–`010` add verified run proofs, pets, achievements, the debt-aware economy ledger, and persistent pet visibility without clearing the board; migration `011` adds database-backed leaderboard administration and generation-safe reward resets; migration `012` adds paid-theme ownership/selection, theme purchase ledger events, and theme-aware reset audit fields without clearing the leaderboard; migration `013` gives the migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme without changing coins, selections, achievements, or ledger history; migration `021` invalidates legacy spaced public names and adds a database-unique confirmed-name namespace without merging profiles or deleting results. Unreleased migration `022` adds GameKit-coordinated own-color matches, peer-consistent proof storage, immutable multiplayer results, and the multiplayer leaderboard. Local and shell-capable environments continue to use `php server/bin/migrate.php` explicitly.
 6. Purge only the SpeedyTapper website cache, then smoke-test HTTPS, build ID, app shell/service worker, `/api/health`, `/api/session`, denied configuration paths, Google sign-in/logout, nickname editing, Arcade leaderboard submission, and server rejection of ranked Zen attempts. When native identity support is configured, also exercise Apple challenge/code exchange, explicit provider linking, and Game Center linking. Arcade retains the `normal` API value for compatibility. Verify that a new Arcade run is added as its own result and that retrying the same run UUID remains idempotent.
 7. Keep the previous immutable Vercel deployment available until the Hostinger release and physical-iPhone flow are verified.
 
@@ -159,6 +159,31 @@ Nonretryable failures and repeatedly failing transient jobs enter operator hold.
 
 Account deletion requires same-origin CSRF protection, the exact `DELETE MY ACCOUNT` confirmation, and Google or Apple primary authentication no more than 15 minutes old. If Apple is linked, the server first decrypts its retained refresh token and revokes the authorization at Apple; failure leaves the local account intact for a safe retry. Successful deletion erases the player UUID, every provider-subject digest, encrypted Apple credential, Game Center binding, nickname, every browser-session mapping, public scores, runs/proofs, achievements, cosmetics, and ordinary gameplay/economy history. Only detached transaction, notification, purchased-lot, entitlement, purchased-spend, and refund/reversal evidence needed for later App Store settlement remains; its account-linking references are removed or keyed-pseudonymized, it contains no nickname or live PimPoPom account binding, and it cannot silently recreate the deleted account.
 
+## Unreleased multiplayer backend and Arcade balance
+
+The working tree contains an **unreleased, not-deployed** PHP/MySQL backend for
+2–4 player own-color matches. PHP coordinates private lobbies and immutable
+manifests, maps each lobby to a GameKit `playerGroup`, requires unanimous live
+GameKit roster confirmation, replays matching peer submissions, stores
+peer-consistent placements, exposes a separate multiplayer leaderboard, and
+queues a distinct Game Center score lane. Reaction-critical points, multiplier,
+pet, crown, and tone updates remain P2P in `GKMatch`. No multiplayer coins or
+achievements are awarded. App Store Connect still needs
+`com.otcsoftware.pimpopom.multiplayer.verified`, and all GameKit transport and
+iOS UI work remains unimplemented here. See
+[`docs/MULTIPLAYER_IOS_HANDOFF.md`](./docs/MULTIPLAYER_IOS_HANDOFF.md) for the
+exact routes, payloads, transcript tuples, and client tasks.
+
+The same unreleased build changes single-player Arcade decoys. Build
+`20260729-1` gives them 1–3 second lifetimes, preserves them across correct
+hits, reserves live and just-expired decoy cells from target selection, permits
+more than one only after 70 seconds, and reduces the post-50-second response
+window by 5 ms per correct hit to the existing 200 ms floor. Build
+`20260728-2` remains accepted only through the legacy-compatible proof path and
+retains its prior 450–750 ms, clear-on-hit, 10 ms-per-hit behavior. None of
+these new rules or multiplayer endpoints should be described as production
+until the combined release is committed and deployed.
+
 ## Current committed rules
 
 These are accepted product rules for the PHP generation, not a description of every dirty working-tree experiment. Verify the target commit and Hostinger deployment before describing them as production behavior.
@@ -167,15 +192,15 @@ These are accepted product rules for the PHP generation, not a description of ev
 - **Zen** is endless, unranked practice with no decoys, deadline, leaderboard submission, achievements, or coins. The HUD shows elapsed time, an infinity symbol for lives, and one neutral non-glowing **Your color** field whose permanent **Any** label and colorful yin-yang swatch make clear that every live target is valid; the historical ranked top score is omitted. A correct target remains present through misses and has no response deadline; its next quiet interval starts at 1,000 ms and moves halfway toward the previous reaction time after every correct tap. Its single in-game **End run** control freezes the local score and reaction statistics and opens a **Results** screen; nothing is submitted or rewarded.
 - A random quiet interval precedes each Arcade target; Zen uses its reaction-adaptive quiet interval.
 - Correct taps award 100–1,000 points based on reaction time.
-- Every independently spawned Arcade wrong-color decoy lives for 450–750 ms. Letting it expire naturally records a dodge worth 550 points. Decoy opportunities use wide randomized intervals and are approximately half as frequent as the preceding balance; even at maximum pressure the next opportunity waits at least 600 ms. Zen never schedules or activates a decoy.
+- In the deployed/legacy rule set through build `20260728-2`, every independently spawned Arcade wrong-color decoy lives for 450–750 ms. Letting it expire naturally records a dodge worth 550 points. Decoy opportunities use wide randomized intervals and are approximately half as frequent as the preceding balance; even at maximum pressure the next opportunity waits at least 600 ms. Zen never schedules or activates a decoy.
 - The first four successful taps use one full-screen cell, then the board becomes 2×2.
 - 0–10 seconds: one fixed player color, no wrong colors, and a 1,000 ms lifetime.
 - 10–20 seconds: one independent wrong-color decoy may appear between or during targets; target lifetime stays at 1,000 ms.
 - 20–30 seconds: lifetime eases gradually from 1,000 ms to 750 ms.
 - 30–40 seconds: up to two independent decoys may overlap at random positions.
 - At 40 seconds the board becomes 4×4, target lifetime resets to 1,000 ms, and decoy pressure eases back to one at a time.
-- At 50 seconds the target lifetime falls by 10 ms per correct tap toward a 200 ms floor. Every ten challenge taps can add another simultaneous decoy, up to six, and shortens both target and decoy quiet intervals without reducing the decoy-opportunity gap below 600 ms.
-- A decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges.
+- In that legacy rule set, at 50 seconds the target lifetime falls by 10 ms per correct tap toward a 200 ms floor. Every ten challenge taps can add another simultaneous decoy, up to six, and shortens both target and decoy quiet intervals without reducing the decoy-opportunity gap below 600 ms.
+- A legacy decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges. The unreleased `20260729-1` exception is documented above.
 - Arcade has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Arcade survival time is shown live and freezes when the final life is lost.
 - A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.

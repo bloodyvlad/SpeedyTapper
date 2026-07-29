@@ -1,4 +1,4 @@
-import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260728-2";
+import { COLORS, GAME_CONFIG, GAME_MODES } from "./config.js?v=20260729-1";
 
 export const GAME_STATES = Object.freeze({
   IDLE: "idle",
@@ -25,7 +25,7 @@ export const SPEED_RATINGS = Object.freeze([
   Object.freeze({ id: SPEED_RATING_IDS.GOOD, label: "Good", maximumExclusiveMs: Infinity })
 ]);
 
-export const MAX_DECOY_LIFETIME_MS = 750;
+export const MAX_DECOY_LIFETIME_MS = 3_000;
 
 const EMPTY_CELL = Object.freeze({ kind: "idle", colorIndex: null });
 
@@ -99,7 +99,7 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
     responseWindowMs = responseWindowsMs.gentleMinimum;
     spawnDelayRangeMs = spawnDelayRangesMs.rareDecoys;
     decoySpawnDelayRangeMs = config.decoys.spawnDelayRangesMs.rareDecoys;
-    maximumActiveDecoys = 2;
+    maximumActiveDecoys = 1;
   }
 
   if (elapsedMs >= phases.fourByFourStartsAtMs) {
@@ -149,7 +149,9 @@ export function resolveDifficulty(hits, elapsedMs, challengeHits = 0, config = G
       endless.decoyMinimumDelayMs,
       decoyMaximumDelayMs
     ];
-    maximumActiveDecoys = Math.min(endless.maximumDecoys, 2 + challengeTier);
+    maximumActiveDecoys = elapsedMs >= phases.multipleDecoysStartAtMs
+      ? Math.min(endless.maximumDecoys, 2 + challengeTier)
+      : 1;
   }
 
   const paceLevel = gridDimension === 1
@@ -544,9 +546,10 @@ export class GameEngine {
   }
 
   tap(cellIndex, now, resolvedAt = now) {
-    // A decoy earns a dodge only when its own expiry transition removes it.
-    // If a still-present decoy is cleared by input, it was not visibly dodged.
-    const settled = { count: 0, pointsAwarded: 0, decoyIds: [] };
+    // Decoys expire independently from targets. Settle anything whose visible
+    // lifetime ended before this input so a delayed timer callback cannot
+    // suppress a legitimate dodge.
+    const settled = this.#settleExpiredDecoys(now);
 
     if (this.state === GAME_STATES.WAITING) {
       return this.#miss("empty", now, null, settled, resolvedAt, cellIndex);
@@ -605,12 +608,14 @@ export class GameEngine {
       const adaptation = this.config.zen.cadenceAdaptation;
       this.zenTargetDelayMs += adaptation * (reactionMs - this.zenTargetDelayMs);
     }
-    this.#finishRound();
+    this.#finishRound(false);
 
     const shouldChangeColor =
       this.#proofElapsed(now) >= this.config.phases.colorPatienceStartsAtMs;
     if (shouldChangeColor) {
-      this.playerColorIndex = this.#differentColorIndex();
+      this.playerColorIndex = this.#differentColorIndex(
+        this.activeDecoys.map(({ colorIndex }) => colorIndex)
+      );
     }
 
     return Object.freeze({
@@ -773,9 +778,13 @@ export class GameEngine {
     });
   }
 
-  #differentColorIndex() {
-    const offset = 1 + randomInteger(this.random, this.colors.length - 1);
-    return (this.playerColorIndex + offset) % this.colors.length;
+  #differentColorIndex(excludedColorIndexes = []) {
+    const excluded = new Set([this.playerColorIndex, ...excludedColorIndexes]);
+    const available = this.colors
+      .map((unused, index) => index)
+      .filter((index) => !excluded.has(index));
+    if (available.length === 0) return this.playerColorIndex;
+    return available[randomInteger(this.random, available.length)];
   }
 
   #advanceStreak(steps) {
@@ -802,9 +811,9 @@ export class GameEngine {
     this.streakProgress = 0;
   }
 
-  #finishRound() {
+  #finishRound(clearDecoys = false) {
     this.state = GAME_STATES.WAITING;
-    this.activeDecoys = [];
+    if (clearDecoys) this.activeDecoys = [];
     this.targetIndex = null;
     this.activeAt = null;
     this.roundKind = null;
@@ -875,7 +884,7 @@ export class GameEngine {
       this.proofTargetAt = null;
       this.#recordFinishElapsed(proofInputAt, proofHandledAt);
     } else {
-      this.#finishRound();
+      this.#finishRound(true);
       if (lifeLost) {
         this.recoveryUntil = Math.max(now, resolvedAt) + this.config.lifeLossRecoveryMs;
       }

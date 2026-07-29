@@ -1053,3 +1053,100 @@ Add authenticated, same-origin, CSRF-protected `POST /api/profile/nickname/avail
 Consequences: A confirmed public name cannot contain spaces or be impersonated through capitalization/accent variants accepted by the database collation. Existing affected profiles retain all data but must choose a compliant name before another ranked run. Native and web clients can provide early feedback, yet must still handle the final save conflict. The old `Player 1234` value may have represented an unconfirmed placeholder rather than a saved identity, which explains missing ranked submissions more directly than whitespace itself.
 
 Revisit when: Display names and unique account handles become separate concepts, Unicode confusable detection is introduced, users need server-reserved names, or a broader account-rename policy needs cooldowns and moderation.
+
+## D-075 — Coordinate own-color GameKit matches in PHP and settle peer-consistent proofs
+
+- Date: 2026-07-29
+- Status: Accepted — unreleased and not deployed
+
+Context: PimPoPom needs 2–4 player own-color competition with live points,
+multipliers, pets, crown, and tap tones, but putting every reaction-critical
+event through shared-hosting PHP would add latency and unnecessary server load.
+GameKit can carry the live peer-to-peer match, while PHP must remain
+authoritative for durable identity, roster membership, replay, placement, and
+the public leaderboard.
+
+Decision: Add an authenticated `/api/mobile/v1/multiplayer` surface backed by
+migration `022_multiplayer_leaderboard.sql`. Require a Google- or
+Apple-authenticated internal profile, confirmed nickname, enabled Game Center
+binding, and a recently refreshed Game Center proof for joining/start-critical
+operations. PHP creates a private lobby, assigns stable contiguous seats and
+colors, and returns a unique positive `playerGroup` for
+`GKMatchRequest.playerGroup`. Every participant must confirm the same complete
+live GameKit roster and coordinator before the creator can start.
+
+Freeze a server-generated nonce called `seed`, build, ruleset, versions,
+three-life roster, and manifest hash at start. Protocol v1 deliberately does
+not define a seed-derived PRNG: the coordinator authors a live schedule within
+PHP-validated bounds and reliably replicates it through `GKMatch`. Keep live
+taps and HUD state in `GKMatch`; every peer builds and submits the same
+seat-only compact transcript. Settle only after every manifest/transcript hash
+agrees, the event stream does not outrun PHP elapsed time, the retained trace
+has not been reused, and PHP replay derives all scores, ratings, multipliers,
+dodges, eliminations, and placements. Store one immutable result per
+participant and rank every verified result on a separate board, returning
+public top five plus the authenticated player's best ±2 context. Describe
+accepted rows as **protocol-verified, peer-consistent**.
+
+Keep multiplayer progression isolated: it awards no coins and unlocks no
+achievements. Add the fixed Game Center score vendor ID
+`com.otcsoftware.pimpopom.multiplayer.verified` to the backend outbox allowlist,
+but leave creation/configuration of that App Store Connect component and all
+iOS/GameKit transport/UI work to the native release. Account deletion cancels
+the deleting participant's nonterminal matches, purges shared roster/proof/risk
+material and every non-settled aggregate result, removes that player's settled
+participant/result rows by cascade, and preserves settled peer results.
+
+Consequences: PHP is absent from the reaction-critical path and a lone
+coordinator cannot silently submit a different transcript from honest peers.
+Matching submissions do not prove human play: colluding or modified clients can
+fabricate consistent evidence. A submission after the stored deadline moves the
+match to review, but an absent peer can leave settlement collecting until
+another participant submits or a future bounded cleanup task processes it.
+An exact already-stored submission retry remains idempotent after the deadline.
+The account-deletion contract erases ordinary multiplayer proofs and trace
+claims, so cross-match clone detection cannot recognize a trace after its
+original claim has been erased for deletion privacy.
+Reconnect, forfeit/post-start host migration, scheduled stale-match cleanup,
+live snapshot recovery, multiplayer moderation UI, App Store Connect setup, and
+iOS screens remain explicitly unimplemented. The backend working tree and
+migration are not production until the release is committed, deployed, and
+migrated.
+
+Revisit when: A dedicated relay or authoritative match server is justified,
+GameKit transport cannot provide reliable ordered replication, App Attest joins
+the trust model, missing-peer settlement needs an enforceable quorum/forfeit
+policy, or multiplayer starts awarding economy value.
+
+## D-076 — Version persistent Arcade decoys without reinterpreting legacy proofs
+
+- Date: 2026-07-29
+- Status: Accepted — unreleased and not deployed
+
+Context: The short legacy decoy flash was hard to read and disappeared on a
+correct target tap. Changing those lifetimes and the late-game ramp in place
+would make PHP replay reject already-issued proofs or, worse, interpret the same
+event trace under different rules.
+
+Decision: Make `20260729-1` the first persistent-decoy build. Decoys live for
+1–3 seconds, survive correct target hits, and reserve both currently occupied
+and just-expired cells from target selection when another cell is available.
+Allow only one active decoy before 70 seconds; after that, scale capacity
+gradually to six. From the 50-second 4×4 challenge onward, reduce the response
+window by 5 ms per correct hit to the existing 200 ms floor.
+
+Keep `20260728-2` accepted through a build-specific legacy validator branch
+with its 450–750 ms lifetime, clear-on-correct-hit behavior, earlier concurrent
+decoy scaling, and 10 ms-per-hit response reduction. Never replay a legacy
+proof with the new rules. The browser engine/config and PHP validator must
+advance together under the one release ID.
+
+Consequences: Existing installed clients can finish their issued ranked Arcade
+runs while the new build gets longer-lived, more legible obstacles and a slower
+late-game deadline ramp. The server carries two explicit compatibility paths
+until the legacy build is retired. These rules are not production behavior
+until build `20260729-1` is committed and deployed.
+
+Revisit when: Legacy build support can be removed, playtests show persistent
+decoys obscure targets, the 70-second concurrency threshold is too gentle or
+too harsh, or the 5 ms ramp no longer produces the intended session length.

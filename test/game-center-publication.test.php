@@ -128,6 +128,12 @@ $database->exec(
     . ')'
 );
 $database->exec(
+    'CREATE TABLE multiplayer_results ('
+    . 'id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'score INTEGER NOT NULL, verification_status TEXT NOT NULL'
+    . ')'
+);
+$database->exec(
     'CREATE TABLE completed_runs ('
     . 'run_id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
     . 'leaderboard_entry_id TEXT NULL REFERENCES leaderboard_entries(id) ON DELETE CASCADE, '
@@ -233,6 +239,12 @@ foreach ([
         'status' => $status,
     ]);
 }
+$database->exec(
+    "INSERT INTO multiplayer_results "
+    . "(id, player_id, score, verification_status) VALUES "
+    . "('mp-a', '{$playerOne}', 240, 'verified'), "
+    . "('mp-b', '{$playerOne}', 900000, 'review')"
+);
 $achievement = $database->prepare(
     'INSERT INTO player_achievements (player_id, achievement_key) '
     . 'VALUES (:player_id, :achievement_key)'
@@ -290,14 +302,24 @@ $jobs = $database->query(
     . 'ORDER BY publication_kind, vendor_identifier'
 )->fetchAll();
 $assert(
-    count($jobs) === 3
-        && array_values(array_filter(
+    count($jobs) === 4
+        && count(array_filter(
             $jobs,
             static fn (array $job): bool =>
                 $job['publication_kind'] === 'leaderboard'
+                && $job['vendor_identifier']
+                    === GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED
                 && (int) $job['desired_value'] === 100,
-        )) !== [],
-    'Initial linking backfills the verified-only Arcade best and allowlisted achievements while skipping retired rows.',
+        )) === 1
+        && count(array_filter(
+            $jobs,
+            static fn (array $job): bool =>
+                $job['publication_kind'] === 'leaderboard'
+                && $job['vendor_identifier']
+                    === GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED
+                && (int) $job['desired_value'] === 240,
+        )) === 1,
+    'Initial linking independently backfills verified-only Arcade and Multiplayer bests plus allowlisted achievements.',
 );
 $status = $repository->status($playerOne);
 $assert(
@@ -305,7 +327,7 @@ $assert(
         && $status['publicationEnabled']
         && $status['mirrorReady']
         && $status['preReleased']
-        && $status['pendingJobs'] === 3,
+        && $status['pendingJobs'] === 4,
     'Publication readiness is distinct from the underlying identity binding.',
 );
 
@@ -331,7 +353,8 @@ $repository->enqueueBestScoreInCurrentTransaction($playerOne);
 $database->commit();
 $leaderboardJob = $database->query(
     "SELECT * FROM game_center_publication_outbox WHERE player_id = '{$playerOne}' "
-    . "AND publication_kind = 'leaderboard'"
+    . "AND publication_kind = 'leaderboard' AND vendor_identifier = '"
+    . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED . "'"
 )->fetch();
 $assert(
     is_array($leaderboardJob)
@@ -352,10 +375,16 @@ $client = new class($submitted) implements GameCenterSubmissionClient {
 
     public function submitLeaderboard(
         string $scopedPlayerId,
+        string $vendorIdentifier,
         int $score,
         bool $preReleased,
     ): string {
-        $this->submitted[] = compact('scopedPlayerId', 'score', 'preReleased');
+        $this->submitted[] = compact(
+            'scopedPlayerId',
+            'vendorIdentifier',
+            'score',
+            'preReleased',
+        );
         return 'leaderboard-submission';
     }
 
@@ -371,15 +400,25 @@ $client = new class($submitted) implements GameCenterSubmissionClient {
 $worker = new GameCenterOutboxWorker($repository, $client);
 $workerResult = $worker->run(10);
 $assert(
-    $workerResult === ['claimed' => 3, 'delivered' => 3, 'superseded' => 0, 'failed' => 0]
-        && count($submitted) === 3
+    $workerResult === ['claimed' => 4, 'delivered' => 4, 'superseded' => 0, 'failed' => 0]
+        && count($submitted) === 4
         && count(array_filter(
             $submitted,
             static fn (array $item): bool =>
                 ($item['score'] ?? null) === 175
+                && ($item['vendorIdentifier'] ?? null)
+                    === GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED
+                && ($item['scopedPlayerId'] ?? null) === 'G:game-player-one',
+        )) === 1
+        && count(array_filter(
+            $submitted,
+            static fn (array $item): bool =>
+                ($item['score'] ?? null) === 240
+                && ($item['vendorIdentifier'] ?? null)
+                    === GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED
                 && ($item['scopedPlayerId'] ?? null) === 'G:game-player-one',
         )) === 1,
-    'The worker decrypts only at dispatch, publishes the verified desired state, and marks success.',
+    'The worker decrypts only at dispatch and preserves each authoritative leaderboard destination.',
 );
 
 $database->exec(
@@ -390,7 +429,8 @@ $repository->enqueueBestScoreInCurrentTransaction($playerOne);
 $database->commit();
 $lowerQueued = $database->query(
     "SELECT desired_value, delivered_value, state FROM game_center_publication_outbox "
-    . "WHERE player_id = '{$playerOne}' AND publication_kind = 'leaderboard'"
+    . "WHERE player_id = '{$playerOne}' AND publication_kind = 'leaderboard' "
+    . "AND vendor_identifier = '" . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED . "'"
 )->fetch();
 $lowerResult = $worker->run(1);
 $assert(
@@ -404,7 +444,9 @@ $assert(
             'superseded' => 0,
             'failed' => 0,
         ]
-        && ($submitted[3]['score'] ?? null) === 100,
+        && ($submitted[array_key_last($submitted)]['score'] ?? null) === 100
+        && ($submitted[array_key_last($submitted)]['vendorIdentifier'] ?? null)
+            === GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
     'A lower verified replacement is submitted because Apple overwrites the player score.',
 );
 
@@ -416,7 +458,9 @@ $repository->enqueueBestScoreInCurrentTransaction($playerOne);
 $database->commit();
 $assert(
     $worker->run(1)['delivered'] === 1
-        && ($submitted[4]['score'] ?? null) === 175,
+        && ($submitted[array_key_last($submitted)]['score'] ?? null) === 175
+        && ($submitted[array_key_last($submitted)]['vendorIdentifier'] ?? null)
+            === GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
     'A restored verified best is published through the same desired-state path.',
 );
 
@@ -438,7 +482,8 @@ $database->exec(
 $prepared = $repository->prepareClaimForDelivery($claimed);
 $refreshed = $database->query(
     "SELECT desired_value, delivered_value, state FROM game_center_publication_outbox "
-    . "WHERE player_id = '{$playerOne}' AND publication_kind = 'leaderboard'"
+    . "WHERE player_id = '{$playerOne}' AND publication_kind = 'leaderboard' "
+    . "AND vendor_identifier = '" . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED . "'"
 )->fetch();
 $assert(
     $prepared === null
@@ -446,13 +491,103 @@ $assert(
         && (int) $refreshed['desired_value'] === 100
         && (int) $refreshed['delivered_value'] === 175
         && $refreshed['state'] === 'pending'
-        && count($submitted) === 5,
+        && count($submitted) === 6,
     'A stale claimed score is revalidated and superseded before any Apple request.',
 );
 $assert(
     $worker->run(1)['delivered'] === 1
-        && ($submitted[5]['score'] ?? null) === 100,
+        && ($submitted[array_key_last($submitted)]['score'] ?? null) === 100
+        && ($submitted[array_key_last($submitted)]['vendorIdentifier'] ?? null)
+            === GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
     'The superseding lower desired score is delivered on the next bounded worker pass.',
+);
+
+$database->exec(
+    "INSERT INTO multiplayer_results "
+    . "(id, player_id, score, verification_status) VALUES "
+    . "('mp-c', '{$playerOne}', 360, 'verified')"
+);
+$database->beginTransaction();
+$repository->enqueueBestMultiplayerScoreInCurrentTransaction($playerOne);
+$database->commit();
+$multiplayerQueued = $database->query(
+    "SELECT desired_value, delivered_value, desired_revision, state "
+    . "FROM game_center_publication_outbox WHERE player_id = '{$playerOne}' "
+    . "AND publication_kind = 'leaderboard' AND vendor_identifier = '"
+    . GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED . "'"
+)->fetch();
+$arcadeUnchanged = $database->query(
+    "SELECT desired_value, delivered_value, state "
+    . "FROM game_center_publication_outbox WHERE player_id = '{$playerOne}' "
+    . "AND publication_kind = 'leaderboard' AND vendor_identifier = '"
+    . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED . "'"
+)->fetch();
+$assert(
+    is_array($multiplayerQueued)
+        && (int) $multiplayerQueued['desired_value'] === 360
+        && (int) $multiplayerQueued['delivered_value'] === 240
+        && (int) $multiplayerQueued['desired_revision'] === 2
+        && $multiplayerQueued['state'] === 'pending'
+        && is_array($arcadeUnchanged)
+        && (int) $arcadeUnchanged['desired_value'] === 100
+        && (int) $arcadeUnchanged['delivered_value'] === 100
+        && $arcadeUnchanged['state'] === 'succeeded',
+    'A Multiplayer personal best revises only the Multiplayer desired-state lane.',
+);
+$multiplayerClaim = $repository->claimNext();
+$assert(
+    is_array($multiplayerClaim)
+        && ($multiplayerClaim['vendor_identifier'] ?? null)
+            === GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED,
+    'The independent Multiplayer desired state is claimable.',
+);
+$database->exec(
+    "UPDATE multiplayer_results SET verification_status = 'quarantined' "
+    . "WHERE id = 'mp-c'"
+);
+$multiplayerPrepared = $repository->prepareClaimForDelivery($multiplayerClaim);
+$multiplayerRefreshed = $database->query(
+    "SELECT desired_value, delivered_value, state "
+    . "FROM game_center_publication_outbox WHERE player_id = '{$playerOne}' "
+    . "AND publication_kind = 'leaderboard' AND vendor_identifier = '"
+    . GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED . "'"
+)->fetch();
+$assert(
+    $multiplayerPrepared === null
+        && is_array($multiplayerRefreshed)
+        && (int) $multiplayerRefreshed['desired_value'] === 240
+        && (int) $multiplayerRefreshed['delivered_value'] === 240
+        && $multiplayerRefreshed['state'] === 'pending',
+    'A leased Multiplayer score is revalidated only against verified Multiplayer results.',
+);
+$assert(
+    $worker->run(1)['delivered'] === 1
+        && ($submitted[array_key_last($submitted)]['score'] ?? null) === 240
+        && ($submitted[array_key_last($submitted)]['vendorIdentifier'] ?? null)
+            === GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED,
+    'The refreshed Multiplayer desired state is delivered to its own Apple leaderboard.',
+);
+$database->exec(
+    "UPDATE multiplayer_results SET verification_status = 'quarantined' "
+    . "WHERE player_id = '{$playerOne}'"
+);
+$database->beginTransaction();
+$repository->enqueueBestMultiplayerScoreInCurrentTransaction($playerOne);
+$database->commit();
+$assert(
+    $database->query(
+        "SELECT desired_value IS NULL AND state = 'needs_reset' "
+        . "FROM game_center_publication_outbox WHERE player_id = '{$playerOne}' "
+        . "AND publication_kind = 'leaderboard' AND vendor_identifier = '"
+        . GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED . "'"
+    )->fetchColumn() == 1
+        && $database->query(
+            "SELECT state = 'succeeded' FROM game_center_publication_outbox "
+            . "WHERE player_id = '{$playerOne}' AND publication_kind = 'leaderboard' "
+            . "AND vendor_identifier = '"
+            . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED . "'"
+        )->fetchColumn() == 1,
+    'Removing every verified Multiplayer score resets only the Multiplayer mirror lane.',
 );
 
 $database->exec(
@@ -466,7 +601,8 @@ $assert(
     $database->query(
         "SELECT desired_value IS NULL AND state = 'needs_reset' "
         . "FROM game_center_publication_outbox WHERE player_id = '{$playerOne}' "
-        . "AND publication_kind = 'leaderboard'"
+        . "AND publication_kind = 'leaderboard' AND vendor_identifier = '"
+        . GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED . "'"
     )->fetchColumn() == 1,
     'Removing every verified score surfaces an operator-visible Apple reset requirement.',
 );
@@ -510,6 +646,7 @@ $assert(
 $permanentFailureClient = new class implements GameCenterSubmissionClient {
     public function submitLeaderboard(
         string $scopedPlayerId,
+        string $vendorIdentifier,
         int $score,
         bool $preReleased,
     ): string {
@@ -694,14 +831,27 @@ $transport = static function (
 };
 $apple = new AppStoreConnectGameCenterClient($config, $transport);
 $assert(
-    $apple->submitLeaderboard('G:test', 123_456, true) === 'apple-submission-id'
+    $apple->submitLeaderboard(
+        'G:test',
+        GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
+        123_456,
+        true,
+    ) === 'apple-submission-id'
+        && $apple->submitLeaderboard(
+            'G:test',
+            GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED,
+            654_321,
+            false,
+        ) === 'apple-submission-id'
         && $apple->submitAchievement('G:test', 'complete_arcade', false)
             === 'apple-submission-id',
-    'The App Store Connect client accepts only server-owned score and achievement operations.',
+    'The App Store Connect client accepts both fixed leaderboard lanes and server-owned achievements.',
 );
 $leaderboardRequest = $requests[0];
 $leaderboardBody = json_decode($leaderboardRequest['body'], true, 16, JSON_THROW_ON_ERROR);
-$achievementBody = json_decode($requests[1]['body'], true, 16, JSON_THROW_ON_ERROR);
+$multiplayerRequest = $requests[1];
+$multiplayerBody = json_decode($multiplayerRequest['body'], true, 16, JSON_THROW_ON_ERROR);
+$achievementBody = json_decode($requests[2]['body'], true, 16, JSON_THROW_ON_ERROR);
 $assert(
     $leaderboardRequest['url']
         === 'https://api.appstoreconnect.apple.com/v1/gameCenterLeaderboardEntrySubmissions'
@@ -714,6 +864,27 @@ $assert(
             'preReleased' => true,
         ],
     'Leaderboard requests use Apple JSON:API and encode the score as a decimal JSON string.',
+);
+$assert(
+    $multiplayerRequest['url']
+        === 'https://api.appstoreconnect.apple.com/v1/gameCenterLeaderboardEntrySubmissions'
+        && $multiplayerBody['data']['attributes']['vendorIdentifier']
+            === GameCenterCatalog::LEADERBOARD_MULTIPLAYER_VERIFIED
+        && $multiplayerBody['data']['attributes']['score'] === '654321'
+        && $multiplayerBody['data']['attributes']['preReleased'] === false,
+    'Multiplayer uses its independent fixed Apple leaderboard identifier and lane.',
+);
+$requestCountBeforeUnknownLeaderboard = count($requests);
+$unknownLeaderboardRejected = false;
+try {
+    $apple->submitLeaderboard('G:test', 'untrusted.client.identifier', 1, true);
+} catch (InvalidArgumentException) {
+    $unknownLeaderboardRejected = true;
+}
+$assert(
+    $unknownLeaderboardRejected
+        && count($requests) === $requestCountBeforeUnknownLeaderboard,
+    'Unknown leaderboard identifiers are rejected before any Apple transport call.',
 );
 $assert(
     $achievementBody['data']['attributes']['vendorIdentifier']
@@ -770,7 +941,12 @@ $retryClient = new AppStoreConnectGameCenterClient(
 );
 $retryable = false;
 try {
-    $retryClient->submitLeaderboard('G:test', 1, true);
+    $retryClient->submitLeaderboard(
+        'G:test',
+        GameCenterCatalog::LEADERBOARD_ARCADE_VERIFIED,
+        1,
+        true,
+    );
 } catch (GameCenterAppleApiException $error) {
     $retryable = $error->retryable
         && $error->httpStatus === 429

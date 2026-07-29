@@ -8,6 +8,7 @@ interface GameCenterSubmissionClient
 {
     public function submitLeaderboard(
         string $scopedPlayerId,
+        string $vendorIdentifier,
         int $score,
         bool $preReleased,
     ): string;
