@@ -1,9 +1,9 @@
 # Multiplayer iOS handoff
 
-> **Status (2026-07-29): unreleased backend working-tree implementation.**
-> The PHP/MySQL code has not been deployed. The iOS/GameKit UI and transport
-> are not implemented here, and the App Store Connect multiplayer leaderboard
-> has not been created.
+> **Status (2026-07-29): backend release `20260729-1`.**
+> The PHP/MySQL API is part of the Hostinger release. The iOS/GameKit UI and
+> transport are not implemented here, and the App Store Connect multiplayer
+> leaderboard has not been created.
 
 ## Ownership boundary
 
@@ -363,8 +363,8 @@ Create a score leaderboard with the exact vendor identifier:
 
 `com.otcsoftware.pimpopom.multiplayer.verified`
 
-The unreleased backend already contains a separate allowlisted publication lane
-that queues each participant's verified personal-best multiplayer score.
+The backend contains a separate allowlisted publication lane that queues each
+participant's verified personal-best multiplayer score.
 Creating/configuring the App Store Connect component, localizations, review
 association, and iOS Game Center presentation remain external tasks.
 
@@ -382,7 +382,7 @@ history; clone detection therefore cannot recognize a trace whose original
 claim was erased by an account deletion. The manifest seed is only a unique
 server nonce in protocol v1, not a server-replayed random schedule.
 
-Current unreleased backend limitations:
+Current backend limitations:
 
 - no PHP websocket, live score/multiplier endpoint, or relay;
 - no implemented iOS/GameKit transport, lobby UI, reconnect, forfeit, or

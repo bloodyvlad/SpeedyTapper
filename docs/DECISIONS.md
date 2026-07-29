@@ -1057,7 +1057,7 @@ Revisit when: Display names and unique account handles become separate concepts,
 ## D-075 — Coordinate own-color GameKit matches in PHP and settle peer-consistent proofs
 
 - Date: 2026-07-29
-- Status: Accepted — unreleased and not deployed
+- Status: Accepted — released in Hostinger build `20260729-1`
 
 Context: PimPoPom needs 2–4 player own-color competition with live points,
 multipliers, pets, crown, and tap tones, but putting every reaction-critical
@@ -1121,7 +1121,7 @@ policy, or multiplayer starts awarding economy value.
 ## D-076 — Version persistent Arcade decoys without reinterpreting legacy proofs
 
 - Date: 2026-07-29
-- Status: Accepted — unreleased and not deployed
+- Status: Accepted — released in Hostinger build `20260729-1`
 
 Context: The short legacy decoy flash was hard to read and disappeared on a
 correct target tap. Changing those lifetimes and the late-game ramp in place
@@ -1144,8 +1144,7 @@ advance together under the one release ID.
 Consequences: Existing installed clients can finish their issued ranked Arcade
 runs while the new build gets longer-lived, more legible obstacles and a slower
 late-game deadline ramp. The server carries two explicit compatibility paths
-until the legacy build is retired. These rules are not production behavior
-until build `20260729-1` is committed and deployed.
+until the legacy build is retired.
 
 Revisit when: Legacy build support can be removed, playtests show persistent
 decoys obscure targets, the 70-second concurrency threshold is too gentle or

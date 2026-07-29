@@ -77,7 +77,7 @@ For a fully installable/offline iPhone version, open the HTTPS production URL in
 | `src/pet-catalog.js`, `src/pet-controller.js` | Stable companion catalog plus menu/game pose, direction, and idle behavior |
 | `src/theme-catalog.js`, `src/theme-audio.js` | Stable theme prices/actions plus selected-theme audio manifests |
 | `src/profile-client.js` | Current same-origin browser Google profile, cosmetic-shop, and leaderboard client |
-| `server/src/` | PHP identity, CSRF/session handling, server-issued runs, proof replay, achievements, debt-aware coin accounting, pets, paid themes, moderation, and the unreleased multiplayer coordination/leaderboard services |
+| `server/src/` | PHP identity, CSRF/session handling, server-issued runs, proof replay, achievements, debt-aware coin accounting, pets, paid themes, moderation, and multiplayer coordination/leaderboard services |
 | `server/migrations/` | Repeatable MySQL schema migrations |
 | `api/index.php` | Extensionless PHP `/api/*` HTTP boundary |
 | `lib/leaderboard-model.js`, `api/leaderboard.js` | Retained legacy Vercel rollback backend |
@@ -159,10 +159,10 @@ Nonretryable failures and repeatedly failing transient jobs enter operator hold.
 
 Account deletion requires same-origin CSRF protection, the exact `DELETE MY ACCOUNT` confirmation, and Google or Apple primary authentication no more than 15 minutes old. If Apple is linked, the server first decrypts its retained refresh token and revokes the authorization at Apple; failure leaves the local account intact for a safe retry. Successful deletion erases the player UUID, every provider-subject digest, encrypted Apple credential, Game Center binding, nickname, every browser-session mapping, public scores, runs/proofs, achievements, cosmetics, and ordinary gameplay/economy history. Only detached transaction, notification, purchased-lot, entitlement, purchased-spend, and refund/reversal evidence needed for later App Store settlement remains; its account-linking references are removed or keyed-pseudonymized, it contains no nickname or live PimPoPom account binding, and it cannot silently recreate the deleted account.
 
-## Unreleased multiplayer backend and Arcade balance
+## Multiplayer backend and Arcade balance
 
-The working tree contains an **unreleased, not-deployed** PHP/MySQL backend for
-2–4 player own-color matches. PHP coordinates private lobbies and immutable
+Release `20260729-1` contains a PHP/MySQL backend for 2–4 player own-color
+matches. PHP coordinates private lobbies and immutable
 manifests, maps each lobby to a GameKit `playerGroup`, requires unanimous live
 GameKit roster confirmation, replays matching peer submissions, stores
 peer-consistent placements, exposes a separate multiplayer leaderboard, and
@@ -174,15 +174,13 @@ iOS UI work remains unimplemented here. See
 [`docs/MULTIPLAYER_IOS_HANDOFF.md`](./docs/MULTIPLAYER_IOS_HANDOFF.md) for the
 exact routes, payloads, transcript tuples, and client tasks.
 
-The same unreleased build changes single-player Arcade decoys. Build
-`20260729-1` gives them 1–3 second lifetimes, preserves them across correct
+The same release changes single-player Arcade decoys. Build `20260729-1` gives
+them 1–3 second lifetimes, preserves them across correct
 hits, reserves live and just-expired decoy cells from target selection, permits
 more than one only after 70 seconds, and reduces the post-50-second response
 window by 5 ms per correct hit to the existing 200 ms floor. Build
 `20260728-2` remains accepted only through the legacy-compatible proof path and
-retains its prior 450–750 ms, clear-on-hit, 10 ms-per-hit behavior. None of
-these new rules or multiplayer endpoints should be described as production
-until the combined release is committed and deployed.
+retains its prior 450–750 ms, clear-on-hit, 10 ms-per-hit behavior.
 
 ## Current committed rules
 
@@ -200,7 +198,7 @@ These are accepted product rules for the PHP generation, not a description of ev
 - 30–40 seconds: up to two independent decoys may overlap at random positions.
 - At 40 seconds the board becomes 4×4, target lifetime resets to 1,000 ms, and decoy pressure eases back to one at a time.
 - In that legacy rule set, at 50 seconds the target lifetime falls by 10 ms per correct tap toward a 200 ms floor. Every ten challenge taps can add another simultaneous decoy, up to six, and shortens both target and decoy quiet intervals without reducing the decoy-opportunity gap below 600 ms.
-- A legacy decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges. The unreleased `20260729-1` exception is documented above.
+- A legacy decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges. The current `20260729-1` exception is documented above.
 - Arcade has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
 - Arcade survival time is shown live and freezes when the final life is lost.
 - A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.
