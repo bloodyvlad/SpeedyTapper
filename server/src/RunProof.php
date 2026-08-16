@@ -142,8 +142,23 @@ final readonly class RunProof
     {
         return hash('sha256', json_encode([
             'mode' => $this->mode,
-            'events' => $this->events,
+            'events' => $this->semanticEvents(),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), true);
+    }
+
+    private function semanticEvents(): array
+    {
+        return array_map(static function (array $event): array {
+            $colorPosition = match ($event[0] ?? null) {
+                self::EVENT_TARGET => 3,
+                self::EVENT_HIT, self::EVENT_DECOY_ACTIVATE => 4,
+                default => null,
+            };
+            if ($colorPosition !== null) {
+                unset($event[$colorPosition]);
+            }
+            return array_values($event);
+        }, $this->events);
     }
 
     private static function normalizeEvent(mixed $value, int $index): array

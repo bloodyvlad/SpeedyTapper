@@ -97,6 +97,21 @@ final class BackendContractSqlitePdo extends PDO
     }
 }
 
+final class UntouchedRunSubmissionPdo extends PDO
+{
+    public int $touches = 0;
+
+    public function __construct()
+    {
+    }
+
+    public function beginTransaction(): bool
+    {
+        $this->touches++;
+        throw new RuntimeException('Zen submission touched the database collaborator.');
+    }
+}
+
 $assertions = 0;
 
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -472,6 +487,30 @@ try {
         'The replay validator accepts only normal-mode current metadata.',
     );
 }
+$untouchedSubmissionDatabase = new UntouchedRunSubmissionPdo();
+$untouchedSubmissionWallets = new CoinWalletRepository($untouchedSubmissionDatabase);
+$constructedZenSubmissionService = new RunSubmissionService(
+    $untouchedSubmissionDatabase,
+    new LeaderboardRepository($untouchedSubmissionDatabase, 'season', 'Season'),
+    new RunProofValidator(),
+    new AchievementService($untouchedSubmissionDatabase, $untouchedSubmissionWallets),
+    $untouchedSubmissionWallets,
+);
+try {
+    $constructedZenSubmissionService->submit(
+        '35438c65-20b9-45d2-99f4-fbe82e4df640',
+        str_repeat('z', 32),
+        $constructedZenProof,
+    );
+    $assert(false, 'The run-submission service must reject a constructed Zen proof.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 409
+            && str_contains($error->getMessage(), 'Zen practice')
+            && $untouchedSubmissionDatabase->touches === 0,
+        'The run-submission service rejects constructed Zen with 409 before any persistence or domain collaborator can run.',
+    );
+}
 $legacyRulesetPayload = $singleHitPayload;
 $legacyRulesetPayload['ruleset'] = 'reaction-proof-v2';
 $throwsApi(
@@ -729,6 +768,31 @@ $throwsApi(
     static fn () => ScoreSubmission::fromArray($newBuildWithLegacyLifetime),
     'The new build rejects legacy sub-second decoy lifetimes.',
 );
+$maximumLifetimeProof = $equalMillisecondProof;
+$maximumLifetimeProof['runId'] = '25cf5847-67d0-4bbc-8833-31f09075264b';
+$maximumLifetimeProof['events'][28][5] = 3_000;
+$maximumLifetimeProof['events'][31][1] = 13_000;
+$maximumLifetimeProof['events'][32] = [RunProof::EVENT_MISS, 13_100, 13_102, RunProof::MISS_EMPTY, 0];
+$maximumLifetimeProof['events'][33] = [RunProof::EVENT_MISS, 14_702, 14_704, RunProof::MISS_EMPTY, 0];
+$maximumLifetimeProof['events'][34] = [RunProof::EVENT_MISS, 16_304, 16_306, RunProof::MISS_EMPTY, 0];
+$maximumLifetimeProof['events'][35] = [RunProof::EVENT_FINISH, 16_304, 16_306];
+$maximumLifetimeRun = ScoreSubmission::fromArray($maximumLifetimeProof);
+$assert(
+    $maximumLifetimeRun->dodges === 1,
+    'Arcade replay accepts the exact 3,000-millisecond decoy lifetime boundary.',
+);
+$overlongLifetimeProof = $maximumLifetimeProof;
+$overlongLifetimeProof['runId'] = '31339737-2392-486e-9908-c94c5bd167bc';
+$overlongLifetimeProof['events'][28][5] = 3_001;
+try {
+    ScoreSubmission::fromArray($overlongLifetimeProof);
+    $assert(false, 'Arcade replay must reject a 3,001-millisecond decoy lifetime.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 400 && str_contains($error->getMessage(), 'lifetime'),
+        'Arcade replay rejects 3,001 milliseconds specifically at the decoy lifetime boundary.',
+    );
+}
 $difficultyMethod = new ReflectionMethod(RunProofValidator::class, 'difficulty');
 $newDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0);
 $assert(
@@ -740,6 +804,15 @@ $newLateDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 70_0
 $assert(
     $newLateDifficulty['maximumActiveDecoys'] === 4,
     'The new verifier permits multiple independent decoys only from 70 seconds onward.',
+);
+$challengeWindow205 = $difficultyMethod->invoke(new RunProofValidator(), 159, 60_000, 0);
+$challengeWindow200 = $difficultyMethod->invoke(new RunProofValidator(), 160, 60_000, 0);
+$challengeWindowFloored = $difficultyMethod->invoke(new RunProofValidator(), 161, 60_000, 0);
+$assert(
+    $challengeWindow205['responseWindowMs'] === 205
+        && $challengeWindow200['responseWindowMs'] === 200
+        && $challengeWindowFloored['responseWindowMs'] === 200,
+    'Real Arcade difficulty shrinks the challenge window to 205 ms, then 200 ms, and stays at the 200 ms floor.',
 );
 $falseTickProof = $equalMillisecondProof;
 $falseTickProof['runId'] = 'ce3cefda-0507-420f-b89c-304d287f5168';
@@ -833,6 +906,52 @@ $assert(
     hash_equals($parsedProof->traceHash(), $futureMetadataTrace->traceHash()),
     'Exact event replay detection cannot be reset merely by deploying a new build.',
 );
+$recoloredArcadePayload = $equalMillisecondProof;
+$recoloredArcadePayload['runId'] = '77f5f360-fcc8-4992-8671-9267e96f184c';
+foreach ($recoloredArcadePayload['events'] as &$event) {
+    $colorPosition = match ($event[0]) {
+        RunProof::EVENT_TARGET => 3,
+        RunProof::EVENT_HIT, RunProof::EVENT_DECOY_ACTIVATE => 4,
+        default => null,
+    };
+    if ($colorPosition !== null) {
+        $event[$colorPosition] = ($event[$colorPosition] + 3) % 6;
+    }
+}
+unset($event);
+$recoloredArcadeProof = RunProof::fromArray($recoloredArcadePayload);
+$recoloredArcadeRun = (new RunProofValidator())->validate($recoloredArcadeProof);
+$assert(
+    $recoloredArcadeRun->score === $equalMillisecondRun->score
+        && $recoloredArcadeRun->hits === $equalMillisecondRun->hits
+        && $recoloredArcadeRun->dodges === $equalMillisecondRun->dodges,
+    'A global Arcade palette permutation preserves replay-derived gameplay results.',
+);
+$assert(
+    !hash_equals($recoloredArcadeProof->proofHash(), RunProof::fromArray($equalMillisecondProof)->proofHash())
+        && hash_equals($recoloredArcadeProof->traceHash(), RunProof::fromArray($equalMillisecondProof)->traceHash()),
+    'Arcade trace fingerprints ignore target, resulting-player, and decoy colors while full proof hashes retain them.',
+);
+
+$arcadeSemanticMutations = [
+    ['target timing', 0, 1, 601],
+    ['target cell', 0, 2, 1],
+    ['miss reason', 2, 3, RunProof::MISS_WRONG],
+    ['decoy identity', 3, 2, 2],
+    ['decoy lifetime', 3, 5, 1_001],
+    ['finish timing', 5, 2, 12_003],
+    ['decoy tick timing', 6, 1, 13_001],
+];
+$arcadeSemanticBaseline = RunProof::fromArray($currentTuplePayload);
+foreach ($arcadeSemanticMutations as [$label, $eventIndex, $partIndex, $replacement]) {
+    $changedPayload = $currentTuplePayload;
+    $changedPayload['events'][$eventIndex][$partIndex] = $replacement;
+    $changedProof = RunProof::fromArray($changedPayload);
+    $assert(
+        !hash_equals($arcadeSemanticBaseline->traceHash(), $changedProof->traceHash()),
+        'Arcade trace fingerprints retain ' . $label . '.',
+    );
+}
 $invalidTuple = $singleHitPayload;
 $invalidTuple['events'][0][1] = 600.5;
 $throwsApi(static fn () => RunProof::fromArray($invalidTuple), 'Proof tuple values must be integers.');
@@ -1259,6 +1378,20 @@ $newRouteApp = static function (SessionStore $session) use (
     return $app;
 };
 $routeApp = $newRouteApp($routeSession);
+
+$healthOutcome = $dispatch($routeApp, new HttpRequest('GET', '/api/health', [], [], ''));
+$assert(
+    $healthOutcome === [
+        'status' => 200,
+        'body' => [
+            'ok' => true,
+            'season' => ['id' => 'season', 'name' => 'Season'],
+        ],
+        'headers' => [],
+        'sent' => true,
+    ],
+    'App dispatch returns the configured season in the public 200 health response.',
+);
 
 $sessionOutcome = $dispatch($routeApp, new HttpRequest('GET', '/api/session', [], [], ''));
 $assert(

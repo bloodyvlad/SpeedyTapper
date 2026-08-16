@@ -297,6 +297,9 @@ final class MultiplayerProofValidator
                 ) {
                     $this->invalid('Decoy reused an occupied gameplay cell.', $index);
                 }
+                if ($colorIndex < 0 || $colorIndex >= MultiplayerCatalog::COLOR_COUNT) {
+                    $this->invalid('Decoy color is outside the multiplayer palette.', $index);
+                }
                 foreach ($players as $player) {
                     if ($colorIndex === $player['colorIndex']) {
                         $this->invalid('Decoy used an assigned player color.', $index);

@@ -21,7 +21,8 @@ describing it as current or deployed.
 
 The minimum network build ID is `20260729-1`. A build is accepted only when it
 has exact `YYYYMMDD-N` form, contains a real date and a positive sequence, and
-its numeric `(date, sequence)` tuple is at least `(20260729, 1)`.
+contains no more than 32 ASCII characters. Its numeric `(date, sequence)` tuple
+must be at least `(20260729, 1)`.
 
 A higher accepted build ID is audit metadata. It does not select or infer a
 new gameplay contract.

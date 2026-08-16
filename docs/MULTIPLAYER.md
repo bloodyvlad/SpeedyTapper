@@ -22,9 +22,9 @@ presentation behavior.
 | Economy | No coins or achievements |
 
 Build IDs must have exact `YYYYMMDD-N` form with a real date and positive
-sequence. Numeric values at or above `(20260729, 1)` are accepted. The build ID
-is audit/manifest metadata; only the exact ruleset and protocol/proof versions
-select semantics.
+sequence, and contain no more than 32 ASCII characters. Numeric values at or
+above `(20260729, 1)` are accepted. The build ID is audit/manifest metadata;
+only the exact ruleset and protocol/proof versions select semantics.
 
 PHP is not on the live tap path. It owns authenticated lobby membership,
 stable seats/colors, roster agreement, immutable start manifests, bounded
@@ -132,6 +132,9 @@ one-based. Event logical times are nondecreasing and within 0–900,000 ms.
 | `4` | decoy expiry `[4, sequence, at, decoyId]` |
 | `5` | player out `[5, sequence, at, seat]` |
 | `6` | finish `[6, sequence, at]` |
+
+Color indices use the exact six-color palette `0`–`5`. A decoy color must also
+differ from every participant color assigned by the manifest.
 
 Miss reasons are `0` empty, `1` wrong, and `2` late. Miss `cell` may be `-1`;
 otherwise cells are 0–15. Input handling must not precede input and may lag by

@@ -22,6 +22,9 @@ $cases = [
     '20260729-1' => true,
     '20260729-2' => true,
     '20260730-1' => true,
+    '20260729-9223372036854775808' => true,
+    '20260729-99999999999999999999999' => true,
+    '20260729-999999999999999999999999' => false,
     '20260728-99' => false,
     '20260729-0' => false,
     '20260230-1' => false,
@@ -30,6 +33,12 @@ $cases = [
     '' => false,
     202607291 => false,
 ];
+
+$assert(
+    strlen('20260729-99999999999999999999999') === 32
+        && strlen('20260729-999999999999999999999999') === 33,
+    'The build-boundary fixtures exercise exact 32- and 33-byte ASCII IDs.',
+);
 
 foreach ($cases as $buildId => $expected) {
     $assert(
@@ -45,5 +54,13 @@ foreach ($cases as $buildId => $expected) {
         'Multiplayer build policy delegates for ' . var_export($buildId, true) . '.',
     );
 }
+
+$compareDecimal = new ReflectionMethod(ClientBuild::class, 'compareDecimal');
+$assert(
+    $compareDecimal->invoke(null, '9223372036854775808', '9223372036854775807') > 0
+        && $compareDecimal->invoke(null, '9223372036854775807', '9223372036854775808') < 0
+        && $compareDecimal->invoke(null, '99999999999999999999999', '99999999999999999999999') === 0,
+    'Build sequence comparison remains exact beyond the platform integer range.',
+);
 
 fwrite(STDOUT, "client-build.test.php: {$assertions} assertions passed\n");

@@ -258,6 +258,74 @@ $assert(
     hash_equals($transcript->traceHash(), $sameTraceDifferentMatch->traceHash()),
     'Replay detection remains stable when the same event trace is copied to another match.',
 );
+$recoloredPayload = $fixture['payload'];
+foreach ($recoloredPayload['events'] as &$event) {
+    if ($event[0] === MultiplayerTranscript::EVENT_DECOY_ACTIVATE) {
+        $event[6] = match ($event[6]) {
+            2 => 5,
+            3 => 2,
+            4 => 3,
+        };
+    }
+}
+unset($event);
+$recoloredTranscript = MultiplayerTranscript::fromArray($recoloredPayload);
+$recoloredResult = (new MultiplayerProofValidator())->validate(
+    $recoloredTranscript,
+    $participants,
+);
+$assert(
+    $recoloredResult['durationMs'] > 70_000 && count($recoloredResult['results']) === 2,
+    'In-palette unassigned decoy colors preserve replay-derived Multiplayer results.',
+);
+$assert(
+    !hash_equals($transcript->hash(), $recoloredTranscript->hash())
+        && hash_equals($transcript->traceHash(), $recoloredTranscript->traceHash()),
+    'Multiplayer trace fingerprints ignore decoy colors while full transcript hashes retain them.',
+);
+
+$firstDecoyIndex = null;
+$firstMissIndex = null;
+foreach ($fixture['payload']['events'] as $index => $event) {
+    if ($firstDecoyIndex === null && $event[0] === MultiplayerTranscript::EVENT_DECOY_ACTIVATE) {
+        $firstDecoyIndex = $index;
+    }
+    if ($firstMissIndex === null && $event[0] === MultiplayerTranscript::EVENT_MISS) {
+        $firstMissIndex = $index;
+    }
+}
+if ($firstDecoyIndex === null || $firstMissIndex === null) {
+    throw new RuntimeException('The Multiplayer semantic-hash fixture is incomplete.');
+}
+foreach ([-1, MultiplayerCatalog::COLOR_COUNT] as $outsidePalette) {
+    $invalidDecoyColor = $fixture['payload'];
+    $invalidDecoyColor['events'][$firstDecoyIndex][6] = $outsidePalette;
+    $rejects(
+        fn () => (new MultiplayerProofValidator())->validate(
+            MultiplayerTranscript::fromArray($invalidDecoyColor),
+            $participants,
+        ),
+        'outside the multiplayer palette',
+        'Multiplayer rejects decoy color ' . $outsidePalette . ' before assigned-color checks.',
+    );
+}
+$multiplayerSemanticMutations = [
+    ['target color', 0, 6, 2],
+    ['decoy timing', $firstDecoyIndex, 2, 10_001],
+    ['decoy identity', $firstDecoyIndex, 4, 2],
+    ['decoy cell', $firstDecoyIndex, 5, 14],
+    ['decoy lifetime', $firstDecoyIndex, 7, 2_999],
+    ['miss reason', $firstMissIndex, 5, MultiplayerTranscript::MISS_WRONG],
+];
+foreach ($multiplayerSemanticMutations as [$label, $eventIndex, $partIndex, $replacement]) {
+    $changedPayload = $fixture['payload'];
+    $changedPayload['events'][$eventIndex][$partIndex] = $replacement;
+    $changedTranscript = MultiplayerTranscript::fromArray($changedPayload);
+    $assert(
+        !hash_equals($transcript->traceHash(), $changedTranscript->traceHash()),
+        'Multiplayer trace fingerprints retain ' . $label . '.',
+    );
+}
 $validated = (new MultiplayerProofValidator())->validate($transcript, $participants);
 $assert(
     $validated['durationMs'] > 70_000 && count($validated['results']) === 2,
