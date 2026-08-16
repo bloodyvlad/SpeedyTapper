@@ -212,7 +212,11 @@ $normalProof = static function (string $runId, array $reactions = [100]) use ($p
 $devRouter = file_get_contents(dirname(__DIR__) . '/server/dev-router.php');
 $assert(is_string($devRouter), 'PHP development router must be readable.');
 $assert(str_contains($devRouter, "require \$projectRoot . '/api/index.php'"), 'PHP development router must dispatch API requests.');
-$assert(str_contains($devRouter, '(?:server|vendor|\\.git)'), 'PHP development router must deny internal directories.');
+$assert(
+    str_contains($devRouter, 'http_response_code(404)')
+        && !str_contains($devRouter, 'return false'),
+    'PHP development router must return 404 without serving non-API files.',
+);
 
 $assert(Nickname::normalize('Speedy_Player') === 'Speedy_Player', 'Underscores remain valid in player names.');
 $assert(Nickname::normalize('кокос') === 'кокос', 'Unicode player names remain valid without whitespace.');
@@ -2120,11 +2124,12 @@ $assert(is_string($gitignore) && str_contains($gitignore, 'server/config.local.p
 $assert(
     is_string($htaccess)
         && str_contains($htaccess, '(?:server|vendor|\.git)')
-        && str_contains($htaccess, 'X-Frame-Options')
-        && str_contains($htaccess, 'Content-Security-Policy')
-        && !str_contains($htaccess, "script-src 'self' 'unsafe-inline'")
+        && str_contains($htaccess, 'RewriteRule ^api(?:/.*)?$ api/index.php')
+        && str_contains($htaccess, 'RewriteRule ^ - [R=404,L]')
+        && !str_contains($htaccess, 'AddType')
+        && !str_contains($htaccess, 'Content-Security-Policy')
         && str_contains($htaccess, 'Strict-Transport-Security'),
-    'The production web server denies internals and emits baseline security headers.',
+    'The production web server exposes only the API and denies static browser content.',
 );
 
 fwrite(STDOUT, 'PHP backend tests passed (' . $assertions . ' assertions).' . PHP_EOL);

@@ -1,11 +1,4 @@
 .DS_Store
-node_modules/
-npm-debug.log*
-coverage/
-__pycache__/
-*.py[cod]
-.vercel
-.data/
 .env*
 vendor/
 server/config.local.php

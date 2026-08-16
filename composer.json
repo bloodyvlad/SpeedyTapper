@@ -21,7 +21,19 @@
     }
   },
   "scripts": {
-    "pre-autoload-dump": "Google\\Task\\Composer::cleanup"
+    "pre-autoload-dump": "Google\\Task\\Composer::cleanup",
+    "dev": "php -S 0.0.0.0:4173 -t . server/dev-router.php",
+    "lint": "php server/bin/check.php lint",
+    "test": "php server/bin/check.php test",
+    "check": [
+      "@composer validate --strict --no-check-publish",
+      "@composer audit --locked --no-dev",
+      "@lint",
+      "@test"
+    ],
+    "test:mariadb:game-center": "test/game-center-autolink-mariadb.sh",
+    "test:mariadb:nickname": "test/nickname-migration-mariadb.sh",
+    "test:mariadb:internal-alpha-reset": "test/internal-alpha-reset-mariadb.sh"
   },
   "extra": {
     "google/apiclient-services": [
