@@ -17,20 +17,6 @@ final readonly class RunProof
     public const LEGACY_PROOF_VERSION = 1;
     public const RULESET = 'reaction-proof-v3';
     public const PROOF_VERSION = 2;
-    public const SUPPORTED_BUILD_IDS = [
-        '20260718-1',
-        '20260719-1',
-        '20260719-2',
-        '20260719-3',
-        '20260720-1',
-        '20260725-1',
-        '20260727-1',
-        '20260727-2',
-        '20260727-3',
-        '20260728-2',
-        '20260729-1',
-        self::BUILD_ID,
-    ];
     public const MAX_EVENTS = 10_000;
     private const COLOR_PROOF_BUILD_IDS = [
         '20260729-1',
@@ -120,7 +106,7 @@ final readonly class RunProof
 
     public static function isSupportedBuildId(mixed $buildId): bool
     {
-        return is_string($buildId) && in_array($buildId, self::SUPPORTED_BUILD_IDS, true);
+        return ClientBuild::isSupported($buildId);
     }
 
     public static function ticketContract(mixed $buildId): ?array
