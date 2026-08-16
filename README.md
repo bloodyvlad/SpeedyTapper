@@ -1,255 +1,72 @@
-# PimPoPom
+# SpeedyTapper PHP backend
 
-> **OpenAI Build Week — built with Codex and GPT-5.6**
+This repository is the PHP 8.2 API and MariaDB/MySQL persistence service for
+the PimPoPom iOS game. It owns identity, sessions, ranked Arcade verification,
+leaderboards, progression, StoreKit value, Game Center publication,
+multiplayer coordination and settlement, moderation, and account deletion.
 
-## How Codex and GPT-5.6 were used
+Repository source describes a deployable backend candidate. It does not prove
+which commit, artifact, schema, TestFlight build, or App Store build is active.
 
-PimPoPom was implemented end to end through natural-language collaboration with OpenAI Codex powered by GPT-5.6. The full implementation was produced without a single line of code being written manually.
+## Requirements
 
-- **Full-stack implementation:** Codex and GPT-5.6 designed, implemented, refactored, tested, documented, and secured the browser game, deterministic game engine, PHP API, MySQL persistence, authentication, profiles, leaderboard, anti-cheat proof replay, achievements, shops, economy, and StoreKit backend.
-- **Visual asset generation:** Codex generated and prepared the branding, textures, theme artwork, pet sprites, habitats, directional poses, sprite sheets, and animations.
-- **Music and sound generation:** Codex generated the theme-specific menu music, gameplay loops, tap-tone sequences, and sound effects, then normalized, integrated, and documented their runtime behavior and provenance.
-- **Browser UI testing:** Codex used browser automation to exercise responsive gameplay and UI flows, including mobile layouts and browser/PWA behavior.
-- **Computer-use setup:** Codex operated browser and desktop interfaces where APIs were unavailable, including assistance configuring TestFlight, App Store Connect, AdMob, OAuth, and related release settings.
-- **Automated deployment:** Codex prepared versioned release artifacts, migrations, cache updates, smoke checks, and repeatable deployments.
-- **Vercel and Hostinger integrations:** Early releases and rollback builds used Vercel; the current PHP/MySQL production release is deployed through the Hostinger MCP integration to an isolated subdomain.
+- PHP 8.2 or newer with cURL, Intl, JSON, mbstring, OpenSSL, PDO, and PDO MySQL
+- Composer
+- MariaDB/MySQL with InnoDB, `utf8mb4`, window functions, and advisory locks
 
-PimPoPom is an installable, offline-capable browser proof of concept for validating the core reaction loop before choosing the architecture of the eventual Steam, mobile, Roblox, or console products. The repository, domain, PHP namespace, storage keys, and compatibility API retain the internal SpeedyTapper name.
-
-Active product development now targets native iOS plus the authoritative
-PHP/MySQL API. The hosted browser game is retained as a frozen prototype and
-compatibility surface rather than a feature-parity client.
-
-PHP release target: <https://speedytapper.otcsoft.com>
-
-Legacy Vercel rollback: <https://speedytapper.vercel.app>
-
-Start with [`AGENTS.md`](./AGENTS.md) for repository working rules and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for durable product and architecture decisions. Run `git status --short` before making changes: the Local checkout can be shared by separate Codex tasks that do not share transcripts.
-
-## Sources of truth
-
-| Concern | Source |
-| --- | --- |
-| Code and release contents | Git commit |
-| PHP production state | Hostinger MCP artifact built from the recorded `main` commit |
-| Legacy rollback state | Immutable Vercel deployment for its commit |
-| Setup and committed target behavior | This README at the target commit |
-| Durable decisions | [`docs/DECISIONS.md`](./docs/DECISIONS.md) |
-| Agent and release rules | [`AGENTS.md`](./AGENTS.md) |
-| Audio provenance | [`assets/audio/SOURCES.md`](./assets/audio/SOURCES.md) |
-| Font provenance | [`assets/fonts/SOURCES.md`](./assets/fonts/SOURCES.md) |
-| Visual QA history | [`design-qa.md`](./design-qa.md) |
-
-`design-qa.md` is historical evidence and may lag production. Verify release state through Git plus the active Hostinger deployment; use the immutable Vercel deployment only as the previous-generation rollback. Uncommitted experiments must be labelled separately and are never evidence of production behavior.
-
-## Play locally
-
-Requirements: Node.js 20 or newer. PHP API work additionally requires PHP 8.2+, Composer, and MySQL 8 or a current MariaDB release.
-
-```bash
-npm run dev
-```
-
-Open <http://localhost:4173> on this Mac.
-
-`npm run dev` is the quickest gameplay/UI server and deliberately leaves server-backed profiles unavailable. For the same-origin PHP API, install Composer dependencies, copy the ignored local configuration example, migrate a local database, and use the PHP router:
+## Setup
 
 ```bash
 composer install
 cp server/config.local.example.php server/config.local.php
-# Fill in the ignored local file, then:
-php server/bin/migrate.php
-npm run dev:php
 ```
 
-To test on an iPhone on the same Wi-Fi network:
+Fill the ignored local configuration, then create or upgrade the database:
 
-1. Find the Mac's local address with `ipconfig getifaddr en0`.
-2. Keep `npm run dev` running.
-3. In iPhone Safari, open `http://MAC_IP:4173`.
+```bash
+php server/bin/migrate.php
+```
 
-For a fully installable/offline iPhone version, open the HTTPS production URL in Safari, use **Share**, and select **Add to Home Screen**. The app includes a web manifest, icons, safe-area support, standalone mode, and a service worker.
+Production prefers `~/.config/speedytapper/config.php`. Set
+`SPEEDYTAPPER_CONFIG_PATH` to select another private file; environment
+variables override file values. `server/config.local.example.php` documents
+the supported keys.
+
+Start the API-only development server on port 4173:
+
+```bash
+composer dev
+```
+
+Run the complete deterministic PHP verification suite:
+
+```bash
+composer check
+```
 
 ## Repository map
 
-| Path | Responsibility |
+| Path | Purpose |
 | --- | --- |
-| `src/config.js` | Balancing, modes, colors, and theme palettes |
-| `src/game-engine.js` | Deterministic gameplay state and rules |
-| `src/main.js` | DOM rendering, input, navigation, persistence, and controller wiring |
-| `src/*-controller.js` | Browser audio and other platform-effect lifecycles |
-| `src/pet-catalog.js`, `src/pet-controller.js` | Stable companion catalog plus menu/game pose, direction, and idle behavior |
-| `src/theme-catalog.js`, `src/theme-audio.js` | Stable theme prices/actions plus selected-theme audio manifests |
-| `src/profile-client.js` | Current same-origin browser Google profile, cosmetic-shop, and leaderboard client |
-| `server/src/` | PHP identity, CSRF/session handling, server-issued runs, proof replay, achievements, debt-aware coin accounting, pets, paid themes, moderation, and multiplayer coordination/leaderboard services |
-| `server/migrations/` | Repeatable MySQL schema migrations |
-| `api/index.php` | Extensionless PHP `/api/*` HTTP boundary |
-| `lib/leaderboard-model.js`, `api/leaderboard.js` | Retained legacy Vercel rollback backend |
-| `sw.js` | PWA build graph and cache lifecycle |
-| `test/` | Engine, UI wiring, audio, leaderboard, theme, and release coverage |
-| `assets/audio/` | Runtime audio, provenance, and retained background masters |
-| `assets/pets/` | Runtime companion sprites/habitats plus retained chroma, alpha, layout, and provenance sources |
+| `api/index.php` | JSON HTTP boundary for extensionless `/api/*` routes |
+| `server/src/` | Domain services, validation, persistence, and integrations |
+| `server/migrations/` | Ordered MariaDB/MySQL migrations `001` through `022` |
+| `server/bin/` | Migration, worker, reconciliation, cleanup, and moderation commands |
+| `server/certs/` | Reviewed public Apple and DigiCert trust anchors |
+| `test/` | Deterministic PHP tests, SQL fixtures, and disposable MariaDB harnesses |
+| `.htaccess` | API-only Apache routing and denial of private source/configuration paths |
 
-## Development lifecycle
+## Security
 
-1. Define one concrete outcome and inspect `git status --short`.
-2. Use the shared checkout only for one active editing task. Put parallel work on `codex/<task>` branches in separate worktrees.
-3. Preserve unrelated dirty files; never stash, reset, stage, or commit another task's work.
-4. Keep rules in the engine/configuration and browser effects in UI/controllers.
-5. Add tests and run `npm run check` plus `git diff --check`.
-6. Review and commit only the intended files.
-7. Prefer a pull request into `main` after a GitHub remote is configured.
+Never commit private configuration, database credentials, OAuth or Apple
+keys, identity tokens, session material, signed transactions, or production
+exports. Build deployments from an exact clean commit, install locked
+dependencies in staging, and keep runtime configuration outside the web root
+whenever possible.
 
-Check `git remote -v` before choosing the integration workflow. If no remote is configured, use reviewed local branches and commits; do not claim that work was pushed or merged through a PR.
+## Backend documentation
 
-Use one backlog system. GitHub Issues is the simplest default after a remote is added; choose Linear instead only if a broader product roadmap is needed. Do not duplicate active status across Issues, Linear, Obsidian, and Markdown.
-
-## PHP release and Hostinger deployment
-
-The PHP generation targets the independent Hostinger addon website and document root for `speedytapper.otcsoft.com`. It uses same-origin PHP sessions and a dedicated MariaDB/MySQL database. Real credentials never belong in Git. A private home-directory config remains preferred; the MCP-only release path may inject the ignored `server/config.local.php` into the release artifact because every `/server` route is denied and the file is never part of the commit. See [`docs/PHP_BACKEND.md`](./docs/PHP_BACKEND.md) for the API and configuration contract.
-
-The existing Vercel site and Blob board remain a separate previous-generation rollback. Their name-only rows are not imported into the clean internal-profile season.
-
-Production must always correspond to a tested Git commit plus a recorded artifact hash. Never deploy a dirty shared checkout or package an entire checkout. The intended workflow is:
-
-1. Review and merge one release into `main`, then deploy that exact clean commit from the private GitHub repository.
-2. Create a temporary staging tree from `git archive <commit>`, not from the working checkout. Keep only browser runtime files, `api/`, `server/`, `.htaccess`, and production Composer `vendor/`; exclude tests, docs, package files, source/rollback audio masters, `assets/pets/sources/` art masters, `.git`, and every `.env` file.
-3. Install production Composer dependencies in staging. The Google-supported cleanup hook retains only the OAuth2 service wrapper used by this app instead of shipping tens of thousands of unrelated API wrappers. Inject the untracked production configuration only into the staging tree, set it to mode `0600`, and create the artifact-only `server/.migrations-pending` marker. Verify the archive is root-flat and record its SHA-256 digest. Never add that marker to the source checkout.
-4. Deploy the prebuilt archive to the exact independent addon domain with Hostinger MCP `hosting_deployStaticWebsite`. Despite its static-oriented name, this endpoint transports and extracts prebuilt PHP files without a build step; PHP execution was validated on the isolated target before this workflow was accepted.
-5. The first API request that sees the artifact-only marker applies ordinary pending migrations under a database advisory lock, ensures the configured season, and deletes the marker. The exceptional destructive migration `020` must instead be applied from the private host CLI during its documented maintenance window; never expose an artifact that lets a public first request trigger it. Ordinary API requests never inspect migration history or upsert the season. Migration `004_clear_leaderboard_for_multiplier_scoring.sql` historically removed pre-multiplier rows once; migration `005_allow_multiple_leaderboard_results.sql` preserves existing results; migrations `006`–`010` add verified run proofs, pets, achievements, the debt-aware economy ledger, and persistent pet visibility without clearing the board; migration `011` adds database-backed leaderboard administration and generation-safe reward resets; migration `012` adds paid-theme ownership/selection, theme purchase ledger events, and theme-aware reset audit fields without clearing the leaderboard; migration `013` gives the migration-011 bootstrap administrator zero-price test ownership of every active shop pet and paid theme without changing coins, selections, achievements, or ledger history; migration `021` invalidates legacy spaced public names and adds a database-unique confirmed-name namespace without merging profiles or deleting results. Unreleased migration `022` adds GameKit-coordinated own-color matches, peer-consistent proof storage, immutable multiplayer results, and the multiplayer leaderboard. Local and shell-capable environments continue to use `php server/bin/migrate.php` explicitly.
-6. Purge only the SpeedyTapper website cache, then smoke-test HTTPS, build ID, app shell/service worker, `/api/health`, `/api/session`, denied configuration paths, Google sign-in/logout, nickname editing, Arcade leaderboard submission, and server rejection of ranked Zen attempts. When native identity support is configured, also exercise Apple challenge/code exchange, explicit provider linking, and Game Center linking. Arcade retains the `normal` API value for compatibility. Verify that a new Arcade run is added as its own result and that retrying the same run UUID remains idempotent.
-7. Keep the previous immutable Vercel deployment available until the Hostinger release and physical-iPhone flow are verified.
-
-Before deployment:
-
-- assign one `YYYYMMDD-N` release ID after intended changes are combined;
-- update every versioned HTML/module reference, `sw.js`, and the release-graph test;
-- use `rg` to confirm that no stale ID remains;
-- run `npm run check` and `git diff --check`;
-- confirm the deployment commit checkout is clean and the archive manifest contains no development-only or private source assets;
-- confirm the Google Web client authorizes `https://speedytapper.otcsoft.com`.
-
-After deployment, record the commit SHA, build ID, artifact SHA-256, Hostinger addon document root, migration/season ID, and the immutable Vercel rollback URL. The HTML, stylesheet, and JavaScript module graph share one release version. The service worker bypasses the browser HTTP cache, removes older app caches, and performs a one-time reload when an installed iPhone switches releases.
-
-## Backend-first StoreKit and account-deletion foundation
-
-This section documents the PHP/MySQL trust, accounting, notification, reconciliation, session, and deletion boundary included in the current code. Account deletion is available when this build is deployed. The player-facing StoreKit purchase and restore UI remains a placeholder. StoreKit accepts Sandbox and Production concurrently only when both are explicitly configured, while still failing closed unless the exact Apple product catalog, bundle, Apple app ID, retention key, trust roots, and private reconciliation key are present.
-
-The StoreKit backend accepts only this exact five-product allowlist. Prices are recommended US App Store price points; Apple remains authoritative for localized storefront presentation and the server never accepts a client-submitted price.
-
-| Product ID | Type | Server grant | Recommended price |
-| --- | --- | --- | ---: |
-| `com.otcsoftware.pimpopom.coins.50.v1` | Consumable | 50 purchased coins plus account-bound ad-free | $2.99 |
-| `com.otcsoftware.pimpopom.coins.100.v1` | Consumable | 100 purchased coins plus account-bound ad-free | $4.99 |
-| `com.otcsoftware.pimpopom.coins.500.v1` | Consumable | 500 purchased coins plus account-bound ad-free | $9.99 |
-| `com.otcsoftware.pimpopom.coins.1000.v1` | Consumable | 1,000 purchased coins plus account-bound ad-free | $14.99 |
-| `com.otcsoftware.pimpopom.removeads.lifetime` | Non-consumable | Account-bound ad-free | $1.99 |
-
-Only `removeads.lifetime` is an Apple-restorable and Family-Shareable product. A Family Sharing beneficiary receives ad-free but no coins. Ad-free remains active while at least one verified, unrefunded entitlement source remains; refunding one source cannot cancel another valid source. The PHP server credits only an Apple-signed transaction whose signature chain, product, transaction identity, environment, bundle, ownership, one-unit quantity, and account binding pass verification. It never trusts client quantity, price, balance, ownership, or grant claims.
-
-Earned coins spend before purchased coins. Purchased value is then allocated from the oldest available verified transaction lots first, and every pet/theme debit records the exact earned/purchased split and paid lot provenance. A refund removes that transaction's unspent lot value, revokes only cosmetics actually funded by that transaction, reverses the cosmetic debit so unrelated earned and other purchased-lot allocations return to their original sources, and exposes any unrecoverable shortfall as `refundDebt`. Future earned or purchased credits clear refund debt before becoming spendable. `REFUND_REVERSED` restores the exact credit, entitlement, allocation, and affected cosmetics idempotently. Moderation may recompute earned value, but it must never erase purchased balances, paid history, active paid entitlements, or paid-funded cosmetics.
-
-Migration `014_storekit_paid_value_and_account_deletion.sql` introduces source-separated wallet fields, immutable StoreKit transaction/notification observations, purchased lots, entitlement sources, exact spend/refund allocations, and reconciliation state while backfilling existing wallet value as earned. Migration `015_player_sessions.sql` replaces a raw player UUID in PHP session state with a 256-bit opaque authentication ID whose SHA-256 digest maps to the player in MySQL. Login rotates that mapping; account deletion cascades every mapping, and stale PHP session files fail closed. Forward-only migration `016_storekit_schema_hardening.sql` brings installations that recorded an earlier form of `014` up to the finalized schema. Migration `017_storekit_dual_environment.sql` scopes Apple transaction IDs, notification UUIDs, purchased-value references, and Family Sharing bindings by their signed Sandbox/Production environment while preserving raw Apple IDs for API reconciliation. Migration `018_primary_identities_and_game_center.sql` backfills every existing Google digest into the provider-neutral identity map without changing its internal UUID, adds Apple primary identities, encrypted Apple revocation credentials, link-only Game Center bindings, and short-lived Game Center replay evidence. Migration `019_game_center_server_publication.sql` adds an encrypted one-to-one `gamePlayerID` association plus a revisioned, retryable Game Center publication outbox; the raw scoped ID never appears in API responses or outbox rows.
-
-Migration `020_reset_internal_alpha_player_data.sql` is a one-time, owner-authorized internal-alpha clean slate, not a reusable account-deletion mechanism. It removes all live profiles, sessions, identities, scores, run proofs, achievements, cosmetics, wallets, entitlements, Game Center bindings, publication jobs, and administrative state. It retains only detached/pseudonymized StoreKit settlement and idempotency evidence so an old Apple transaction cannot be credited twice and later refunds or reversals remain reconcilable. Apply it only from an explicit operator CLI run while the API is maintenance-gated and the Game Center publisher plus both StoreKit reconcilers are paused; take and verify a database backup first. The migration additionally acquires the exact publisher/reconciler advisory locks and claims an in-transaction data marker, so a runner crash after commit cannot erase players created after service resumes.
-
-Authenticated session/profile payloads add `identityBindings` (`google`, `apple`, and `gameCenter` booleans), `gameCenter` (identity-link, publication, prerelease-lane, pending, held, and reset-needed state), `wallet` (`earned`, `purchased`, `earnedDebt`, `refundDebt`, and `total`), `adFree`, and a server-issued StoreKit `appAccountToken` with `bindingStatus: "bound"`; session state also advertises the public Apple client ID only when the complete Apple server configuration is enabled. Signed-out session payloads return `identityBindings: null`, a non-personal Game Center capability shape, `wallet: null`, `adFree: false`, and `storeKit: null`. The transaction API accepts only a signed Apple transaction plus that binding token. App Store Server Notifications V2 first verify the outer Apple JWS, exact bundle, signed environment, and Production Apple App ID `6792328590`; nested transaction JWS environment must match the outer environment and its product must be in the exact five-product allowlist. Sandbox correctly permits Apple to omit `appAppleId`. Notifications and transactions are independently idempotent per environment. The reconciliation CLI runs missed-history and retained-transaction passes separately against both Apple API origins, with distinct locks, cursors, timestamps, and error state.
-
-Game Center server mirroring additionally needs its own App Store Connect issuer ID, key ID, owner-only non-symlinked backend `.p8` outside the deployed web root, stable player-ID encryption secret, and explicit `SPEEDYTAPPER_GAME_CENTER_PRE_RELEASED` lane. Once both the PimPoPom PHP session and `GKLocalPlayer` are authenticated, iOS may automatically request a challenge and submit a fresh proof with `publish: true`; another recent Google/Apple reauthentication is not required. A valid pair is assigned to the current profile under lexicographically ordered per-player publication locks. This current-profile-wins operation changes only Game Center binding/destination state: it never merges or moves wallets, identities, purchases, scores, achievements, entitlements, pets, themes, or coins. Exact-pair refresh preserves delivered outbox state, while a real destination change freshly encrypts the game ID, revision-cancels all affected lanes, and backfills only current server authority. Apple's signature covers the team ID but not the client-asserted game ID, and Apple offers no supported way to erase previously delivered per-player history from a displaced destination.
-
-Run `php server/bin/publish-game-center.php --limit=50` from a one-minute Hostinger cron after migration `019`; the command takes a lane-specific advisory lock, then a per-player lock across each bounded Apple request so reassignment, moderation, publication disable, and account deletion cannot race a prepared write. It revalidates PHP authority immediately before each request and reports claimed, delivered, superseded, and failed counts without exposing player identifiers. Scores remain integers in PHP/MySQL but the outbound App Store Connect `score` attribute is deliberately serialized as a decimal JSON string, matching Apple's endpoint example and live type validation. TestFlight uses the prerelease lane. Before App Store release, change the trusted server flag to the production lane and run one explicit `php server/bin/publish-game-center.php --backfill --limit=500` pass so current verified state is created in that lane.
-
-Nonretryable failures and repeatedly failing transient jobs enter operator hold. `php server/bin/publish-game-center.php --list-held --limit=100` lists only outbox UUID, kind, vendor ID, bounded sanitized Apple diagnostic, and timestamps—never player or scoped Game Center identifiers. After correcting the recorded problem, `--requeue-held=OUTBOX_UUID` revives exactly one row in the configured lane and exits without dispatching it; a subsequent normal worker invocation revalidates and sends it. Never bulk-requeue an unresolved Apple rejection. For mixed failures, retry the leaderboard UUID and one achievement UUID first, confirm the score is delivered, use the sanitized achievement error to correct App Store Connect permission or first-version review association, and only then retry the remaining achievement UUIDs. Moderation publishes a lower verified replacement because Apple overwrites player score state; only the absence of any verified score requires `needs_reset`. Never accept lane, score, percentage, bundle, or vendor identifiers from the client.
-
-Account deletion requires same-origin CSRF protection, the exact `DELETE MY ACCOUNT` confirmation, and Google or Apple primary authentication no more than 15 minutes old. If Apple is linked, the server first decrypts its retained refresh token and revokes the authorization at Apple; failure leaves the local account intact for a safe retry. Successful deletion erases the player UUID, every provider-subject digest, encrypted Apple credential, Game Center binding, nickname, every browser-session mapping, public scores, runs/proofs, achievements, cosmetics, and ordinary gameplay/economy history. Only detached transaction, notification, purchased-lot, entitlement, purchased-spend, and refund/reversal evidence needed for later App Store settlement remains; its account-linking references are removed or keyed-pseudonymized, it contains no nickname or live PimPoPom account binding, and it cannot silently recreate the deleted account.
-
-## Multiplayer backend and Arcade balance
-
-Release `20260729-2` contains the PHP/MySQL backend for 2–4 player own-color
-matches. PHP coordinates private lobbies and immutable
-manifests, maps each lobby to a GameKit `playerGroup`, requires unanimous live
-GameKit roster confirmation, replays matching peer submissions, stores
-peer-consistent placements, exposes a separate multiplayer leaderboard, and
-queues a distinct Game Center score lane. Reaction-critical points, multiplier,
-pet, crown, and tone updates remain P2P in `GKMatch`. No multiplayer coins or
-achievements are awarded. App Store Connect still needs
-`com.otcsoftware.pimpopom.multiplayer.verified`, and all GameKit transport and
-iOS UI work remains unimplemented here. See
-[`docs/MULTIPLAYER_IOS_HANDOFF.md`](./docs/MULTIPLAYER_IOS_HANDOFF.md) for the
-exact routes, payloads, transcript tuples, and client tasks.
-
-The same release aligns ranked Arcade with `reaction-proof-v3`, proof version
-2. Web build `20260729-2` and installed native build `20260729-1` emit explicit
-player/target/decoy colors in their proof tuples. Both builds give decoys 1–3
-second lifetimes, preserve them across correct
-hits, reserve live and just-expired decoy cells from target selection, permit
-more than one only after 70 seconds, and reduces the post-50-second response
-window by 5 ms per correct hit to the existing 200 ms floor. Build
-`20260728-2` remains accepted only through the legacy-compatible proof path and
-retains its prior 450–750 ms, clear-on-hit, 10 ms-per-hit behavior. A
-`20260729-1` browser attempt that the server already issued under v2/proof 1
-may finish with that exact stored ticket during rollout; newly issued
-`20260729-1` tickets always use v3/proof 2.
-
-## Current committed rules
-
-These are accepted product rules for the PHP generation, not a description of every dirty working-tree experiment. Verify the target commit and Hostinger deployment before describing them as production behavior.
-
-- **Arcade Mode** has three lives. Wrong colors, empty-board taps, inactive cells, and expired correct targets each cost one life outside the 1.5-second life-loss recovery pause; input during that pause is ignored. Its internal storage, API, and engine identifier remains `normal` for compatibility.
-- **Zen** is endless, unranked practice with no decoys, deadline, leaderboard submission, achievements, or coins. The HUD shows elapsed time, an infinity symbol for lives, and one neutral non-glowing **Your color** field whose permanent **Any** label and colorful yin-yang swatch make clear that every live target is valid; the historical ranked top score is omitted. A correct target remains present through misses and has no response deadline; its next quiet interval starts at 1,000 ms and moves halfway toward the previous reaction time after every correct tap. Its single in-game **End run** control freezes the local score and reaction statistics and opens a **Results** screen; nothing is submitted or rewarded.
-- A random quiet interval precedes each Arcade target; Zen uses its reaction-adaptive quiet interval.
-- Correct taps award 100–1,000 points based on reaction time.
-- In the deployed/legacy rule set through build `20260728-2`, every independently spawned Arcade wrong-color decoy lives for 450–750 ms. Letting it expire naturally records a dodge worth 550 points. Decoy opportunities use wide randomized intervals and are approximately half as frequent as the preceding balance; even at maximum pressure the next opportunity waits at least 600 ms. Zen never schedules or activates a decoy.
-- The first four successful taps use one full-screen cell, then the board becomes 2×2.
-- 0–10 seconds: one fixed player color, no wrong colors, and a 1,000 ms lifetime.
-- 10–20 seconds: one independent wrong-color decoy may appear between or during targets; target lifetime stays at 1,000 ms.
-- 20–30 seconds: lifetime eases gradually from 1,000 ms to 750 ms.
-- 30–40 seconds: up to two independent decoys may overlap at random positions.
-- At 40 seconds the board becomes 4×4, target lifetime resets to 1,000 ms, and decoy pressure eases back to one at a time.
-- In that legacy rule set, at 50 seconds the target lifetime falls by 10 ms per correct tap toward a 200 ms floor. Every ten challenge taps can add another simultaneous decoy, up to six, and shortens both target and decoy quiet intervals without reducing the decoy-opportunity gap below 600 ms.
-- A legacy decoy never uses the player's current color. A target activation also reserves every cell that displayed a decoy immediately before that frame, so an expiring decoy cannot turn directly into the correct target. Correctly tapping the target, missing, target expiry, restart, or run end clears still-visible decoys without awarding dodges. The current web `20260729-2` and native `20260729-1` persistent-decoy exception is documented above.
-- Arcade has no time limit and can finish only when all three lives are gone. Losing a life adds a 1.5-second recovery pause before the next round.
-- Arcade survival time is shown live and freezes when the final life is lost.
-- A single neutral-grey progress bar drains along the bottom of the **Your color** field during every active decision. Its 60%-white fill stays close to the information it explains without adding movement at the edges of the screen.
-- A utility header gives the menu, Results, and Game Over views a compact three-gradient **PimPoPom** wordmark, icon-only Leaderboard rank shortcut, and Profile shortcut. Arcade gameplay keeps compact icon-plus-caption **Restart** and **Menu** controls above the HUD; Zen replaces both with one **End run** control. Both result views place those labelled Restart and Menu controls at the top and omit bottom navigation. `Copyright © 2026 OTC Software` anchors the dialog footer.
-- The main menu omits a redundant display title and initially reserves one fixed pet-safe hint area for the subtly glowing **Tap your color**, **Become the fastest**, and **Collect rewards!** instructions. After the first local Arcade Game Over, that same fixed-size area shows one non-repeating colorful, slightly tilted motivational one-liner from the approved pool; while the main menu remains visible, it advances every five seconds or immediately when tapped/keyboard-activated. Zen Results do not unlock it. The local unlock survives reloads, while enabling, hiding, or changing a pet cannot move the hint or the controls below it. The hint stage and all following controls sit 10 px above their original positions, while the pet sits 15 px lower only on the main menu; other non-game views retain their established pet anchor. Arcade has a bright pink-red glow and Zen a light summer-leaf green glow, uses larger mode names, and places the Zen **No coins awarded** note below its name. Achievements, Pet Shop, and Themes use theme-aware colored outlines. Pet Shop and Themes share one equal two-column row with paw and palette icons, compact touch height, and a tight caption-to-current-selection gap.
-- **Themes** is a dedicated two-column Theme Shop. The internal `classic` theme is presented as **Default**; Default and Disco are free, Light costs 50 coins, and Pixel costs 100. Cards show only the theme name, price, preview, and action. Owned themes show **Select**, the current theme shows a disabled **Selected** status, and owned prices remain visible but greyed. Paid ownership, authoritative prices, coin debit, ledger event, and selection are atomic in MySQL; signed-out players may still switch between the two free themes. Default retains the vivid palette. Disco uses paler center-lit colors, visible reflected-light black concrete, and lightly scratched plastic tiles. Light uses near-white panels, a pale-blue sky with two thin clouds, white board gaps/borders, dark readable UI text, distinct bright targets, and white color-blind glyphs. Pixel self-hosts the OFL-licensed Jersey 10 regular font and uses hard square borders, stepped shadows, and an arcade grid.
-- **Settings** contains Color-blind mode, **Sound FX (Beta)**, **Music**, and separate persistent 0–100% volume sliders for both audio categories. Color-blind mode is on by default and shows a unique shape on each color; turning it off removes glyphs from the HUD, game tiles, and theme previews. Interactive Music remains removed.
-- Settings and Leaderboard open as dedicated views with explicit navigation. Result screens can open the leaderboard and return to the intact result. Switching leaderboard modes updates the current view without resetting its scroll position or moving focus away from the selected tab. For a signed-in player, the selected mode's absolute position and Top percentage appear directly below the mode buttons.
-- Sound FX defaults on and remembers an explicit opt-out. It owns the correct-tap tones and the life-loss cue only. While switched off, the app does not create its audio context or fetch, decode, cache, or play either asset. Turning it back on resumes directly from that Settings gesture, and every Start or Restart gesture verifies it again before cues can run.
-- Beta sound uses standards-based Web Audio with an interactive-latency `AudioContext`. Every correct tap immediately plays the next half-second cue from the selected theme's fixed sixteen-note motif at native speed and a `0.375` base gain; Default uses Power Grid, while Disco, Light, and Pixel use their own coordinated sequences. Misses, wrong colors, dodges, inactive taps, and unready buffers neither play nor delay a cue. Losing a life plays the shared separately predecoded failure cue at the same `0.375` base gain, only while Sound FX is enabled, with at most one failure voice and two tap voices active. Retiring voices receive a short release. The Sound FX slider scales their shared output. There is no hum, `HTMLAudioElement`, or pace/reaction pitch shift.
-- Music has an independent switch, defaults on, and remembers an explicit opt-out. Each theme owns one twelve-second melodic menu loop and a matching clean gameplay backing: Default uses 80 BPM **Daylight Circuit**, Disco 120 BPM **Mirror Circuit**, Light 100 BPM **Open Sky**, and Pixel 160 BPM **Coin-Op Spark**. Starting Arcade or Zen selects the clean variant; correct-tap tones then come only from Sound FX. Results and Game Over are silent, while returning to the menu restores the melodic variant. All use the same `0.42` base gain and independent Music slider. An already-unlocked Web Audio context survives a theme change, so an awaited purchase response does not require a second iPhone user gesture. There is no adaptive stage, tempo change, track rotation, or Interactive Music behavior.
-- Runtime audio is excluded from the offline app shell and always fetched without browser or service-worker caching. Only the selected theme's enabled audio category is fetched and decoded. Tap banks and the failure cue remain lossless; every encoded background/menu pair retains lossless masters, deterministic generation, decoded-seam checks, hashes, and provenance in `assets/audio/SOURCES.md`.
-- Accessibility, Sound FX, Music, both volume preferences, and the last free theme selection are stored on that device. An authenticated profile's server-owned selected theme is restored after session refresh and takes precedence over an unavailable paid local preference.
-- Disco uses a separate reflected-light black-concrete background on the page, menus, dialogs, and board surround. Gameplay tiles, pet cards, and the streak meter retain the plain concrete material so the ambient cyan, violet, and warm reflections cannot look like target colors.
-- Each correct tap is classified from the same rounded reaction milliseconds displayed to the player: Godlike under 250 ms, Perfect under 350 ms, Great under 450 ms, otherwise Good. Brief bold, left/right-tilted side overlays appear during play and a proportional four-color distribution bar appears on Results, Game Over, and leaderboard rows.
-- A five-step Speed streak meter sits below the board. Its large animated gradient fill shows progress, an explicit `x1`–`x5` label stays at the right, and the completed meter glows. The x1 track stays dark; x2 through x5 use green, blue, violet, and gold tier colors at 50% background opacity while the matching multiplier label remains solid, with the animated progress gradient layered above that base. Godlike taps add two steps and Perfect taps add one; overflow carries into the next tier. Great and Good preserve the current meter and multiplier without advancing it. Every five steps unlocks the next score multiplier for subsequent taps, from 2× through a 5× cap. Only a mistake resets both before the next score, while decoy dodges remain neutral and are never multiplied. A multiplier applies only to the tap currently being awarded: it never rescales points accumulated earlier in the run and never changes coin accrual.
-- The result score is presented as the primary result above played/survival and reaction statistics. Leaderboard entries retain accessible rating counts and show the same proportional speed-distribution bar.
-- The Arcade HUD and Game Over screen show the current leaderboard top score when the PHP service is available. Player-facing copy explains that every authenticated Arcade result is saved; the Profile and utility rank show that player's best position, while a submitted-result view shows the exact new run and its nearby ranks. Retained Zen leaderboard rows remain visible as historical results; internal data-generation seasons are not exposed as a game concept.
-- Google or Apple primary sign-in resolves one internal profile UUID, then requires the player to confirm a public nickname before Arcade score submission. Confirmed public names are NFKC-normalized Unicode of at most 20 characters, contain no Unicode whitespace, and are unique under MariaDB's case- and accent-insensitive `utf8mb4_unicode_ci` comparison. The authenticated availability endpoint is advisory; the database constraint and save-time `409` remain authoritative if two clients race. Provider display names and email addresses are never persisted or published; only domain-separated one-way subject digests are stored. A second primary provider can be attached only through an explicit, recently authenticated link flow. Game Center is a verified, link-only secondary binding and can neither create a profile nor log in by itself. After a fresh signed `teamPlayerID` proof in an authenticated PHP session, the native client automatically requests publication with its persistent `gamePlayerID`; because Apple does not sign that pair for ordinary games, the backend labels it client-asserted, assigns it to the current profile under publication locks, and stores only uniqueness hashes plus fresh AES-GCM ciphertext. Conflicting old Game Center associations are displaced, but the backend never merges profiles or moves wallets based on email, relay email, nickname, device, StoreKit token, or Game Center. The current browser UI remains Google-first until a separate client/UI change consumes these native endpoints. The Profile view shows current Arcade rank plus retained historical Zen context. Signed-out players may practice, but coin balance, Pet Shop, and Achievements controls remain gated; anonymous and Zen runs never mint coins or progression.
-- Pet Shop offers five durable cosmetic companions: Foka for 10 coins, Kesha for 20, Tauta for 50, Misha for 100, and Pancake for 500. A first purchase atomically debits the exact server-side price, records ownership, selects and shows the pet, and cannot charge twice; selecting an owned pet is free. The selected pet can be hidden without losing ownership or forgetting the choice, then shown again; another owned pet displays **Select**, while the hidden current pet displays **Show**. Existing confirmed `misha_boy` profiles receive the one-time migration entitlement, but later nickname changes do not grant a free pet. Two exact confirmed nicknames activate server-authorized, non-purchasable easter eggs: lowercase Cyrillic `кокос` shows the **Mitsuri** red rabbit, while exact lowercase `bloodyvlad` shows the semi-realistic **Muse** home companion on a wooden floor. Each temporarily replaces the displayed companion without changing, charging, or exposing the durable Pet Shop selection; another nickname removes the easter egg and restores that selection. All seven ten-frame sprite sheets use native 64×64 logical cells assembled from retained high-resolution chroma/alpha masters; the accepted 32px sheets survive only as pose-order and placement templates for the older generated pets. Muse instead uses an explicit native layout, with the clean left transition/half/full poses mirrored mechanically into the right sequence so asymmetric generated anatomy cannot ship. Pancake is the documented exception because its original recording no longer survives: its accepted capture is preserved as a crisp nearest-neighbor 2× sheet without invented detail. A shown pet and its bedding, climber, perch, floe, cushion, wooden floor, or glow surface appear across every non-game screen and in leaderboard portraits. Gameplay keeps only the pet above the Speed streak meter so the habitat never obscures the reaction area; a hidden shop pet appears nowhere unless a server-authorized easter egg is active. Shop and menu sprites use separate small upward offsets so each animal sits correctly on its habitat without changing the approved gameplay placement, with Foka and Kesha raised an additional 5 px in the shop and 2 px in menus. Mitsuri's unusually bottom-weighted two-layer cushion uses dedicated shared non-game-scene and leaderboard offsets so it overlaps beneath the rabbit instead of inheriting the taller generic habitat gap. Misha renders in front of both climber layers. For directional companions, taps are resolved from the visible sprite's center: a centered tap keeps the front pose, an angle up to 30 degrees selects the persistent half-left/right pose, and a wider angle selects the full turn. Right-turn keyframes skip the duplicated front frame; Muse additionally mirrors the accepted left source frames byte-for-pixel at build time. A tap whose resolved direction already matches an awake, dancing, or in-transition pet preserves the current frame sequence and only refreshes its idle deadline, so repeated full-left/right taps no longer replay a front-to-side loop; sleeping, stopped, or settling pets still wake normally. Pancake remains intentionally binary left/right, uses a slower 1.44-second dance, and has a pair of high-contrast eyes layered over its supplied sprite. The reproducible asset process and master inventory live in [`assets/pets/SOURCES.md`](./assets/pets/SOURCES.md).
-- Achievements contains five durable server-side goals. Protocol-verified Arcade runs unlock their gameplay goals; rewards are claimed separately and idempotently. An illuminated `*` overlays the main-menu Achievements control whenever at least one authenticated reward is ready to claim. The former three-minute Zen achievement is retired from the active catalog. **Buy a pet** unlocks inside the same database transaction as the first successful pet debit and ownership insert, so clicking Buy, failing for insufficient funds, retrying an owned pet, or changing the equipped pet cannot unlock it. Locked cards omit the redundant **In progress** line; rewards use a numeric `+N` beside the same pixelated gold coin SVG as the utility header and Pet Shop.
-- Ranked Arcade play requires a signed-in profile with a confirmed nickname. It begins with a server-generated run ID bound to both that player and browser session, and starting another run closes the player's previous issued attempt. At Game Over the browser submits only a compact chronological proof of target, input, miss, decoy opportunity/activation/expiry, and finish transitions; it does not submit authoritative score, duration, ratings, or coins. PHP replays that proof, derives the result, checks both server-clock coverage and independent timer cadence, detects cloned traces, and consumes the run exactly once. A short explicit build-compatibility allowlist lets unchanged native/browser proof clients survive asset-only releases while preserving the exact build ID on the issued ticket and submitted proof; unknown builds and changed rulesets remain ineligible. The server refuses ranked Zen ticket creation and Zen result submission. Migration `006` distinguishes legacy, verified, review, quarantined, and logically deleted records without silently removing history.
-- Leaderboard administration is authorized by a server-side `leaderboard_admin` database role and exposed to the browser only as `profile.isAdmin`. The first role is granted only if two exact known production result UUIDs still resolve to one player; runtime authorization never relies on nickname, rank, score, email, or browser state. The Profile-only Admin view pages through the full leaderboard or conservative scan flags, opens exact-result evidence, and exposes only quarantine plus the separately confirmed destructive reset. Default **All** and scan views omit deleted rows; the explicit **Deleted** filter reveals them. Mutations require same-origin CSRF, a Google or Apple primary sign-in no more than 15 minutes old, exact result UUID, explicit confirmation, expected current status, and an audit reason. An administrator may moderate any exact result, including their own or another administrator's, while the two-stage quarantine and audit safeguards remain mandatory.
-- For testing only, migration `013` targets the original administrator through the immutable migration-011 role provenance and inserts zero-price ownership for every active shop pet plus each paid theme. It does not mint or spend coins, create ledger or achievement events, select or reveal a cosmetic, or grant nickname-only companions. Existing purchases remain untouched. A later destructive reward reset removes these one-time test entitlements and does not automatically regrant them.
-- An administrator may quarantine one reviewed result, then logically delete that exact quarantined result while resetting only the affected account's earned reward generation. The transaction revokes the linked run, abandons an outstanding attempt, clears earned coins, earned debt, time remainder, current collected/play totals, and cosmetics with no active purchased-lot allocation, records the removed IDs, and advances the integer economy generation. It preserves purchased coins and lots, App Store/refund history, active paid entitlements, existing refund debt, and every paid- or mixed-funded pet/theme; revoking an earned credit that had settled refund debt reopens that exact obligation. Achievements and immutable proof/run/ledger/moderation history remain. Future earned runs and purchases use the new generation, and retrying the same reset is idempotent.
-- The utility header shows one pixelated gold coin with the signed-in numeric balance in a compact lower-right badge immediately left of Leaderboard. Pet Shop and Theme Shop repeat that balance and use the same coin for prices; owned prices are greyed. Every cumulative protocol-verified Arcade minute earns one coin; Zen earns none. Sub-minute Arcade time carries across eligible runs, and immutable completed-run plus coin ledgers prevent retries from awarding twice. Pet and theme purchases create negative ledger events and claimed achievement rewards create positive events. Moderation recomputes earned entitlement from eligible play, earned cosmetic spending, and achievement rewards without touching purchased value. If revoked earnings were already spent, earned debt absorbs later earned credits; if those earnings had settled an App Store refund obligation, that exact `refundDebt` is reopened for future credits. High-risk runs receive neither ranking nor coins until reviewed. This prototype currency still has no real-money value.
-- Protocol verification blocks direct aggregate editing, fabricated seven-day coin requests, impossible state transitions, omitted decoy cadence, exact trace replay, and casual API tampering. Implausible reaction distributions or sustained timer manipulation are withheld for review. Proof/body caps, a pre-parse authenticated-session finish limit, persisted per-player start/submission limits, redacted rejected-proof storage, and bounded retention protect the shared database from invalid-proof growth. It does not prove a human played: automation can imitate plausible human timing, and computer vision or a sufficiently modified real-time client remain possible. The product and documentation must say **protocol verified**, not bot-proof or human verified.
-- Moving the app into the background safely stops the current run and silences/suspends both opted-in audio controllers. The next explicit gameplay gesture resumes them.
-- Reaction timing starts on the browser presentation frame that reveals a tile and ends at the original pointer-contact timestamp when the browser provides a compatible monotonic value. Expiry is anchored to the same absolute deadline, and queued input already covered by an expiry cannot remove a second life. Browser timestamps still approximate physical screen and touch hardware; high-speed external measurement is required for true photon-to-contact calibration.
-
-All balancing values are centralized in [`src/config.js`](./src/config.js).
-
-## Verification
-
-```bash
-npm run check
-```
-
-The game engine is separate from the browser UI and has deterministic coverage for board progression, proof-event capture, multiplier scoring and resets, empty-board penalties, independent overlapping Arcade decoys, natural-expiry dodge rewards, decoy clearing, rounded speed ratings, gradual pressure, Arcade life loss, endless adaptive no-decoy Zen practice, and manually frozen Zen results. Input-timing tests cover pointer timestamp normalization, presentation-anchored deadlines, pre-presentation input, expiry/input race classification, and play beyond Zen's former deadline. Static UI tests cover the utility header, the current Google-only browser profile flow, achievements, Pet Shop and Theme Shop coin state, dedicated Settings/Leaderboard navigation, Results/Game Over round trips, streak and result presentation, leaderboard speed distribution, all four material systems, independent theme-aware Sound FX/Music wiring, and the unified release graph. Controller tests cover disabled-audio isolation, trusted-gesture start, in-place theme switching, stale-load rejection, fixed looping, cue concurrency, fades, opt-out, and background suspension. Audio asset tests cover distinct fixed-slot tone banks, exact zero tails, paired runtimes, and retained masters. PHP tests cover CSRF/request guards, Google/Apple identity ownership and explicit linking, Apple nonce/JWKS/code-exchange/encrypted-revocation lifecycle, Game Center certificate-chain/freshness/replay mapping, current-profile-wins auto-linking, split-owner displacement, fresh scoped-ID encryption, complete outbox revision fencing, authoritative-only backfill, stale-worker rejection, encrypted scoped-player uniqueness, verified-only backfill/coalescing, lease/revision revalidation, exact App Store Connect payload/JWT construction, server-issued Arcade run contracts, chronological proof replay and tamper rejection, ranked Zen rejection, server-clock coin bounds, achievement and cosmetic purchase wiring, theme accounting/reset behavior, debt-aware reconciliation, exact moderation including administrator-owned results, default deleted-row filtering, idempotency, ranking windows, configuration isolation, and schema constraints. A disposable MariaDB harness exercises the same-pair preservation, split-owner reassignment, fresh encryption, cross-lane cancellation, current-only backfill, stale-lease fencing, opposite concurrent reassignment, and bounded ownership rediscovery paths with real advisory locks and `FOR UPDATE`. The retained Vercel leaderboard model remains covered for rollback compatibility.
-
-Automated verification does not replace physical-device validation. Touch timing, Google sign-in/cookies, native Sign in with Apple nonce/code exchange and account deletion, live Game Center linking, paid-theme purchase/select behavior, every theme's tap/life-loss latency and balance, background/menu mix and loop transitions, Light/Pixel readability, and installed-PWA upgrade behavior must still be checked on an iPhone/TestFlight build, iPhone Safari, and the installed PWA before this release is described as physically validated.
-
-## Why a small PWA
-
-The proof of concept does not need 3D rendering or an engine runtime. A small PWA starts instantly, runs directly on iPhone and Android browsers, works offline after installation (except for the shared leaderboard), and keeps the mechanics easy to change. If playtesting validates the loop, the same rules can later be moved into Unity, Godot, native mobile code, or a Steam build.
+- [Current source contract](docs/CURRENT_VERSION.md)
+- [HTTP and operations contract](docs/PHP_BACKEND.md)
+- [Multiplayer contract](docs/MULTIPLAYER.md)
+- [Effective backend decisions](docs/DECISIONS.md)
