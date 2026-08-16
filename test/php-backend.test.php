@@ -13,6 +13,7 @@ use SpeedyTapper\Config;
 use SpeedyTapper\GoogleIdentity;
 use SpeedyTapper\GoogleIdentityVerifier;
 use SpeedyTapper\HttpRequest;
+use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\MigrationRunner;
@@ -23,14 +24,78 @@ use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProof;
 use SpeedyTapper\RunProofValidator;
+use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
 use SpeedyTapper\SessionRegistry;
+use SpeedyTapper\StoreKitAccountRepository;
 use SpeedyTapper\ThemeCatalog;
 use SpeedyTapper\ThemeShopService;
 use SpeedyTapper\Uuid;
 
 require dirname(__DIR__) . '/server/autoload.php';
+
+final class CapturedJsonResponse extends RuntimeException
+{
+    public function __construct(
+        public readonly int $status,
+        public readonly array $body,
+        public readonly array $headers,
+    ) {
+        parent::__construct('Captured JSON response.');
+    }
+}
+
+if (!class_exists(\SpeedyTapper\JsonResponse::class, false)) {
+    eval(<<<'PHP'
+namespace SpeedyTapper;
+
+final class JsonResponse
+{
+    public static function send(int $status, array $body, array $headers = []): never
+    {
+        throw new \CapturedJsonResponse($status, $body, $headers);
+    }
+}
+PHP);
+}
+
+final class BackendContractSqlitePdo extends PDO
+{
+    public function __construct()
+    {
+        parent::__construct('sqlite::memory:', null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+        $this->exec('PRAGMA foreign_keys = ON');
+    }
+
+    public function prepare(string $query, array $options = []): PDOStatement|false
+    {
+        $query = str_replace('UTC_TIMESTAMP(3)', 'CURRENT_TIMESTAMP', $query);
+        $query = str_replace(
+            'status, (expires_at < CURRENT_TIMESTAMP) AS is_expired, '
+                . 'GREATEST(0, FLOOR(TIMESTAMPDIFF(MICROSECOND, started_at, CURRENT_TIMESTAMP) / 1000)) '
+                . 'AS server_elapsed_ms FROM run_attempts',
+            'status, 0 AS is_expired, server_elapsed_ms FROM run_attempts',
+            $query,
+        );
+        $query = str_replace(
+            'submitted_at > CURRENT_TIMESTAMP - INTERVAL 1 MINUTE',
+            "submitted_at > datetime('now', '-1 minute')",
+            $query,
+        );
+        $query = str_replace(
+            'submitted_at > CURRENT_TIMESTAMP - INTERVAL 1 DAY',
+            "submitted_at > datetime('now', '-1 day')",
+            $query,
+        );
+        $query = preg_replace('/\bINSERT IGNORE INTO\b/i', 'INSERT OR IGNORE INTO', $query) ?? $query;
+        $query = preg_replace('/\s+FOR UPDATE\b/i', '', $query) ?? $query;
+        return parent::prepare($query, $options);
+    }
+}
 
 $assertions = 0;
 
@@ -781,6 +846,197 @@ $assert(
     'Coin accounting depends on derived play time, not score or multiplier.',
 );
 
+$submissionDatabase = new BackendContractSqlitePdo();
+$submissionDatabase->exec(<<<'SQL'
+CREATE TABLE players (
+    id TEXT PRIMARY KEY,
+    nickname TEXT NOT NULL,
+    nickname_confirmed INTEGER NOT NULL DEFAULT 1,
+    earned_coins INTEGER NOT NULL DEFAULT 0,
+    purchased_coins INTEGER NOT NULL DEFAULT 0,
+    earned_coin_debt INTEGER NOT NULL DEFAULT 0,
+    refund_coin_debt INTEGER NOT NULL DEFAULT 0,
+    coins INTEGER NOT NULL DEFAULT 0,
+    coin_debt INTEGER NOT NULL DEFAULT 0,
+    total_play_ms INTEGER NOT NULL DEFAULT 0,
+    total_coins_collected INTEGER NOT NULL DEFAULT 0,
+    coin_time_remainder_ms INTEGER NOT NULL DEFAULT 0,
+    economy_generation INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE player_pet_selection (
+    player_id TEXT PRIMARY KEY,
+    pet_id TEXT NULL,
+    is_visible INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE leaderboard_entries (
+    id TEXT PRIMARY KEY,
+    season_id TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    fastest_reaction_ms INTEGER NULL,
+    average_reaction_ms INTEGER NULL,
+    correct_taps INTEGER NOT NULL,
+    dodge_count INTEGER NOT NULL,
+    godlike_count INTEGER NOT NULL,
+    perfect_count INTEGER NOT NULL,
+    great_count INTEGER NOT NULL,
+    good_count INTEGER NOT NULL,
+    ruleset_id TEXT NOT NULL,
+    proof_version INTEGER NOT NULL,
+    verified_at TEXT NULL,
+    verification_status TEXT NOT NULL,
+    risk_score INTEGER NOT NULL DEFAULT 0,
+    risk_reasons TEXT NULL,
+    achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE run_attempts (
+    run_id TEXT PRIMARY KEY,
+    session_binding_hash BLOB NOT NULL,
+    player_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    build_id TEXT NOT NULL,
+    ruleset_id TEXT NOT NULL,
+    proof_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TEXT NULL,
+    completed_at TEXT NULL,
+    server_elapsed_ms INTEGER NOT NULL,
+    proof_hash BLOB NULL,
+    risk_score INTEGER NOT NULL DEFAULT 0,
+    risk_reasons TEXT NULL,
+    rejection_code TEXT NULL,
+    submission_attempts INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE run_trace_claims (
+    trace_hash BLOB PRIMARY KEY,
+    first_run_id TEXT NOT NULL,
+    claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE completed_runs (
+    run_id TEXT PRIMARY KEY,
+    leaderboard_entry_id TEXT NULL,
+    player_id TEXT NOT NULL,
+    economy_generation INTEGER NOT NULL,
+    payload_hash BLOB NOT NULL,
+    mode TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    reaction_base_points INTEGER NOT NULL,
+    multiplier_bonus_points INTEGER NOT NULL,
+    max_multiplier INTEGER NOT NULL,
+    multiplier_1_hits INTEGER NOT NULL,
+    multiplier_2_hits INTEGER NOT NULL,
+    multiplier_3_hits INTEGER NOT NULL,
+    multiplier_4_hits INTEGER NOT NULL,
+    multiplier_5_hits INTEGER NOT NULL,
+    multiplier_1_base_points INTEGER NOT NULL,
+    multiplier_2_base_points INTEGER NOT NULL,
+    multiplier_3_base_points INTEGER NOT NULL,
+    multiplier_4_base_points INTEGER NOT NULL,
+    multiplier_5_base_points INTEGER NOT NULL,
+    coins_awarded INTEGER NOT NULL,
+    leaderboard_improved INTEGER NOT NULL,
+    verification_status TEXT NOT NULL,
+    coin_status TEXT NOT NULL,
+    ruleset_id TEXT NOT NULL,
+    proof_version INTEGER NOT NULL,
+    verified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    server_elapsed_ms INTEGER NOT NULL,
+    credited_play_ms INTEGER NOT NULL,
+    miss_count INTEGER NOT NULL,
+    risk_score INTEGER NOT NULL,
+    risk_reasons TEXT NULL
+);
+CREATE TABLE run_proofs (
+    run_id TEXT PRIMARY KEY,
+    proof_version INTEGER NOT NULL,
+    event_count INTEGER NOT NULL,
+    payload_hash BLOB NOT NULL,
+    trace_hash BLOB NOT NULL,
+    proof_json TEXT NOT NULL,
+    validation_status TEXT NOT NULL,
+    validation_reason TEXT NULL,
+    validated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE coin_ledger (
+    event_id TEXT PRIMARY KEY,
+    event_key TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    economy_generation INTEGER NOT NULL,
+    run_id TEXT NULL,
+    event_type TEXT NOT NULL,
+    play_ms_delta INTEGER NOT NULL,
+    coin_delta INTEGER NOT NULL,
+    remainder_before_ms INTEGER NOT NULL,
+    remainder_after_ms INTEGER NOT NULL,
+    earned_delta INTEGER NOT NULL,
+    purchased_delta INTEGER NOT NULL,
+    coin_balance_after INTEGER NOT NULL,
+    earned_balance_after INTEGER NOT NULL,
+    purchased_balance_after INTEGER NOT NULL,
+    coin_debt_after INTEGER NOT NULL,
+    earned_debt_after INTEGER NOT NULL,
+    refund_debt_after INTEGER NOT NULL,
+    total_play_ms_after INTEGER NOT NULL,
+    coin_status TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL
+);
+CREATE TABLE player_achievements (
+    player_id TEXT NOT NULL,
+    achievement_key TEXT NOT NULL,
+    reward_coins INTEGER NOT NULL,
+    unlocked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at TEXT NULL,
+    PRIMARY KEY (player_id, achievement_key)
+);
+SQL);
+$submissionPlayerId = '7aa55536-180e-4e30-bb50-05957cafc74a';
+$submissionRunId = 'a103a64b-7f90-47ad-9754-a5b4fc2d12a7';
+$submissionBindingHash = hash('sha256', 'submission-response-session', true);
+$submissionDatabase->prepare(
+    'INSERT INTO players (id, nickname) VALUES (:id, :nickname)'
+)->execute(['id' => $submissionPlayerId, 'nickname' => 'Submitter']);
+$submissionProof = RunProof::fromArray($normalProof($submissionRunId));
+$submissionDatabase->prepare(
+    'INSERT INTO run_attempts '
+    . '(run_id, session_binding_hash, player_id, mode, build_id, ruleset_id, proof_version, status, server_elapsed_ms) '
+    . 'VALUES (:run_id, :binding, :player_id, :mode, :build_id, :ruleset_id, :proof_version, :status, :elapsed)'
+)->execute([
+    'run_id' => $submissionRunId,
+    'binding' => $submissionBindingHash,
+    'player_id' => $submissionPlayerId,
+    'mode' => 'normal',
+    'build_id' => $submissionProof->buildId,
+    'ruleset_id' => $submissionProof->ruleset,
+    'proof_version' => $submissionProof->proofVersion,
+    'status' => 'issued',
+    'elapsed' => 4_100,
+]);
+$submissionWallets = new CoinWalletRepository($submissionDatabase);
+$submissionLeaderboard = new LeaderboardRepository($submissionDatabase, 'season', 'Season');
+$submissionAchievements = new AchievementService($submissionDatabase, $submissionWallets);
+$submittedRunPayload = (new RunSubmissionService(
+    $submissionDatabase,
+    $submissionLeaderboard,
+    new RunProofValidator(),
+    $submissionAchievements,
+    $submissionWallets,
+))->submit($submissionPlayerId, $submissionBindingHash, $submissionProof);
+$assert(
+    ($submittedRunPayload['submittedEntryId'] ?? null) === $submissionRunId
+        && ($submittedRunPayload['duplicate'] ?? null) === false
+        && is_array($submittedRunPayload['verifiedResult'] ?? null)
+        && !array_key_exists('achievementSnapshot', $submittedRunPayload),
+    'An accepted submitted-run response includes result context without duplicating achievements.',
+);
+
 $rows = [];
 for ($rank = 1; $rank <= 12; $rank++) {
     $rows[] = [
@@ -848,15 +1104,23 @@ $throwsApi(
 $rateSession->logout();
 
 $appReflection = new ReflectionClass(App::class);
-$dispatchStatus = static function (App $app, HttpRequest $request): ?int {
+$dispatch = static function (App $app, HttpRequest $request): array {
     try {
         $app->dispatch($request);
+    } catch (CapturedJsonResponse $response) {
+        return [
+            'status' => $response->status,
+            'body' => $response->body,
+            'headers' => $response->headers,
+            'sent' => true,
+        ];
     } catch (ApiException $error) {
-        return $error->status;
-    } catch (Throwable) {
-        // An uninitialized dependency proves that the dispatcher recognized the
-        // route and entered its handler. Unknown routes never touch a dependency.
-        return null;
+        return [
+            'status' => $error->status,
+            'body' => ['error' => $error->getMessage()],
+            'headers' => $error->headers,
+            'sent' => false,
+        ];
     }
 };
 
@@ -867,31 +1131,31 @@ foreach ([
     ['DELETE', '/api/mobile/v1/account'],
     ['POST', '/api/leaderboard'],
 ] as [$method, $path]) {
-    $status = $dispatchStatus(
+    $outcome = $dispatch(
         $appReflection->newInstanceWithoutConstructor(),
         new HttpRequest($method, $path, [], [], '{}'),
     );
-    $assert($status === 404, $method . ' ' . $path . ' falls through to the normal unknown-route response.');
-}
-foreach ([
-    ['POST', '/api/mobile/v1/storekit/transactions'],
-    ['DELETE', '/api/profile'],
-] as [$method, $path]) {
-    $status = $dispatchStatus(
-        $appReflection->newInstanceWithoutConstructor(),
-        new HttpRequest($method, $path, [], [], '{}'),
+    $assert(
+        $outcome === [
+            'status' => 404,
+            'body' => ['error' => 'API route not found.'],
+            'headers' => [],
+            'sent' => false,
+        ],
+        $method . ' ' . $path . ' falls through to the normal unknown-route response.',
     );
-    $assert($status !== 404, $method . ' ' . $path . ' remains a recognized current-iOS route.');
 }
 
-$routeDatabase = new PDO('sqlite::memory:');
-$routeDatabase->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$routeDatabase->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-$routeDatabase->exec('PRAGMA foreign_keys = ON');
+$routeDatabase = new BackendContractSqlitePdo();
 $routeDatabase->exec(
     'CREATE TABLE players ('
-    . 'id TEXT PRIMARY KEY, nickname TEXT NOT NULL, nickname_confirmed INTEGER NOT NULL DEFAULT 0, '
-    . 'coins INTEGER NOT NULL DEFAULT 0, total_play_ms INTEGER NOT NULL DEFAULT 0, '
+    . 'id TEXT PRIMARY KEY, google_subject_hash BLOB NULL UNIQUE, nickname TEXT NOT NULL, '
+    . 'nickname_confirmed INTEGER NOT NULL DEFAULT 0, earned_coins INTEGER NOT NULL DEFAULT 0, '
+    . 'purchased_coins INTEGER NOT NULL DEFAULT 0, earned_coin_debt INTEGER NOT NULL DEFAULT 0, '
+    . 'refund_coin_debt INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 0, '
+    . 'coin_debt INTEGER NOT NULL DEFAULT 0, total_play_ms INTEGER NOT NULL DEFAULT 0, '
+    . 'total_coins_collected INTEGER NOT NULL DEFAULT 0, coin_time_remainder_ms INTEGER NOT NULL DEFAULT 0, '
+    . 'economy_generation INTEGER NOT NULL DEFAULT 0, last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, '
     . 'created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
 );
 $routeDatabase->exec(
@@ -913,12 +1177,43 @@ $routeDatabase->exec(
 $routeDatabase->exec(
     'CREATE TABLE player_theme_selection (player_id TEXT NOT NULL, theme_id TEXT NOT NULL)'
 );
-$routePlayerId = 'c598832f-653c-4b40-8851-213135b671c6';
-$routeDatabase->prepare(
-    'INSERT INTO players (id, nickname, nickname_confirmed) VALUES (:id, :nickname, 1)'
-)->execute(['id' => $routePlayerId, 'nickname' => 'NativePlayer']);
+$routeDatabase->exec(
+    'CREATE TABLE player_identities ('
+    . 'provider TEXT NOT NULL, subject_hash BLOB NOT NULL, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'linked_at TEXT NOT NULL, last_authenticated_at TEXT NOT NULL, PRIMARY KEY (provider, subject_hash), '
+    . 'UNIQUE (player_id, provider))'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_game_center_bindings (player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_storekit_bindings ('
+    . 'player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, app_account_token TEXT NOT NULL UNIQUE)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_entitlement_sources ('
+    . 'player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, capability TEXT NOT NULL, active INTEGER NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE leaderboard_entries ('
+    . 'id TEXT PRIMARY KEY, season_id TEXT NOT NULL, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'mode TEXT NOT NULL, score INTEGER NOT NULL, duration_ms INTEGER NOT NULL, fastest_reaction_ms INTEGER NULL, '
+    . 'average_reaction_ms INTEGER NULL, correct_taps INTEGER NOT NULL, dodge_count INTEGER NOT NULL DEFAULT 0, '
+    . 'godlike_count INTEGER NOT NULL DEFAULT 0, perfect_count INTEGER NOT NULL DEFAULT 0, '
+    . 'great_count INTEGER NOT NULL DEFAULT 0, good_count INTEGER NOT NULL DEFAULT 0, '
+    . 'ruleset_id TEXT NOT NULL, proof_version INTEGER NOT NULL, verified_at TEXT NULL, '
+    . 'verification_status TEXT NOT NULL, risk_score INTEGER NOT NULL DEFAULT 0, risk_reasons TEXT NULL, '
+    . 'achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
 $routeWallets = new CoinWalletRepository($routeDatabase);
 $routeAchievements = new AchievementService($routeDatabase, $routeWallets);
+$routeIdentities = new \SpeedyTapper\PlayerIdentityService($routeDatabase);
+$loginSubject = 'existing-google-route-subject';
+$loginResolution = $routeIdentities->loginOrRegister('google', $loginSubject, true);
+$assert(
+    is_string($loginResolution['playerId'] ?? null),
+    'The route fixture has one existing Google profile for explicit-login behavior.',
+);
 $routePlayers = new PlayerRepository(
     $routeDatabase,
     new PetShopService($routeDatabase, $routeAchievements, $routeWallets),
@@ -926,72 +1221,209 @@ $routePlayers = new PlayerRepository(
 );
 session_id('speedytapperroutecontract' . bin2hex(random_bytes(4)));
 $routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
-$routeApp = $appReflection->newInstanceWithoutConstructor();
-foreach ([
-    'config' => new Config('', 0, '', '', '', 'native.apps.googleusercontent.com', 'season', 'Season'),
-    'players' => $routePlayers,
-    'achievements' => $routeAchievements,
-    'session' => $routeSession,
-    'google' => new class implements GoogleIdentityVerifier {
-        public function verify(string $credential): GoogleIdentity
-        {
-            return new GoogleIdentity('google-route-subject');
-        }
-    },
-] as $property => $value) {
-    $appReflection->getProperty($property)->setValue($routeApp, $value);
-}
-$sessionPayload = $appReflection->getMethod('sessionPayload')->invoke($routeApp);
+$routeGoogle = new class implements GoogleIdentityVerifier {
+    public string $subject = 'existing-google-route-subject';
+
+    public function verify(string $credential): GoogleIdentity
+    {
+        return new GoogleIdentity($this->subject);
+    }
+};
+$newRouteApp = static function (SessionStore $session) use (
+    $appReflection,
+    $routeAchievements,
+    $routeDatabase,
+    $routeGoogle,
+    $routeIdentities,
+    $routePlayers,
+): App {
+    $app = $appReflection->newInstanceWithoutConstructor();
+    foreach ([
+        'config' => new Config('', 0, '', '', '', 'native.apps.googleusercontent.com', 'season', 'Season'),
+        'players' => $routePlayers,
+        'leaderboard' => new LeaderboardRepository($routeDatabase, 'season', 'Season'),
+        'achievements' => $routeAchievements,
+        'storeKitAccounts' => new StoreKitAccountRepository($routeDatabase, str_repeat('r', 32)),
+        'session' => $session,
+        'identities' => $routeIdentities,
+        'google' => $routeGoogle,
+        'gameCenterPublication' => null,
+        'multiplayerLeaderboard' => null,
+    ] as $property => $value) {
+        $appReflection->getProperty($property)->setValue($app, $value);
+    }
+    return $app;
+};
+$routeApp = $newRouteApp($routeSession);
+
+$sessionOutcome = $dispatch($routeApp, new HttpRequest('GET', '/api/session', [], [], ''));
 $assert(
-    ($sessionPayload['googleClientId'] ?? null) === 'native.apps.googleusercontent.com'
-        && !array_key_exists('achievementSnapshot', $sessionPayload),
+    $sessionOutcome['status'] === 200
+        && $sessionOutcome['sent'] === true
+        && ($sessionOutcome['body']['googleClientId'] ?? null) === 'native.apps.googleusercontent.com'
+        && !array_key_exists('achievementSnapshot', $sessionOutcome['body']),
     'The current session payload keeps Google client configuration without duplicating achievements.',
 );
 
-$googleStatus = static function (App $app, SessionStore $session, array $body) use ($dispatchStatus): ?int {
+$requestWithCsrf = static function (
+    string $method,
+    string $path,
+    SessionStore $session,
+    array $body,
+): HttpRequest {
     $csrf = $session->csrfToken();
-    return $dispatchStatus($app, new HttpRequest(
-        'POST',
-        '/api/auth/google',
+    return new HttpRequest(
+        $method,
+        $path,
         [],
         ['HTTP_X_SPEEDYTAPPER_CSRF' => $csrf],
         json_encode($body, JSON_THROW_ON_ERROR),
-    ));
+    );
+};
+$googleOutcome = static function (
+    App $app,
+    SessionStore $session,
+    array $body,
+) use ($dispatch, $requestWithCsrf): array {
+    return $dispatch($app, $requestWithCsrf('POST', '/api/auth/google', $session, $body));
 };
 $assert(
-    $googleStatus($routeApp, $routeSession, ['credential' => 'fixture']) === 400,
+    $googleOutcome($routeApp, $routeSession, ['credential' => 'fixture'])['status'] === 400,
     'Google sign-in requires an explicit intent.',
 );
 $assert(
-    $googleStatus($routeApp, $routeSession, [
+    $googleOutcome($routeApp, $routeSession, [
         'credential' => 'fixture',
         'intent' => 'login_or_register',
-    ]) === 400,
+    ])['status'] === 400,
     'Google sign-in rejects the retired login_or_register intent.',
 );
+$playerCountBeforeUnknownLogin = (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn();
+$routeGoogle->subject = 'unknown-google-login-subject';
+$unknownLogin = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'login'],
+);
 $assert(
-    $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'login']) === null
-        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'register']) === null
-        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'reauth']) === 401,
-    'Anonymous Google requests preserve explicit login, register, and reauthentication semantics.',
+    $unknownLogin['status'] === 409
+        && (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn()
+            === $playerCountBeforeUnknownLogin,
+    'Explicit Google login maps to allowCreate false and cannot create an unknown profile.',
+);
+$routeGoogle->subject = $loginSubject;
+$loginOutcome = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'login'],
+);
+$assert(
+    $loginOutcome['status'] === 200
+        && $loginOutcome['sent'] === true
+        && ($loginOutcome['body']['profile']['id'] ?? null) === $loginResolution['playerId'],
+    'Explicit Google login resolves the existing profile through the dispatcher.',
+);
+$routeSession->csrfToken();
+$routeSession->logout();
+
+$routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
+$routeApp = $newRouteApp($routeSession);
+$registrationSubject = 'new-google-registration-subject';
+$routeGoogle->subject = $registrationSubject;
+$playerCountBeforeRegistration = (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn();
+$registerOutcome = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'register'],
+);
+$registeredPlayerId = $registerOutcome['body']['profile']['id'] ?? null;
+$assert(
+    $registerOutcome['status'] === 200
+        && $registerOutcome['sent'] === true
+        && is_string($registeredPlayerId)
+        && (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn()
+            === $playerCountBeforeRegistration + 1,
+    'Explicit Google registration maps to allowCreate true and creates exactly one profile.',
 );
 
-$routeSession->login($routePlayerId);
-$assert(
-    $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'login']) === 409
-        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'register']) === 409
-        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'reauth']) === null,
-    'Authenticated Google requests allow only explicit reauthentication.',
+$routeGoogle->subject = $loginSubject;
+$foreignReauth = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'reauth'],
 );
-$deleteStatus = $dispatchStatus($routeApp, new HttpRequest(
+$assert(
+    $foreignReauth['status'] === 409
+        && $routeSession->playerId() === $registeredPlayerId,
+    'Authenticated Google reauth invokes identity reauthentication and cannot switch profiles.',
+);
+$routeGoogle->subject = $registrationSubject;
+$reauthOutcome = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'reauth'],
+);
+$assert(
+    $reauthOutcome['status'] === 200
+        && $reauthOutcome['sent'] === true
+        && ($reauthOutcome['body']['profile']['id'] ?? null) === $registeredPlayerId,
+    'Authenticated Google reauth succeeds only for the current profile identity.',
+);
+$assert(
+    $googleOutcome(
+        $routeApp,
+        $routeSession,
+        ['credential' => 'fixture', 'intent' => 'login'],
+    )['status'] === 409
+        && $googleOutcome(
+            $routeApp,
+            $routeSession,
+            ['credential' => 'fixture', 'intent' => 'register'],
+        )['status'] === 409,
+    'Authenticated Google requests reject login and register in favor of the explicit link route.',
+);
+
+$deleteOutcome = $dispatch($routeApp, $requestWithCsrf(
     'DELETE',
     '/api/profile',
-    [],
-    ['HTTP_X_SPEEDYTAPPER_CSRF' => $routeSession->csrfToken()],
-    '{"confirmation":"DELETE MY ACCOUNT","unexpected":true}',
+    $routeSession,
+    ['confirmation' => 'WRONG PHRASE', 'unexpected' => true],
 ));
-$assert($deleteStatus === 400, 'Account deletion rejects every field except confirmation.');
+$assert(
+    $deleteOutcome['status'] === 400
+        && ($deleteOutcome['body']['error'] ?? null) === 'Account deletion contains unsupported fields.',
+    'Unsupported account-deletion fields win even when the confirmation phrase is also invalid.',
+);
+
+$routeSession->csrfToken();
 $routeSession->logout();
+$routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
+$routeApp = $newRouteApp($routeSession);
+$currentStoreKitOutcome = $dispatch($routeApp, $requestWithCsrf(
+    'POST',
+    '/api/mobile/v1/storekit/transactions',
+    $routeSession,
+    [],
+));
+$currentDeleteOutcome = $dispatch($routeApp, $requestWithCsrf(
+    'DELETE',
+    '/api/profile',
+    $routeSession,
+    [],
+));
+$zenLeaderboardOutcome = $dispatch(
+    $routeApp,
+    new HttpRequest('GET', '/api/leaderboard', ['mode' => 'zen'], [], ''),
+);
+$assert(
+    $currentStoreKitOutcome['status'] === 401
+        && ($currentStoreKitOutcome['body']['error'] ?? null) === 'Sign in to continue.'
+        && $currentDeleteOutcome['status'] === 401
+        && ($currentDeleteOutcome['body']['error'] ?? null) === 'Sign in to continue.'
+        && $zenLeaderboardOutcome['status'] === 200
+        && ($zenLeaderboardOutcome['body']['mode'] ?? null) === 'zen',
+    'Current StoreKit, profile deletion, and Zen read routes enter their real retained handlers.',
+);
 
 $schema = '';
 foreach (glob(dirname(__DIR__) . '/server/migrations/*.sql') ?: [] as $migrationPath) {
@@ -1184,8 +1616,7 @@ $assert(
         && str_contains($runService, "'withheld'")
         && str_contains($runService, 'CoinProgression::accrue')
         && str_contains($runService, 'enqueueBestScoreInCurrentTransaction')
-        && str_contains($runService, 'FOR UPDATE')
-        && !str_contains($runService, "'achievementSnapshot'"),
+        && str_contains($runService, 'FOR UPDATE'),
     'Run completion is clock-covered, replayed, risk-gated, coin-accounted, publication-aware, and transactional.',
 );
 
