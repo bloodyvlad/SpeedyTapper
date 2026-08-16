@@ -108,7 +108,7 @@ publication destination.
 | `POST /api/runs` | `{ "mode": "normal", "buildId": "YYYYMMDD-N" }` | `201`; issues one 24-hour player/session-bound attempt and abandons any previous issued attempt for that player |
 | `POST /api/runs/abandon` | `{ "runId": "uuid-v4" }` | Idempotent `200 { "abandoned": true }` for the bound session |
 | `POST /api/runs/finish` | `{ "runId", "mode", "buildId", "ruleset", "proofVersion", "events" }` | `201` on first accepted finish, `200` on exact retry; PHP derives result and eligibility |
-| `POST /api/achievements/claim` | `{ "id": "stable_achievement_id" }` | `201` on first eligible claim, `200` on retry; returns achievement, earned coins, balance, debt, and duplicate state |
+| `POST /api/achievements/claim` | `{ "id": "stable_achievement_id" }` | `201` on first eligible claim, `200` on retry; returns `authenticated`, `achievements`, `claimedCount`, `totalCount`, `coinBalance`, `achievement`, `coinsEarned`, and `duplicate` |
 | `POST /api/pets/select` | `{ "petId": "stable_pet_id" }` | Atomically buys when necessary and selects; `201` only for a purchase |
 | `PATCH /api/pets/selection` | `{ "petId": "stable_pet_id", "visible": true|false }` | Updates visibility for an owned pet |
 | `POST /api/themes/select` | `{ "themeId": "stable_theme_id" }` | Atomically buys when necessary and selects; `201` only for a purchase |
