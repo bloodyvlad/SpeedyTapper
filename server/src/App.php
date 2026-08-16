@@ -46,14 +46,6 @@ final class App
             JsonResponse::send(200, $this->sessionPayload());
         }
 
-        if ($request->method === 'GET' && $request->path === '/api/top-scores') {
-            JsonResponse::send(
-                200,
-                $this->leaderboard->topPayload($this->modeFromQuery($request)),
-                ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'],
-            );
-        }
-
         if (
             $request->method === 'GET'
             && $request->path === '/api/mobile/v1/multiplayer/leaderboard'
@@ -226,11 +218,11 @@ final class App
             if (!is_string($credential)) {
                 throw new ApiException(400, 'Google credential is required.');
             }
-            $identity = $this->google->verify($credential);
-            $intent = $body['intent'] ?? 'login_or_register';
-            if (!is_string($intent) || !in_array($intent, ['login', 'register', 'login_or_register', 'reauth'], true)) {
+            $intent = $body['intent'] ?? null;
+            if (!is_string($intent) || !in_array($intent, ['login', 'register', 'reauth'], true)) {
                 throw new ApiException(400, 'Google sign-in intent is invalid.');
             }
+            $identity = $this->google->verify($credential);
             $currentPlayerId = $this->session->playerId();
             if ($currentPlayerId === null) {
                 if ($intent === 'reauth') {
@@ -239,14 +231,14 @@ final class App
                 $resolution = $this->identities->loginOrRegister(
                     PlayerIdentityService::PROVIDER_GOOGLE,
                     $identity->subject,
-                    $intent !== 'login',
+                    $intent === 'register',
                 );
                 $this->session->login(
                     $resolution['playerId'],
                     PlayerIdentityService::PROVIDER_GOOGLE,
                 );
             } else {
-                if ($intent !== 'reauth' && $intent !== 'login_or_register') {
+                if ($intent !== 'reauth') {
                     throw new ApiException(409, 'Use the explicit link flow to add another sign-in method.');
                 }
                 $this->identities->reauthenticate(
@@ -371,11 +363,10 @@ final class App
             JsonResponse::send(200, $this->sessionPayload());
         }
 
-        if ($request->method === 'POST' && in_array(
-            $request->path,
-            ['/api/storekit/transactions', '/api/mobile/v1/storekit/transactions'],
-            true,
-        )) {
+        if (
+            $request->method === 'POST'
+            && $request->path === '/api/mobile/v1/storekit/transactions'
+        ) {
             $this->guardMutation($request);
             $profile = $this->requirePlayer();
             $body = $request->json();
@@ -399,14 +390,12 @@ final class App
             JsonResponse::send(200, $this->appStoreNotifications->receive($body['signedPayload'] ?? null));
         }
 
-        if ($request->method === 'DELETE' && in_array(
-            $request->path,
-            ['/api/profile', '/api/account', '/api/mobile/v1/account'],
-            true,
-        )) {
+        if ($request->method === 'DELETE' && $request->path === '/api/profile') {
             $this->guardMutation($request);
             $profile = $this->requirePlayer();
-            $confirmation = $request->json()['confirmation'] ?? null;
+            $body = $request->json();
+            $this->requireOnlyFields($body, ['confirmation'], 'Account deletion');
+            $confirmation = $body['confirmation'] ?? null;
             if (!is_string($confirmation) || !hash_equals('DELETE MY ACCOUNT', $confirmation)) {
                 throw new ApiException(400, 'Explicit account-deletion confirmation is required.');
             }
@@ -729,10 +718,6 @@ final class App
             }
         }
 
-        if ($request->path === '/api/leaderboard' && $request->method === 'POST') {
-            throw new ApiException(410, 'Aggregate score submission is retired. Refresh before playing again.');
-        }
-
         if ($request->path === '/api/admin/leaderboard' && $request->method === 'GET') {
             $this->requireAdmin();
             [$offset, $limit] = $this->adminPagination($request);
@@ -866,9 +851,6 @@ final class App
                 'storeKit' => null,
             ] : $this->storeKitAccounts->state($profile['id'])),
             'ranks' => $profile === null ? null : $this->rankings($profile['id']),
-            'achievementSnapshot' => $profile === null
-                ? $this->achievements->payload(null)
-                : $this->achievements->currentPayload($profile['id'], (int) $profile['coins']),
         ];
     }
 

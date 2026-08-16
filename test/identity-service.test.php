@@ -148,14 +148,31 @@ $insertIdentity->execute();
 $existing = $service->loginOrRegister('google', $googleSubject, false);
 $assert(
     $existing === ['playerId' => $legacyPlayerId, 'created' => false],
-    'A backfilled Google identity resolves the original internal UUID.',
+    'Explicit Google login resolves the original internal UUID without creating a profile.',
+);
+$throwsStatus(
+    409,
+    static fn () => $service->loginOrRegister('google', 'unknown.google.subject', false),
+    'Explicit Google login cannot silently register an unknown identity.',
+);
+$googleRegistration = $service->loginOrRegister('google', 'registered.google.subject', true);
+$assert($googleRegistration['created'] === true, 'Explicit Google registration creates a new profile.');
+$service->reauthenticate($legacyPlayerId, 'google', $googleSubject);
+$throwsStatus(
+    409,
+    static fn () => $service->reauthenticate(
+        $legacyPlayerId,
+        'google',
+        'registered.google.subject',
+    ),
+    'Explicit Google reauthentication cannot switch the authenticated profile.',
 );
 
 $appleSubject = '000123.abc.def';
 $apple = $service->loginOrRegister('apple', $appleSubject, true);
 $assert($apple['created'] === true, 'An explicit Apple registration creates a profile.');
 $assert(
-    $database->query('SELECT COUNT(*) FROM players')->fetchColumn() === 2,
+    $database->query('SELECT COUNT(*) FROM players')->fetchColumn() === 3,
     'Apple registration creates exactly one additional wallet owner.',
 );
 $appleAgain = $service->loginOrRegister('apple', $appleSubject, false);
@@ -164,7 +181,7 @@ $assert(
     'Later Apple login resolves the same internal UUID.',
 );
 $assert(
-    $database->query('SELECT COUNT(*) FROM players')->fetchColumn() === 2,
+    $database->query('SELECT COUNT(*) FROM players')->fetchColumn() === 3,
     'Repeated Apple login never creates a duplicate wallet owner.',
 );
 $throwsStatus(
@@ -380,7 +397,7 @@ $assert(
 
 $database->prepare('DELETE FROM players WHERE id = :id')->execute(['id' => $legacyPlayerId]);
 $assert(
-    (int) $database->query('SELECT COUNT(*) FROM player_identities')->fetchColumn() === 1,
+    (int) $database->query('SELECT COUNT(*) FROM player_identities')->fetchColumn() === 2,
     'Deleting a player cascades every one of that profile\'s primary identity bindings.',
 );
 $assert(

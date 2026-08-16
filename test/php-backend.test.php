@@ -3,16 +3,23 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\App;
 use SpeedyTapper\AchievementCatalog;
+use SpeedyTapper\AchievementService;
 use SpeedyTapper\CoinEconomy;
 use SpeedyTapper\CoinProgression;
+use SpeedyTapper\CoinWalletRepository;
 use SpeedyTapper\Config;
+use SpeedyTapper\GoogleIdentity;
+use SpeedyTapper\GoogleIdentityVerifier;
 use SpeedyTapper\HttpRequest;
 use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\Nickname;
 use SpeedyTapper\PetCatalog;
+use SpeedyTapper\PetShopService;
+use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProof;
 use SpeedyTapper\RunProofValidator;
@@ -20,6 +27,7 @@ use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
 use SpeedyTapper\SessionRegistry;
 use SpeedyTapper\ThemeCatalog;
+use SpeedyTapper\ThemeShopService;
 use SpeedyTapper\Uuid;
 
 require dirname(__DIR__) . '/server/autoload.php';
@@ -839,6 +847,152 @@ $throwsApi(
 );
 $rateSession->logout();
 
+$appReflection = new ReflectionClass(App::class);
+$dispatchStatus = static function (App $app, HttpRequest $request): ?int {
+    try {
+        $app->dispatch($request);
+    } catch (ApiException $error) {
+        return $error->status;
+    } catch (Throwable) {
+        // An uninitialized dependency proves that the dispatcher recognized the
+        // route and entered its handler. Unknown routes never touch a dependency.
+        return null;
+    }
+};
+
+foreach ([
+    ['GET', '/api/top-scores'],
+    ['POST', '/api/storekit/transactions'],
+    ['DELETE', '/api/account'],
+    ['DELETE', '/api/mobile/v1/account'],
+    ['POST', '/api/leaderboard'],
+] as [$method, $path]) {
+    $status = $dispatchStatus(
+        $appReflection->newInstanceWithoutConstructor(),
+        new HttpRequest($method, $path, [], [], '{}'),
+    );
+    $assert($status === 404, $method . ' ' . $path . ' falls through to the normal unknown-route response.');
+}
+foreach ([
+    ['POST', '/api/mobile/v1/storekit/transactions'],
+    ['DELETE', '/api/profile'],
+] as [$method, $path]) {
+    $status = $dispatchStatus(
+        $appReflection->newInstanceWithoutConstructor(),
+        new HttpRequest($method, $path, [], [], '{}'),
+    );
+    $assert($status !== 404, $method . ' ' . $path . ' remains a recognized current-iOS route.');
+}
+
+$routeDatabase = new PDO('sqlite::memory:');
+$routeDatabase->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$routeDatabase->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+$routeDatabase->exec('PRAGMA foreign_keys = ON');
+$routeDatabase->exec(
+    'CREATE TABLE players ('
+    . 'id TEXT PRIMARY KEY, nickname TEXT NOT NULL, nickname_confirmed INTEGER NOT NULL DEFAULT 0, '
+    . 'coins INTEGER NOT NULL DEFAULT 0, total_play_ms INTEGER NOT NULL DEFAULT 0, '
+    . 'created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_sessions ('
+    . 'session_auth_hash BLOB PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
+$routeDatabase->exec('CREATE TABLE player_roles (player_id TEXT NOT NULL, role TEXT NOT NULL)');
+$routeDatabase->exec(
+    'CREATE TABLE player_pets (player_id TEXT NOT NULL, pet_id TEXT NOT NULL, acquired_at TEXT NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_pet_selection '
+    . '(player_id TEXT NOT NULL, pet_id TEXT NOT NULL, is_visible INTEGER NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_themes (player_id TEXT NOT NULL, theme_id TEXT NOT NULL, acquired_at TEXT NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_theme_selection (player_id TEXT NOT NULL, theme_id TEXT NOT NULL)'
+);
+$routePlayerId = 'c598832f-653c-4b40-8851-213135b671c6';
+$routeDatabase->prepare(
+    'INSERT INTO players (id, nickname, nickname_confirmed) VALUES (:id, :nickname, 1)'
+)->execute(['id' => $routePlayerId, 'nickname' => 'NativePlayer']);
+$routeWallets = new CoinWalletRepository($routeDatabase);
+$routeAchievements = new AchievementService($routeDatabase, $routeWallets);
+$routePlayers = new PlayerRepository(
+    $routeDatabase,
+    new PetShopService($routeDatabase, $routeAchievements, $routeWallets),
+    new ThemeShopService($routeDatabase, $routeWallets),
+);
+session_id('speedytapperroutecontract' . bin2hex(random_bytes(4)));
+$routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
+$routeApp = $appReflection->newInstanceWithoutConstructor();
+foreach ([
+    'config' => new Config('', 0, '', '', '', 'native.apps.googleusercontent.com', 'season', 'Season'),
+    'players' => $routePlayers,
+    'achievements' => $routeAchievements,
+    'session' => $routeSession,
+    'google' => new class implements GoogleIdentityVerifier {
+        public function verify(string $credential): GoogleIdentity
+        {
+            return new GoogleIdentity('google-route-subject');
+        }
+    },
+] as $property => $value) {
+    $appReflection->getProperty($property)->setValue($routeApp, $value);
+}
+$sessionPayload = $appReflection->getMethod('sessionPayload')->invoke($routeApp);
+$assert(
+    ($sessionPayload['googleClientId'] ?? null) === 'native.apps.googleusercontent.com'
+        && !array_key_exists('achievementSnapshot', $sessionPayload),
+    'The current session payload keeps Google client configuration without duplicating achievements.',
+);
+
+$googleStatus = static function (App $app, SessionStore $session, array $body) use ($dispatchStatus): ?int {
+    $csrf = $session->csrfToken();
+    return $dispatchStatus($app, new HttpRequest(
+        'POST',
+        '/api/auth/google',
+        [],
+        ['HTTP_X_SPEEDYTAPPER_CSRF' => $csrf],
+        json_encode($body, JSON_THROW_ON_ERROR),
+    ));
+};
+$assert(
+    $googleStatus($routeApp, $routeSession, ['credential' => 'fixture']) === 400,
+    'Google sign-in requires an explicit intent.',
+);
+$assert(
+    $googleStatus($routeApp, $routeSession, [
+        'credential' => 'fixture',
+        'intent' => 'login_or_register',
+    ]) === 400,
+    'Google sign-in rejects the retired login_or_register intent.',
+);
+$assert(
+    $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'login']) === null
+        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'register']) === null
+        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'reauth']) === 401,
+    'Anonymous Google requests preserve explicit login, register, and reauthentication semantics.',
+);
+
+$routeSession->login($routePlayerId);
+$assert(
+    $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'login']) === 409
+        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'register']) === 409
+        && $googleStatus($routeApp, $routeSession, ['credential' => 'fixture', 'intent' => 'reauth']) === null,
+    'Authenticated Google requests allow only explicit reauthentication.',
+);
+$deleteStatus = $dispatchStatus($routeApp, new HttpRequest(
+    'DELETE',
+    '/api/profile',
+    [],
+    ['HTTP_X_SPEEDYTAPPER_CSRF' => $routeSession->csrfToken()],
+    '{"confirmation":"DELETE MY ACCOUNT","unexpected":true}',
+));
+$assert($deleteStatus === 400, 'Account deletion rejects every field except confirmation.');
+$routeSession->logout();
+
 $schema = '';
 foreach (glob(dirname(__DIR__) . '/server/migrations/*.sql') ?: [] as $migrationPath) {
     $schema .= file_get_contents($migrationPath);
@@ -937,7 +1091,7 @@ foreach ([
 }
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/profile/nickname/availability', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/profile/nickname/availability', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $nicknameAvailabilityRouteStart = strpos($app, "path === '/api/profile/nickname/availability'");
@@ -994,7 +1148,6 @@ $assert(
     'Long-lived authenticated sessions can auto-link Game Center while publication disable stays sensitive.',
 );
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
-$assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
 $assert(
     preg_match('~rankedRunContext\(true\).*?RunProof::fromArray~s', $app) === 1
         && preg_match('~if \(\$countFinishRequest\).*?requireRunFinishCapacity\(\).*?session->close\(\)~s', $app) === 1,
@@ -1031,7 +1184,8 @@ $assert(
         && str_contains($runService, "'withheld'")
         && str_contains($runService, 'CoinProgression::accrue')
         && str_contains($runService, 'enqueueBestScoreInCurrentTransaction')
-        && str_contains($runService, 'FOR UPDATE'),
+        && str_contains($runService, 'FOR UPDATE')
+        && !str_contains($runService, "'achievementSnapshot'"),
     'Run completion is clock-covered, replayed, risk-gated, coin-accounted, publication-aware, and transactional.',
 );
 
@@ -1045,6 +1199,7 @@ $assert(
         && str_contains($leaderboardRepository, 'ps.is_visible = 1')
         && str_contains($leaderboardRepository, "'petId' =>")
         && str_contains($leaderboardRepository, 'PetCatalog::specialForNickname')
+        && !str_contains($leaderboardRepository, 'function topPayload')
         && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
     'Only ranked verification states are visible and accepted result rows remain immutable.',
 );
@@ -1453,7 +1608,6 @@ try {
 $leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
 $assert(
     is_string($leaderboardRepository)
-        && str_contains($leaderboardRepository, 'public function topPayload')
         && str_contains($leaderboardRepository, 'ORDER BY ' . "' . \$order . '" . ' LIMIT ')
         && str_contains($app, "'Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'"),
     'Public top-five reads use a bounded ordered query and short shared-cache headers.',

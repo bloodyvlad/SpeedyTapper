@@ -83,16 +83,6 @@ final class LeaderboardRepository
         });
     }
 
-    public function topPayload(string $mode): array
-    {
-        self::validateMode($mode);
-        return [
-            'season' => ['id' => $this->seasonId, 'name' => $this->seasonName],
-            'mode' => $mode,
-            'entries' => $this->publicTopEntries($mode),
-        ];
-    }
-
     public function rankings(string $playerId): array
     {
         return $this->consistentRead(function () use ($playerId): array {

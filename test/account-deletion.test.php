@@ -35,6 +35,24 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
         throw new RuntimeException($message);
     }
 };
+$appSource = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
+$accountRouteStart = is_string($appSource)
+    ? strpos($appSource, "path === '/api/profile'", strpos($appSource, "method === 'DELETE'"))
+    : false;
+$accountRouteEnd = is_int($accountRouteStart)
+    ? strpos($appSource, "path === '/api/profile/nickname/availability'", $accountRouteStart)
+    : false;
+$accountRoute = is_int($accountRouteStart) && is_int($accountRouteEnd)
+    ? substr($appSource, $accountRouteStart, $accountRouteEnd - $accountRouteStart)
+    : '';
+$fieldValidationAt = strpos($accountRoute, "requireOnlyFields(\$body, ['confirmation'], 'Account deletion')");
+$confirmationValidationAt = strpos($accountRoute, "hash_equals('DELETE MY ACCOUNT'");
+$assert(
+    is_int($fieldValidationAt)
+        && is_int($confirmationValidationAt)
+        && $fieldValidationAt < $confirmationValidationAt,
+    'Account deletion rejects unsupported fields before validating the confirmation phrase.',
+);
 $database = new AccountDeletionSqlitePdo();
 $database->exec(<<<'SQL'
 CREATE TABLE players (id TEXT PRIMARY KEY, nickname TEXT NOT NULL);

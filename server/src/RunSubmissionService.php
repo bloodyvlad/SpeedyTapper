@@ -44,10 +44,6 @@ final class RunSubmissionService
         $payload['coinBalance'] = $record['coinBalance'];
         $payload['totalPlayMs'] = $record['totalPlayMs'];
         $payload['verifiedResult'] = $record['verifiedResult'];
-        $payload['achievementSnapshot'] = $this->achievements->currentPayload(
-            $playerId,
-            $record['coinBalance'],
-        );
         return $payload;
     }
 

@@ -7,7 +7,6 @@ namespace SpeedyTapper;
 final class SessionStore
 {
     private const AUTH_ID_KEY = 'speedytapper_session_auth_id';
-    private const LEGACY_PLAYER_KEY = 'speedytapper_player_id';
     private const CSRF_KEY = 'speedytapper_csrf_token';
     private const RUN_BINDING_KEY = 'speedytapper_run_binding';
     private const PRIMARY_AUTHENTICATED_AT_KEY = 'speedytapper_primary_authenticated_at';
@@ -357,7 +356,6 @@ final class SessionStore
     {
         unset(
             $_SESSION[self::AUTH_ID_KEY],
-            $_SESSION[self::LEGACY_PLAYER_KEY],
             $_SESSION[self::RUN_BINDING_KEY],
             $_SESSION[self::PRIMARY_AUTHENTICATED_AT_KEY],
             $_SESSION[self::PRIMARY_AUTHENTICATED_PROVIDER_KEY],

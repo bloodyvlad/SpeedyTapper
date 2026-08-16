@@ -130,9 +130,10 @@ $assert(
 $_SESSION['speedytapper_player_id'] = $playerTwo;
 $assert($session->playerId() === null, 'A legacy raw player UUID cannot authenticate.');
 $assert(
-    !isset($_SESSION['speedytapper_player_id']),
-    'A legacy raw player UUID is removed when the old session is encountered.',
+    ($_SESSION['speedytapper_player_id'] ?? null) === $playerTwo,
+    'The current session store does not interpret or upgrade the retired raw player key.',
 );
+unset($_SESSION['speedytapper_player_id']);
 
 $cascadeAuthOne = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
 $cascadeAuthTwo = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
