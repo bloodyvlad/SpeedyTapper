@@ -16,7 +16,6 @@ use SpeedyTapper\PetCatalog;
 use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProof;
 use SpeedyTapper\RunProofValidator;
-use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
 use SpeedyTapper\SessionRegistry;
@@ -135,64 +134,6 @@ $normalProof = static function (string $runId, array $reactions = [100]) use ($p
     }
     $events[] = [RunProof::EVENT_FINISH, $events[count($events) - 1][1], $handledAt];
     return $proofPayload($runId, 'normal', $events);
-};
-
-$zenProof = static function (string $runId) use ($proofPayload): array {
-    $events = [];
-    $handledAt = 0;
-    $hits = 0;
-    $playerColor = 0;
-    $targetDelayMs = 1_000.0;
-
-    while (true) {
-        $targetAt = (int) round($handledAt + $targetDelayMs);
-        if ($targetAt >= 180_000) break;
-        $dimension = $targetAt >= 40_000 ? 4 : ($hits >= 4 ? 2 : 1);
-        $cell = $hits % ($dimension ** 2);
-        $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell, $playerColor];
-        $reactionMs = 90 + ($hits % 21);
-        if ($targetAt + $reactionMs >= 180_000) break;
-        $inputAt = $targetAt + $reactionMs;
-        $handledAt = $inputAt + 2;
-        if ($inputAt >= 10_000) {
-            $playerColor = ($playerColor + 1) % 6;
-        }
-        $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell, $playerColor];
-        $targetDelayMs += 0.5 * ($reactionMs - $targetDelayMs);
-        $hits++;
-    }
-
-    $events[] = [RunProof::EVENT_FINISH, 180_000, 180_000];
-    return $proofPayload($runId, 'zen', $events);
-};
-
-$toLegacyPayload = static function (
-    array $payload,
-    string $buildId = '20260728-2',
-) use ($proofPayload): array {
-    $events = array_map(
-        static fn (array $event): array => match ($event[0]) {
-            RunProof::EVENT_TARGET => array_slice($event, 0, 3),
-            RunProof::EVENT_HIT => array_slice($event, 0, 4),
-            RunProof::EVENT_DECOY_ACTIVATE => [
-                $event[0],
-                $event[1],
-                $event[2],
-                $event[3],
-                $event[count($event) - 1],
-            ],
-            default => $event,
-        },
-        $payload['events'],
-    );
-    return $proofPayload(
-        $payload['runId'],
-        $payload['mode'],
-        $events,
-        $buildId,
-        RunProof::LEGACY_RULESET,
-        RunProof::LEGACY_PROOF_VERSION,
-    );
 };
 
 $devRouter = file_get_contents(dirname(__DIR__) . '/server/dev-router.php');
@@ -381,20 +322,8 @@ try {
     $assert(false, 'Zen must not issue a ranked run ticket.');
 } catch (ApiException $error) {
     $assert(
-        $error->status === 409 && str_contains($error->getMessage(), 'unranked practice'),
-        'Zen start requests are rejected before any database or coin accounting work.',
-    );
-}
-
-$unrankedSubmissionService = (new ReflectionClass(RunSubmissionService::class))->newInstanceWithoutConstructor();
-$unrankedProof = RunProof::fromArray($zenProof('b2392db0-7cfa-4cbc-a2b2-6dadf2b76310'));
-try {
-    $unrankedSubmissionService->submit(Uuid::v4(), str_repeat('b', 32), $unrankedProof);
-    $assert(false, 'Zen must not submit a leaderboard result.');
-} catch (ApiException $error) {
-    $assert(
-        $error->status === 409 && str_contains($error->getMessage(), 'does not submit scores or award coins'),
-        'Zen finish requests are rejected before validation, leaderboard, achievement, or coin work.',
+        $error->status === 400 && str_contains($error->getMessage(), 'Ranked mode must be normal'),
+        'Only normal-mode start requests reach ranked database or coin accounting work.',
     );
 }
 
@@ -420,18 +349,89 @@ $assert(
 );
 $assert(
     RunProof::ticketContract('20260729-1') === [
-        'ruleset' => RunProof::RULESET,
-        'proofVersion' => RunProof::PROOF_VERSION,
+        'ruleset' => 'reaction-proof-v3',
+        'proofVersion' => 2,
     ]
-        && RunProof::ticketContract(RunProof::BUILD_ID) === [
-            'ruleset' => RunProof::RULESET,
-            'proofVersion' => RunProof::PROOF_VERSION,
+        && RunProof::ticketContract('20260729-2') === [
+            'ruleset' => 'reaction-proof-v3',
+            'proofVersion' => 2,
         ]
-        && RunProof::ticketContract('20260728-2') === [
-            'ruleset' => RunProof::LEGACY_RULESET,
-            'proofVersion' => RunProof::LEGACY_PROOF_VERSION,
-        ],
-    'Run tickets dispatch the color-aware contract only to current native and web builds.',
+        && RunProof::ticketContract('20260728-99') === null,
+    'Every supported build receives only the current Arcade proof contract.',
+);
+$currentTuplePayload = $proofPayload('661e7758-989c-4362-9a15-3896cf27e624', 'normal', [
+    [RunProof::EVENT_TARGET, 600, 0, 0],
+    [RunProof::EVENT_HIT, 700, 702, 0, 0],
+    [RunProof::EVENT_MISS, 802, 804, RunProof::MISS_EMPTY, 0],
+    [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 1, 1, 1_000],
+    [RunProof::EVENT_DECOY_EXPIRE, 11_000, 1],
+    [RunProof::EVENT_FINISH, 12_000, 12_002],
+    [RunProof::EVENT_DECOY_TICK, 13_000],
+]);
+$assert(
+    RunProof::fromArray($currentTuplePayload)->events === $currentTuplePayload['events'],
+    'The parser retains the exact current tuple shape for every opcode from zero through six.',
+);
+$zenPayload = $singleHitPayload;
+$zenPayload['mode'] = 'zen';
+$throwsApi(
+    static fn () => RunProof::fromArray($zenPayload),
+    'Ranked proof parsing rejects Zen mode.',
+);
+$constructedZenProof = new RunProof(
+    runId: $singleHitPayload['runId'],
+    mode: 'zen',
+    buildId: $singleHitPayload['buildId'],
+    ruleset: $singleHitPayload['ruleset'],
+    proofVersion: $singleHitPayload['proofVersion'],
+    events: $singleHitPayload['events'],
+);
+try {
+    (new RunProofValidator())->validate($constructedZenProof);
+    $assert(false, 'The replay validator must reject a constructed Zen proof.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 400 && str_contains($error->getMessage(), 'metadata'),
+        'The replay validator accepts only normal-mode current metadata.',
+    );
+}
+$legacyRulesetPayload = $singleHitPayload;
+$legacyRulesetPayload['ruleset'] = 'reaction-proof-v2';
+$throwsApi(
+    static fn () => RunProof::fromArray($legacyRulesetPayload),
+    'Ranked proof parsing rejects the v2 ruleset.',
+);
+$legacyVersionPayload = $singleHitPayload;
+$legacyVersionPayload['proofVersion'] = 1;
+$throwsApi(
+    static fn () => RunProof::fromArray($legacyVersionPayload),
+    'Ranked proof parsing rejects proof version one.',
+);
+$transitionalPayload = $singleHitPayload;
+$transitionalPayload['buildId'] = '20260729-1';
+$transitionalPayload['ruleset'] = 'reaction-proof-v2';
+$transitionalPayload['proofVersion'] = 1;
+$throwsApi(
+    static fn () => RunProof::fromArray($transitionalPayload),
+    'The former 20260729-1 transitional v2/proof-1 contract is retired.',
+);
+$colorlessTargetPayload = $singleHitPayload;
+array_pop($colorlessTargetPayload['events'][0]);
+$throwsApi(
+    static fn () => RunProof::fromArray($colorlessTargetPayload),
+    'Current target tuples require a player color.',
+);
+$colorlessHitPayload = $singleHitPayload;
+array_pop($colorlessHitPayload['events'][1]);
+$throwsApi(
+    static fn () => RunProof::fromArray($colorlessHitPayload),
+    'Current hit tuples require a resulting player color.',
+);
+$colorlessDecoyPayload = $currentTuplePayload;
+array_splice($colorlessDecoyPayload['events'][3], 4, 1);
+$throwsApi(
+    static fn () => RunProof::fromArray($colorlessDecoyPayload),
+    'Current decoy activation tuples require a decoy color.',
 );
 $assert($singleHit->score === 829, 'The server derives the rounded one-hit reaction score.');
 $assert($singleHit->hits === 1 && $singleHit->misses === 3, 'The server derives hit and miss totals from proof events.');
@@ -535,40 +535,6 @@ $sevenDay = $proofPayload('d4d867d5-4077-45dd-8428-8b652fcf1299', 'normal', [
     [RunProof::EVENT_FINISH, 604_800_200, 604_800_200],
 ]);
 $throwsApi(static fn () => ScoreSubmission::fromArray($sevenDay), 'Fabricated week-long Arcade proofs are rejected.');
-
-$zen = ScoreSubmission::fromArray($zenProof('cc2dc024-3300-4cb8-9d3c-e7f68eb8963c'));
-$assert($zen->mode === 'zen' && $zen->survivalMs === 180_000, 'A complete chronological Zen proof ends at exactly three minutes.');
-$assert(
-    $zen->hits > 100
-        && $zen->riskLevel === 'high'
-        && in_array('missing_decoy_cadence', $zen->riskFlags, true)
-        && in_array('missing_decoy_transitions', $zen->riskFlags, true)
-        && in_array('near_uniform_godlike_reactions', $zen->riskFlags, true),
-    'A long proof that silently omits the independent decoy engine is held for review.',
-);
-
-$persistentZen = $proofPayload('08fc9d30-f3e1-4e6f-9cb8-b223f6df6ec5', 'zen', [
-    [RunProof::EVENT_TARGET, 1_000, 0, 0],
-    [RunProof::EVENT_HIT, 1_100, 1_102, 0, 0],
-    [RunProof::EVENT_TARGET, 1_652, 0, 0],
-    [RunProof::EVENT_HIT, 1_752, 1_754, 0, 0],
-    [RunProof::EVENT_TARGET, 2_079, 0, 0],
-    [RunProof::EVENT_HIT, 2_179, 2_181, 0, 0],
-    [RunProof::EVENT_TARGET, 2_394, 0, 0],
-    [RunProof::EVENT_HIT, 2_494, 2_496, 0, 0],
-    [RunProof::EVENT_TARGET, 2_652, 0, 0],
-    [RunProof::EVENT_MISS, 3_082, 3_084, RunProof::MISS_WRONG, 1],
-    [RunProof::EVENT_HIT, 3_882, 3_884, 0, 0],
-    [RunProof::EVENT_TARGET, 4_577, 0, 0],
-    [RunProof::EVENT_FINISH, 180_000, 180_000],
-]);
-$persistentZenScore = ScoreSubmission::fromArray($persistentZen);
-$assert(
-    $persistentZenScore->hits === 5
-        && $persistentZenScore->misses === 1
-        && $persistentZenScore->goodCount === 1,
-    'PHP replay retains a Zen target through a wrong tap and accepts its later correct tap.',
-);
 
 $tickPayload = $proofPayload('46adf276-4ab7-4ae1-8f5d-ae0ddc3a7131', 'normal', [
     [RunProof::EVENT_DECOY_TICK, 10_000],
@@ -679,37 +645,6 @@ $throwsApi(
     static fn () => ScoreSubmission::fromArray($unsafeResultingColor),
     'A post-opening color transition cannot select a visible decoy color.',
 );
-$legacyProofPayload = $toLegacyPayload($equalMillisecondProof);
-$legacyProofPayload['events'][28] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 750];
-array_splice($legacyProofPayload['events'], 31, 1);
-$legacyProofPayload['events'][count($legacyProofPayload['events']) - 1] = [
-    RunProof::EVENT_FINISH,
-    $legacyProofPayload['events'][count($legacyProofPayload['events']) - 2][1],
-    $legacyProofPayload['events'][count($legacyProofPayload['events']) - 2][2],
-];
-$legacyProofPayload['runId'] = '68e210a5-36d5-4eb8-a8f5-d9365eb43113';
-$legacyRun = ScoreSubmission::fromArray($legacyProofPayload);
-$assert(
-    $legacyRun->hits === 15 && $legacyRun->dodges === 0,
-    'The immediately previous build retains its 750ms tap-cleared decoy verifier during rollout.',
-);
-$transitionalBrowserPayload = $toLegacyPayload($singleHitPayload, '20260729-1');
-$transitionalBrowserPayload['runId'] = 'e56a41e9-6986-45e7-9a45-4ada34a42db9';
-$assert(
-    ScoreSubmission::fromArray($transitionalBrowserPayload)->score === $singleHit->score,
-    'An already-issued browser v2/1 attempt from build 20260729-1 can finish during rollout.',
-);
-$currentBuildLegacyContract = $toLegacyPayload($singleHitPayload, RunProof::BUILD_ID);
-$currentBuildLegacyContract['runId'] = '194385ff-c0a4-4c76-aa29-1e6d0e93e166';
-$throwsApi(
-    static fn () => ScoreSubmission::fromArray($currentBuildLegacyContract),
-    'The refreshed web build cannot downgrade from its v3/proof-2 contract.',
-);
-$assert(
-    RunProof::usesPersistentDecoyRules('20260729-1')
-        && !RunProof::usesPersistentDecoyRules('20260728-2'),
-    'Persistent decoy replay stays pinned to its immutable introduction build.',
-);
 $newBuildWithLegacyLifetime = $equalMillisecondProof;
 $newBuildWithLegacyLifetime['runId'] = '145fd5f8-06bd-4ea8-8dc3-5874129d9e37';
 $newBuildWithLegacyLifetime['events'][28][5] = 750;
@@ -718,16 +653,13 @@ $throwsApi(
     'The new build rejects legacy sub-second decoy lifetimes.',
 );
 $difficultyMethod = new ReflectionMethod(RunProofValidator::class, 'difficulty');
-$newDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0, true);
-$legacyDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0, false);
+$newDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0);
 $assert(
     $newDifficulty['responseWindowMs'] === 900
-        && $newDifficulty['maximumActiveDecoys'] === 1
-        && $legacyDifficulty['responseWindowMs'] === 800
-        && $legacyDifficulty['maximumActiveDecoys'] === 4,
-    'The new verifier uses a 5ms ramp and defers overlapping decoys while legacy builds keep 10ms overlap rules.',
+        && $newDifficulty['maximumActiveDecoys'] === 1,
+    'The verifier uses a 5ms challenge ramp and defers overlapping decoys until 70 seconds.',
 );
-$newLateDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 70_000, 0, true);
+$newLateDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 70_000, 0);
 $assert(
     $newLateDifficulty['maximumActiveDecoys'] === 4,
     'The new verifier permits multiple independent decoys only from 70 seconds onward.',
@@ -785,10 +717,6 @@ $assert(
     'Sustained automated elite timing is withheld for operator review.',
 );
 
-$badZen = $zenProof('5e4f46d1-a132-4b97-b9a1-481090dca940');
-$badZen['events'][count($badZen['events']) - 1][1] = 179_999;
-$throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot claim completion before its exact deadline.');
-
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
 $nativeBuildPayload = $singleHitPayload;
@@ -804,31 +732,6 @@ $assert(
     !hash_equals($parsedProof->proofHash(), $nativeBuildProof->proofHash())
         && hash_equals($parsedProof->traceHash(), $nativeBuildProof->traceHash()),
     'The proof hash binds the native build while same-contract trace-clone detection remains stable.',
-);
-$compatibleBuildProofs = [];
-foreach ([
-    '20260718-1',
-    '20260719-1',
-    '20260719-2',
-    '20260719-3',
-    '20260720-1',
-    '20260725-1',
-    '20260727-1',
-    '20260727-2',
-    '20260727-3',
-    '20260728-2',
-] as $compatibleBuildId) {
-    $compatibleBuildPayload = $toLegacyPayload($singleHitPayload, $compatibleBuildId);
-    $compatibleBuildProofs[$compatibleBuildId] = RunProof::fromArray($compatibleBuildPayload);
-    $assert(
-        $compatibleBuildProofs[$compatibleBuildId]->buildId === $compatibleBuildId
-            && (new RunProofValidator())->validate($compatibleBuildProofs[$compatibleBuildId])->score === $singleHit->score,
-        'Each explicitly compatible build keeps its ticket-bound build ID and replays under the unchanged ruleset.',
-    );
-}
-$assert(
-    hash_equals($parsedProof->traceHash(), $compatibleBuildProofs['20260718-1']->traceHash()),
-    'Trace-clone detection remains stable across colorless and color-aware proof generations.',
 );
 $unsupportedBuildPayload = $singleHitPayload;
 $unsupportedBuildPayload['buildId'] = 'future-build';
@@ -856,13 +759,6 @@ $assert(
 $invalidTuple = $singleHitPayload;
 $invalidTuple['events'][0][1] = 600.5;
 $throwsApi(static fn () => RunProof::fromArray($invalidTuple), 'Proof tuple values must be integers.');
-$missingColorTuple = $singleHitPayload;
-array_pop($missingColorTuple['events'][0]);
-$throwsApi(
-    static fn () => RunProof::fromArray($missingColorTuple),
-    'The current proof contract requires a color on every target tuple.',
-);
-
 $firstHalfMinute = CoinProgression::accrue(0, 30_000);
 $secondHalfMinute = CoinProgression::accrue($firstHalfMinute->remainderMs, 30_000);
 $assert($firstHalfMinute->coinsEarned === 0, 'An incomplete cumulative minute does not award a coin yet.');

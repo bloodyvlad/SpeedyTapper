@@ -13,19 +13,9 @@ namespace SpeedyTapper;
 final readonly class RunProof
 {
     public const BUILD_ID = '20260729-2';
-    public const LEGACY_RULESET = 'reaction-proof-v2';
-    public const LEGACY_PROOF_VERSION = 1;
     public const RULESET = 'reaction-proof-v3';
     public const PROOF_VERSION = 2;
     public const MAX_EVENTS = 10_000;
-    private const COLOR_PROOF_BUILD_IDS = [
-        '20260729-1',
-        self::BUILD_ID,
-    ];
-    private const PERSISTENT_DECOY_BUILD_IDS = [
-        '20260729-1',
-        self::BUILD_ID,
-    ];
 
     public const EVENT_TARGET = 0;
     public const EVENT_HIT = 1;
@@ -63,8 +53,8 @@ final readonly class RunProof
         }
 
         $mode = $input['mode'] ?? null;
-        if ($mode !== 'normal' && $mode !== 'zen') {
-            throw new ApiException(400, 'Mode must be normal or zen.');
+        if ($mode !== 'normal') {
+            throw new ApiException(400, 'Mode must be normal.');
         }
 
         $buildId = $input['buildId'] ?? null;
@@ -87,11 +77,7 @@ final readonly class RunProof
 
         $normalized = [];
         foreach ($events as $index => $event) {
-            $normalized[] = self::normalizeEvent(
-                $event,
-                $index,
-                $ruleset === self::RULESET && $proofVersion === self::PROOF_VERSION,
-            );
+            $normalized[] = self::normalizeEvent($event, $index);
         }
 
         return new self(
@@ -114,15 +100,9 @@ final readonly class RunProof
         if (!self::isSupportedBuildId($buildId)) {
             return null;
         }
-        if (self::usesColorProofRules($buildId)) {
-            return [
-                'ruleset' => self::RULESET,
-                'proofVersion' => self::PROOF_VERSION,
-            ];
-        }
         return [
-            'ruleset' => self::LEGACY_RULESET,
-            'proofVersion' => self::LEGACY_PROOF_VERSION,
+            'ruleset' => self::RULESET,
+            'proofVersion' => self::PROOF_VERSION,
         ];
     }
 
@@ -131,37 +111,9 @@ final readonly class RunProof
         mixed $ruleset,
         mixed $proofVersion,
     ): bool {
-        if (!self::isSupportedBuildId($buildId) || !is_string($ruleset) || !is_int($proofVersion)) {
-            return false;
-        }
-        if (
-            self::usesColorProofRules($buildId)
+        return self::isSupportedBuildId($buildId)
             && $ruleset === self::RULESET
-            && $proofVersion === self::PROOF_VERSION
-        ) {
-            return true;
-        }
-
-        // Release 20260729-1 was briefly issued to the browser as v2/1 before
-        // the already-distributed native v3/2 contract was restored. Parsing
-        // that combination lets only already-issued v2/1 attempts complete;
-        // new tickets use ticketContract() and are always v3/2.
-        $legacyBuild = $buildId !== self::BUILD_ID;
-        return $legacyBuild
-            && $ruleset === self::LEGACY_RULESET
-            && $proofVersion === self::LEGACY_PROOF_VERSION;
-    }
-
-    public static function usesColorProofRules(mixed $buildId): bool
-    {
-        return is_string($buildId)
-            && in_array($buildId, self::COLOR_PROOF_BUILD_IDS, true);
-    }
-
-    public static function usesPersistentDecoyRules(mixed $buildId): bool
-    {
-        return is_string($buildId)
-            && in_array($buildId, self::PERSISTENT_DECOY_BUILD_IDS, true);
+            && $proofVersion === self::PROOF_VERSION;
     }
 
     public function eventCount(): int
@@ -188,34 +140,13 @@ final readonly class RunProof
 
     public function traceHash(): string
     {
-        // Keep replay detection stable across builds and proof generations.
-        // V3 color fields remain bound by proofHash(), but cannot make the same
-        // timing/cell trace eligible for rewards again after a contract update.
         return hash('sha256', json_encode([
             'mode' => $this->mode,
-            'events' => array_map(
-                static fn (array $event): array => match ($event[0]) {
-                    self::EVENT_TARGET => array_slice($event, 0, 3),
-                    self::EVENT_HIT => array_slice($event, 0, 4),
-                    self::EVENT_DECOY_ACTIVATE => [
-                        $event[0],
-                        $event[1],
-                        $event[2],
-                        $event[3],
-                        $event[count($event) - 1],
-                    ],
-                    default => $event,
-                },
-                $this->events,
-            ),
+            'events' => $this->events,
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), true);
     }
 
-    private static function normalizeEvent(
-        mixed $value,
-        int $index,
-        bool $colorProofRules,
-    ): array
+    private static function normalizeEvent(mixed $value, int $index): array
     {
         if (!is_array($value) || !array_is_list($value) || !isset($value[0]) || !is_int($value[0])) {
             throw self::invalidEvent($index);
@@ -224,10 +155,10 @@ final readonly class RunProof
         $type = $value[0];
         $length = count($value);
         $validLength = match ($type) {
-            self::EVENT_TARGET => $length === ($colorProofRules ? 4 : 3),
-            self::EVENT_HIT => $length === ($colorProofRules ? 5 : 4),
+            self::EVENT_TARGET => $length === 4,
+            self::EVENT_HIT => $length === 5,
             self::EVENT_MISS => $length === 5,
-            self::EVENT_DECOY_ACTIVATE => $length === ($colorProofRules ? 6 : 5),
+            self::EVENT_DECOY_ACTIVATE => $length === 6,
             self::EVENT_DECOY_EXPIRE => $length >= 3,
             self::EVENT_FINISH => $length === 3,
             self::EVENT_DECOY_TICK => $length === 2,

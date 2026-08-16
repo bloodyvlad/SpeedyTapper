@@ -24,9 +24,6 @@ final class RunAttemptService
         mixed $buildId,
     ): array
     {
-        if ($mode === 'zen') {
-            throw new ApiException(409, 'Zen is endless unranked practice and does not issue ranked run tickets.');
-        }
         if ($mode !== 'normal') {
             throw new ApiException(400, 'Ranked mode must be normal.');
         }
