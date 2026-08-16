@@ -1274,13 +1274,14 @@ $requestWithCsrf = static function (
     string $path,
     SessionStore $session,
     array $body,
+    array $server = [],
 ): HttpRequest {
     $csrf = $session->csrfToken();
     return new HttpRequest(
         $method,
         $path,
         [],
-        ['HTTP_X_SPEEDYTAPPER_CSRF' => $csrf],
+        ['HTTP_X_SPEEDYTAPPER_CSRF' => $csrf] + $server,
         json_encode($body, JSON_THROW_ON_ERROR),
     );
 };
@@ -1288,18 +1289,28 @@ $googleOutcome = static function (
     App $app,
     SessionStore $session,
     array $body,
+    array $server = [],
 ) use ($dispatch, $requestWithCsrf): array {
-    return $dispatch($app, $requestWithCsrf('POST', '/api/auth/google', $session, $body));
+    return $dispatch($app, $requestWithCsrf('POST', '/api/auth/google', $session, $body, $server));
 };
+$sameOriginServer = [
+    'HTTP_ORIGIN' => 'http://speedytapper.test',
+    'HTTP_HOST' => 'speedytapper.test',
+];
 $assert(
-    $googleOutcome($routeApp, $routeSession, ['credential' => 'fixture'])['status'] === 400,
+    $googleOutcome(
+        $routeApp,
+        $routeSession,
+        ['credential' => 'fixture'],
+        $sameOriginServer,
+    )['status'] === 400,
     'Google sign-in requires an explicit intent.',
 );
 $assert(
     $googleOutcome($routeApp, $routeSession, [
         'credential' => 'fixture',
         'intent' => 'login_or_register',
-    ])['status'] === 400,
+    ], $sameOriginServer)['status'] === 400,
     'Google sign-in rejects the retired login_or_register intent.',
 );
 $playerCountBeforeUnknownLogin = (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn();
@@ -1308,6 +1319,7 @@ $unknownLogin = $googleOutcome(
     $routeApp,
     $routeSession,
     ['credential' => 'fixture', 'intent' => 'login'],
+    $sameOriginServer,
 );
 $assert(
     $unknownLogin['status'] === 409
@@ -1316,16 +1328,22 @@ $assert(
     'Explicit Google login maps to allowCreate false and cannot create an unknown profile.',
 );
 $routeGoogle->subject = $loginSubject;
-$loginOutcome = $googleOutcome(
-    $routeApp,
+$nativeLoginRequest = $requestWithCsrf(
+    'POST',
+    '/api/auth/google',
     $routeSession,
     ['credential' => 'fixture', 'intent' => 'login'],
 );
 $assert(
+    $nativeLoginRequest->header('Origin') === null,
+    'The native mutation regression request intentionally omits Origin.',
+);
+$loginOutcome = $dispatch($routeApp, $nativeLoginRequest);
+$assert(
     $loginOutcome['status'] === 200
         && $loginOutcome['sent'] === true
         && ($loginOutcome['body']['profile']['id'] ?? null) === $loginResolution['playerId'],
-    'Explicit Google login resolves the existing profile through the dispatcher.',
+    'A CSRF-protected native Google login without Origin reaches its handler and succeeds.',
 );
 $routeSession->csrfToken();
 $routeSession->logout();
