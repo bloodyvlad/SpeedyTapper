@@ -25,6 +25,8 @@ use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\MultiplayerLeaderboardRepository;
 use SpeedyTapper\MultiplayerMatchService;
 use SpeedyTapper\MultiplayerProofValidator;
+use SpeedyTapper\MultiplayerV2Service;
+use SpeedyTapper\MultiplayerV2ResultService;
 use SpeedyTapper\PetShopService;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\PlayerIdentityService;
@@ -74,6 +76,7 @@ try {
     );
     DeploymentBootstrap::migrateIfMarked($database, $projectRoot, $leaderboard);
     $wallets = new CoinWalletRepository($database);
+    $multiplayerV2Results = new MultiplayerV2ResultService($database);
     $gameCenterPublication = null;
     if ($config->gameCenterPublicationStorageIsConfigured()) {
         $gameCenterPublication = new GameCenterPublicationRepository(
@@ -156,6 +159,7 @@ try {
             $database,
             $config->storeKitRetentionHmacKey ?? '',
             $gameCenterPublication,
+            $multiplayerV2Results,
         ),
         session: new SessionStore($request->isSecure(), new SessionRegistry($database)),
         identities: $identities,
@@ -179,6 +183,8 @@ try {
             $gameCenterPublication,
         ),
         multiplayerLeaderboard: $multiplayerLeaderboard,
+        multiplayerV2: new MultiplayerV2Service($database, $config),
+        multiplayerV2Results: $multiplayerV2Results,
     );
     $app->dispatch($request);
 } catch (ApiException $error) {

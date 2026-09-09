@@ -23,7 +23,7 @@ Arcade and Multiplayer accept only exact `YYYYMMDD-N` build IDs whose valid
 numeric `(date, sequence)` tuple is at least `(20260729, 1)`. Build IDs bind and
 audit attempts/manifests; they do not choose rules.
 
-Every accepted Arcade build uses `reaction-proof-v3`, proof `2`. Every accepted
+Every accepted Arcade build uses `reaction-proof-v3`, proof `2`. Every ranked
 Multiplayer build uses `multiplayer-own-color-v1`, protocol `1`, proof `1`.
 Never infer new semantics from a higher build. Any event shape, replay rule,
 ruleset, protocol, or proof change requires an explicit coordinated contract
@@ -154,9 +154,26 @@ Git commit. Build an allowlisted artifact from that commit, install locked
 Composer dependencies in staging, inject no secrets into source, and record the
 commit and artifact hash.
 
-Migrations `001` through `022` remain the ordered bootstrap/upgrade history and
+Migrations `001` through `023` remain the ordered bootstrap/upgrade history and
 run under a shared advisory lock. The artifact-only pending marker may trigger
 ordinary migration bootstrap on the first request. Migration `020` is a
 destructive internal-alpha reset; its first use against data requires explicit
 maintenance authorization, verified backup, API fencing, and paused Game
 Center/StoreKit workers.
+
+## D-013 — Isolate the unreleased Multiplayer v2 bridge
+
+Local v2 alpha uses explicit `multiplayer-shared-arcade-v2`, protocol `2`.
+PHP issues single-use 60-second tickets from existing cookie/CSRF authentication
+and confirmed names, without requiring Game Center. Only ticket and connection
+digests are retained; the existing session registry revokes them on logout,
+rotation, expiry or deletion. The realtime service revalidates bindings at least
+every 15 seconds and on reconnect; there is no claim of instantaneous push revocation.
+
+Only the three exact internal redeem, validate, and result routes use an independent
+service Bearer secret instead of cookies/CSRF. All v2 routes default to disabled.
+Service-reported final aggregates are immutable, idempotent, explicitly unranked,
+and excluded from v1 tables, progression, wallets, moderation/public ranking and
+Game Center publication. Account deletion removes shared v2 alpha results.
+Persistent hosting, full service integration, admission validation, observability,
+retention/cleanup scheduling and production cutover remain separate release gates.

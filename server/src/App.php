@@ -30,11 +30,46 @@ final class App
         private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
         private readonly ?MultiplayerMatchService $multiplayer = null,
         private readonly ?MultiplayerLeaderboardRepository $multiplayerLeaderboard = null,
+        private readonly ?MultiplayerV2Service $multiplayerV2 = null,
+        private readonly ?MultiplayerV2ResultService $multiplayerV2Results = null,
     ) {
     }
 
     public function dispatch(HttpRequest $request): never
     {
+        if ($request->method === 'POST' && $request->path === '/api/mobile/v2/multiplayer/tickets') {
+            $service = $this->multiplayerV2
+                ?? throw new ApiException(503, 'Multiplayer v2 is not configured.');
+            $service->requireConfigured();
+            $this->guardMutation($request);
+            $playerId = $this->session->playerId()
+                ?? throw new ApiException(401, 'Sign in to continue.');
+            $sessionHash = $this->session->authenticationHash();
+            $body = $request->json(1024);
+            $this->session->close();
+            JsonResponse::send(201, $service->issue($playerId, $sessionHash, $body));
+        }
+
+        if ($request->method === 'POST' && in_array($request->path, [
+            '/api/internal/multiplayer/v2/tickets/redeem',
+            '/api/internal/multiplayer/v2/sessions/validate',
+            '/api/internal/multiplayer/v2/results',
+        ], true)) {
+            $service = $this->multiplayerV2
+                ?? throw new ApiException(503, 'Multiplayer v2 is not configured.');
+            // These exact internal routes use service authentication, never cookie authority.
+            $service->authorizeService($request);
+            if (str_ends_with($request->path, '/results')) {
+                $results = $this->multiplayerV2Results
+                    ?? throw new ApiException(503, 'Multiplayer v2 result storage is not configured.');
+                JsonResponse::send(200, $results->store($request->json(16_384)));
+            }
+            $body = $request->json(1024);
+            JsonResponse::send(200, str_ends_with($request->path, '/redeem')
+                ? $service->redeem($body)
+                : $service->validateSession($body));
+        }
+
         if ($request->method === 'GET' && $request->path === '/api/health') {
             JsonResponse::send(200, [
                 'ok' => true,

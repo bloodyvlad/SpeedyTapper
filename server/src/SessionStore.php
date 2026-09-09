@@ -166,6 +166,15 @@ final class SessionStore
         return hash('sha256', $this->runBinding(), true);
     }
 
+    /** Internal database binding only; never return this digest to a client. */
+    public function authenticationHash(): string
+    {
+        if ($this->playerId() === null || ($authId = $this->storedAuthId()) === null) {
+            throw new ApiException(401, 'Sign in again to continue.');
+        }
+        return hash('sha256', $authId, true);
+    }
+
     public function requireRunFinishCapacity(): void
     {
         $this->start();

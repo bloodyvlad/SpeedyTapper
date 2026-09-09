@@ -10,7 +10,7 @@ describing it as current or deployed.
 ## Runtime and schema
 
 - PHP 8.2 or newer and MariaDB/MySQL are required.
-- The ordered schema history is migrations `001` through `022`, inclusive.
+- The ordered schema history is migrations `001` through `023`, inclusive.
 - Migration `020_reset_internal_alpha_player_data.sql` is a destructive,
   idempotently claimed internal-alpha reset. Treat its first application as a
   separately authorized maintenance operation.
@@ -31,6 +31,7 @@ new gameplay contract.
 | --- | --- |
 | Ranked Arcade | `reaction-proof-v3`, proof version `2` |
 | Ranked Multiplayer | `multiplayer-own-color-v1`, protocol version `1`, proof version `1` |
+| Local Multiplayer v2 alpha | `multiplayer-shared-arcade-v2`, protocol `2`; disabled by default, service-reported aggregates only, unranked |
 | Zen | Historical leaderboard/profile reads only; no ticket, proof, result, coin, or achievement write |
 
 ## Ranked Arcade
@@ -80,6 +81,9 @@ lifecycle.
 - StoreKit: `/api/mobile/v1/storekit/transactions`,
   `/api/app-store/notifications/v2`
 - Multiplayer: `/api/mobile/v1/multiplayer/*`
+- Unreleased v2 bridge: `/api/mobile/v2/multiplayer/tickets` and exact
+  `/api/internal/multiplayer/v2/{tickets/redeem,sessions/validate,results}` routes;
+  see [MULTIPLAYER_V2.md](MULTIPLAYER_V2.md).
 - Operator moderation: `/api/admin/leaderboard*`
 
 The exact methods, bodies, status behavior, authentication requirements, and

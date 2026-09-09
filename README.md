@@ -50,7 +50,7 @@ composer check
 | --- | --- |
 | `api/index.php` | JSON HTTP boundary for extensionless `/api/*` routes |
 | `server/src/` | Domain services, validation, persistence, and integrations |
-| `server/migrations/` | Ordered MariaDB/MySQL migrations `001` through `022` |
+| `server/migrations/` | Ordered MariaDB/MySQL migrations `001` through `023` |
 | `server/bin/` | Migration, worker, reconciliation, cleanup, and moderation commands |
 | `server/certs/` | Reviewed public Apple and DigiCert trust anchors |
 | `test/` | Deterministic PHP tests, SQL fixtures, and disposable MariaDB harnesses |
@@ -69,4 +69,5 @@ whenever possible.
 - [Current source contract](docs/CURRENT_VERSION.md)
 - [HTTP and operations contract](docs/PHP_BACKEND.md)
 - [Multiplayer contract](docs/MULTIPLAYER.md)
+- [Unreleased Multiplayer v2 bridge](docs/MULTIPLAYER_V2.md)
 - [Effective backend decisions](docs/DECISIONS.md)

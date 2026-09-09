@@ -103,7 +103,9 @@ authoritative, and multi-row value changes atomic.
   deletion. Never store raw subjects, identity tokens, plaintext Game Center
   IDs, provider display names, emails, or passwords.
 - Mutations require the cookie session, same-origin guard, and CSRF except the
-  Apple-signed notification receiver. Native requests may omit `Origin`.
+  Apple-signed notification receiver and the exact v2 internal redeem, session
+  validation, and unranked-result routes, which require independent service Bearer
+  authentication. Native requests may omit `Origin`.
   Logout and deletion revoke the database session mapping.
 - Only eligible protocol-verified Arcade play mints gameplay progression.
   Award one coin per cumulative eligible minute and carry remainder. Claims

@@ -62,6 +62,7 @@ $tests = [
     'test/multiplayer-leaderboard.test.php',
     'test/multiplayer-proof.test.php',
     'test/multiplayer-service.test.php',
+    'test/multiplayer-v2-auth.test.php',
     'test/nickname-profile.test.php',
     'test/php-backend.test.php',
     'test/session-registry.test.php',
