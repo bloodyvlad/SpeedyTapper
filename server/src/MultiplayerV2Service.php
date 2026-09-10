@@ -123,14 +123,17 @@ final class MultiplayerV2Service
                 throw new ApiException(401, 'The connection ticket is invalid or expired.');
             }
             $this->prune($now, $ticket['session_auth_hash']);
-            $count = $this->database->prepare(
-                'SELECT COUNT(*) FROM multiplayer_v2_connections WHERE session_auth_hash = :hash'
+            $consume = $this->database->prepare(
+                'UPDATE multiplayer_v2_tickets SET consumed_at = :now '
+                . 'WHERE ticket_hash = :hash AND consumed_at IS NULL'
             );
-            $count->bindValue(':hash', $ticket['session_auth_hash'], PDO::PARAM_LOB);
-            $count->execute();
-            if ((int) $count->fetchColumn() >= self::CONNECTIONS_PER_SESSION) {
-                throw new ApiException(429, 'The session has too many realtime connections.');
+            $consume->bindValue(':now', self::timestamp($now));
+            $consume->bindValue(':hash', $hash, PDO::PARAM_LOB);
+            $consume->execute();
+            if ($consume->rowCount() !== 1) {
+                throw new ApiException(401, 'The connection ticket is invalid or expired.');
             }
+            $this->makeConnectionCapacity($ticket['session_auth_hash']);
             $binding = self::opaqueToken();
             $expires = min($now + self::CONNECTION_SECONDS, self::unixTime($identity['session_expires_at']));
             $insert = $this->database->prepare(
@@ -146,18 +149,35 @@ final class MultiplayerV2Service
             $insert->bindValue(':created', self::timestamp($now));
             $insert->bindValue(':expires', self::timestamp($expires));
             $insert->execute();
-            $consume = $this->database->prepare(
-                'UPDATE multiplayer_v2_tickets SET consumed_at = :now '
-                . 'WHERE ticket_hash = :hash AND consumed_at IS NULL'
-            );
-            $consume->bindValue(':now', self::timestamp($now));
-            $consume->bindValue(':hash', $hash, PDO::PARAM_LOB);
-            $consume->execute();
-            if ($consume->rowCount() !== 1) {
-                throw new ApiException(401, 'The connection ticket is invalid or expired.');
-            }
             return $this->identityPayload($identity, $binding, $expires);
         });
+    }
+
+    /** Called only after consuming a valid ticket under its parent session lock. */
+    private function makeConnectionCapacity(string $sessionHash): void
+    {
+        // These are expiring credentials, not a count of live sockets. Reconnecting
+        // must not exhaust a valid login for an hour. Prefer the newly authenticated
+        // connection and revoke the oldest same-session binding when the cap is full.
+        // A locking read also avoids a stale repeatable-read snapshot after waiting
+        // for another redemption's session lock on MariaDB/MySQL.
+        $select = $this->database->prepare(
+            'SELECT binding_hash FROM multiplayer_v2_connections WHERE session_auth_hash = :session '
+            . 'ORDER BY created_at ASC, binding_hash ASC' . $this->lockSuffix()
+        );
+        $select->bindValue(':session', $sessionHash, PDO::PARAM_LOB);
+        $select->execute();
+        $bindings = $select->fetchAll(PDO::FETCH_COLUMN);
+        $removeCount = max(0, count($bindings) - self::CONNECTIONS_PER_SESSION + 1);
+        if ($removeCount === 0) return;
+        $delete = $this->database->prepare(
+            'DELETE FROM multiplayer_v2_connections WHERE session_auth_hash = :session AND binding_hash = :binding'
+        );
+        $delete->bindValue(':session', $sessionHash, PDO::PARAM_LOB);
+        foreach (array_slice($bindings, 0, $removeCount) as $binding) {
+            $delete->bindValue(':binding', $binding, PDO::PARAM_LOB);
+            $delete->execute();
+        }
     }
 
     public function validateSession(array $body): array

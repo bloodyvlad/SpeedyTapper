@@ -180,6 +180,57 @@ namespace {
     $assert((int) $database->query('SELECT COUNT(*) FROM multiplayer_v2_tickets')->fetchColumn() === 0, 'Rotation removes prior session tickets');
     $auth = $replacement;
     $hash = hash('sha256', $auth, true);
+
+    // Repeated socket reconnects must not poison an otherwise valid primary login.
+    // Another device/session for the same player retains independent credentials.
+    $reconnectAuth = $token();
+    $independentAuth = $token();
+    $registry->rotate(null, $reconnectAuth, $player);
+    $registry->rotate(null, $independentAuth, $player);
+    $reconnectHash = hash('sha256', $reconnectAuth, true);
+    $independentTicket = $service->issue($player, hash('sha256', $independentAuth, true), $contract);
+    $independentIdentity = $service->redeem($contract + ['ticket' => $independentTicket['ticket']]);
+    $bindingRows = static function () use ($database, $reconnectHash): array {
+        $select = $database->prepare(
+            'SELECT binding_hash FROM multiplayer_v2_connections WHERE session_auth_hash = :hash ORDER BY binding_hash'
+        );
+        $select->bindValue(':hash', $reconnectHash, PDO::PARAM_LOB);
+        $select->execute();
+        return $select->fetchAll(PDO::FETCH_COLUMN);
+    };
+    $reconnectBindings = [];
+    for ($i = 0; $i < 20; $i++) {
+        $now += 6; // Stay under the unchanged 12 tickets/minute issuance rate.
+        $reconnectTicket = $service->issue($player, $reconnectHash, $contract);
+        $identity = $service->redeem($contract + ['ticket' => $reconnectTicket['ticket']]);
+        $reconnectBindings[] = $contract + ['playerID' => $player, 'sessionBinding' => $identity['sessionBinding']];
+        $assert(count($bindingRows()) === min(12, $i + 1), 'Reconnect credentials stay bounded after redemption ' . ($i + 1));
+    }
+    $assert($registry->resolve($reconnectAuth) === $player, 'Twenty reconnects retain the original primary login');
+    foreach (array_slice($reconnectBindings, 0, 8) as $evicted) {
+        $throws(401, fn () => $service->validateSession($evicted), 'Oldest superseded binding is revoked');
+    }
+    foreach (array_slice($reconnectBindings, 8) as $retained) {
+        $assert($service->validateSession($retained)['playerID'] === $player, 'Recent bounded binding remains valid');
+    }
+    $independentValidation = $contract + ['playerID' => $player, 'sessionBinding' => $independentIdentity['sessionBinding']];
+    $assert($service->validateSession($independentValidation) === $independentIdentity, 'Same-player other session is unaffected');
+    $beforeInvalid = $bindingRows();
+    $throws(401, fn () => $service->redeem($contract + ['ticket' => $token()]), 'Unknown ticket cannot evict a binding');
+    $throws(401, fn () => $service->redeem($contract + ['ticket' => $reconnectTicket['ticket']]), 'Replayed ticket cannot evict a binding');
+    $assert($bindingRows() === $beforeInvalid, 'Invalid and replayed tickets preserve every current binding');
+    $now += 6;
+    $expiredReconnect = $service->issue($player, $reconnectHash, $contract);
+    $now += 60;
+    $throws(401, fn () => $service->redeem($contract + ['ticket' => $expiredReconnect['ticket']]), 'Expired ticket cannot evict a binding');
+    $assert($bindingRows() === $beforeInvalid, 'Expired ticket preserves every current binding');
+    $registry->revoke($reconnectAuth);
+    $throws(401, fn () => $service->validateSession($reconnectBindings[19]), 'Logout still revokes newest reconnect binding');
+    $assert($bindingRows() === [], 'Logout deletes all retained reconnect bindings');
+    $assert($service->validateSession($independentValidation) === $independentIdentity, 'Revocation remains scoped to one session');
+    $registry->revoke($independentAuth);
+    $now = time();
+
     $resultService = new MultiplayerV2ResultService($database);
     $resultBody = $contract + [
         'matchID' => '33333333-3333-4333-8333-333333333333', 'durationMs' => 12345, 'rankingEligible' => false,

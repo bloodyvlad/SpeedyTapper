@@ -63,6 +63,10 @@ Only visible selected pets are included. `sessionBinding` is an independent rand
 credential returned to the service, not the PHP session ID or registry digest.
 The binding expires after at most one hour, bounded by the source session expiry;
 validation never extends it. At most 12 unexpired bindings per session may exist.
+A newly consumed valid ticket atomically replaces the oldest same-session binding
+when that cap is reached. The cap bounds stored credentials, not active sockets;
+ordinary reconnects never require a new primary login merely to reset it. Invalid,
+expired or replayed tickets cannot evict bindings, and other sessions are unaffected.
 Invalid, consumed, expired, deleted or revoked credentials return 401; an
 unconfirmed name returns 403. Fresh tickets are required after a binding expires.
 
