@@ -10,7 +10,9 @@ describing it as current or deployed.
 ## Runtime and schema
 
 - PHP 8.2 or newer and MariaDB/MySQL are required.
-- The ordered schema history is migrations `001` through `023`, inclusive.
+- The ordered schema history is migrations `001` through `024`, inclusive.
+- Additive migration `024` preserves v2 aggregate rows while allowing bounded
+  cumulative misses after heart pickups; lives remain capped at three.
 - Migration `020_reset_internal_alpha_player_data.sql` is a destructive,
   idempotently claimed internal-alpha reset. Treat its first application as a
   separately authorized maintenance operation.

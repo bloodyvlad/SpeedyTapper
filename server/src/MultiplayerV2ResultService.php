@@ -132,7 +132,8 @@ final class MultiplayerV2ResultService
                 'score' => self::integer($player['score'] ?? null, 100_000_000),
                 'lives' => self::integer($player['lives'] ?? null, 3),
                 'hits' => self::integer($player['hits'] ?? null, 100_000),
-                'misses' => self::integer($player['misses'] ?? null, 3),
+                // Heart pickups can restore a life; mistakes remain cumulative.
+                'misses' => self::integer($player['misses'] ?? null, 1000),
                 'dodges' => self::integer($player['dodges'] ?? null, 100_000),
                 'reactionTotalMs' => self::integer($player['reactionTotalMs'] ?? null, 100_000_000),
                 'fastestReactionMs' => $fastest === null ? null : self::integer($fastest, 1000),

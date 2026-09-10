@@ -154,7 +154,7 @@ Git commit. Build an allowlisted artifact from that commit, install locked
 Composer dependencies in staging, inject no secrets into source, and record the
 commit and artifact hash.
 
-Migrations `001` through `023` remain the ordered bootstrap/upgrade history and
+Migrations `001` through `024` remain the ordered bootstrap/upgrade history and
 run under a shared advisory lock. The artifact-only pending marker may trigger
 ordinary migration bootstrap on the first request. Migration `020` is a
 destructive internal-alpha reset; its first use against data requires explicit

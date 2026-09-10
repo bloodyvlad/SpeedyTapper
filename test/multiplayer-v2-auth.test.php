@@ -268,6 +268,57 @@ namespace {
     $assert((int) $database->query('SELECT COUNT(*) FROM multiplayer_v2_results')->fetchColumn() === 1, 'Invalid retries create no extra result records');
     $storedResult = serialize($database->query('SELECT * FROM multiplayer_v2_results')->fetch());
     $assert(!str_contains($storedResult, $player) && !str_contains($storedResult, 'PlayerOne'), 'Match receipt stores no roster or public names');
+
+    if ($mysql) {
+        $legacyRows = $database->query('SELECT * FROM multiplayer_v2_result_players ORDER BY seat')->fetchAll();
+        $legacyDigest = $database->query('SELECT payload_hash FROM multiplayer_v2_results')->fetchColumn();
+        $sql = file_get_contents(dirname(__DIR__) . '/server/migrations/024_multiplayer_v2_heart_result_bounds.sql');
+        foreach (MigrationRunner::splitStatements($sql) as $statement) $database->exec($statement);
+        foreach (MigrationRunner::splitStatements($sql) as $statement) $database->exec($statement);
+        $assert($database->query('SELECT * FROM multiplayer_v2_result_players ORDER BY seat')->fetchAll() === $legacyRows,
+            'Heart result migration and safe replay preserve every existing seat value');
+        $assert($database->query('SELECT payload_hash FROM multiplayer_v2_results')->fetchColumn() === $legacyDigest,
+            'Heart result migration preserves original immutable payload digest');
+        $columnType = $database->query("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+            . "AND TABLE_NAME = 'multiplayer_v2_result_players' AND COLUMN_NAME = 'misses'")->fetchColumn();
+        $assert(str_starts_with($columnType, 'smallint') && str_contains($columnType, 'unsigned'),
+            'Cumulative misses use unsigned SMALLINT storage');
+    }
+    $assert($resultService->store($resultBody)['duplicate'], 'Original v2 results retain idempotent compatibility after migration');
+    foreach ([4, 1000] as $misses) {
+        $heartResult = $resultBody;
+        $heartResult['matchID'] = $misses === 4
+            ? '44444444-4444-4444-8444-444444444444' : '55555555-5555-4555-8555-555555555555';
+        $heartResult['players'][0]['misses'] = $misses;
+        $heartResult['players'][0]['lives'] = 1;
+        $receipt = $resultService->store($heartResult);
+        $assert($receipt['rankingEligible'] === false && $receipt['state'] === 'stored_unranked',
+            'Heart-enabled result remains unranked with cumulative misses ' . $misses);
+        $assert($resultService->store($heartResult)['duplicate'], 'Heart-enabled aggregate retries idempotently');
+        $select = $database->prepare('SELECT misses, lives FROM multiplayer_v2_result_players WHERE match_id = ? AND seat = 0');
+        $select->execute([$heartResult['matchID']]);
+        $heartRow = $select->fetch();
+        $assert((int) $heartRow['misses'] === $misses && (int) $heartRow['lives'] === 1,
+            'Cumulative mistakes are stored without clamping after a life restoration');
+    }
+    foreach ([-1, 1001, 4.5, '4'] as $invalidMisses) {
+        $invalidHeartResult = $heartResult;
+        $invalidHeartResult['players'][0]['misses'] = $invalidMisses;
+        $throws(400, fn () => $resultService->store($invalidHeartResult), 'Cumulative miss type and bounds remain strict');
+    }
+    $invalidHeartResult = $heartResult;
+    $invalidHeartResult['players'][0]['lives'] = 4;
+    $throws(400, fn () => $resultService->store($invalidHeartResult), 'Heart pickups do not raise the three-life maximum');
+    if ($mysql) {
+        foreach (['misses' => 1001, 'lives' => 4, 'seat' => 4] as $column => $invalidValue) {
+            try {
+                $database->exec('UPDATE multiplayer_v2_result_players SET ' . $column . ' = ' . $invalidValue . ' WHERE seat = 0');
+                $assert(false, 'Database must retain the ' . $column . ' bound');
+            } catch (PDOException) {
+                $assert(true, 'Database retains the ' . $column . ' bound');
+            }
+        }
+    }
     $ticket = $service->issue($player, $hash, $contract);
     $identity = $service->redeem($contract + ['ticket' => $ticket['ticket']]);
     $database->beginTransaction();

@@ -50,7 +50,7 @@ composer check
 | --- | --- |
 | `api/index.php` | JSON HTTP boundary for extensionless `/api/*` routes |
 | `server/src/` | Domain services, validation, persistence, and integrations |
-| `server/migrations/` | Ordered MariaDB/MySQL migrations `001` through `023` |
+| `server/migrations/` | Ordered MariaDB/MySQL migrations `001` through `024` |
 | `server/bin/` | Migration, worker, reconciliation, cleanup, and moderation commands |
 | `server/certs/` | Reviewed public Apple and DigiCert trust anchors |
 | `test/` | Deterministic PHP tests, SQL fixtures, and disposable MariaDB harnesses |

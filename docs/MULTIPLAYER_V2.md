@@ -11,6 +11,9 @@ PHP receives no live taps. The bridge does not provide a competing lobby directo
 
 Apply additive migration `023_multiplayer_v2_auth.sql` to a disposable/local schema
 for development. It creates four isolated tables and does not rewrite v1 data.
+Additive migration `024_multiplayer_v2_heart_result_bounds.sql` preserves existing
+aggregates and widens cumulative misses for matches with heart pickups. Apply it
+before releasing heart-enabled gameplay; original v2 result payloads remain valid.
 `SPEEDYTAPPER_REALTIME_URL` and `SPEEDYTAPPER_MULTIPLAYER_SERVICE_SECRET` are empty
 by default. All v2 routes return 503 until both are valid. Use `wss://` on a host;
 `ws://` is permitted only for localhost/loopback development. Credentials, query
@@ -94,7 +97,7 @@ silently promote a stale binding to authenticated ranked authority.
 ```
 
 The envelope requires 2–4 distinct existing players and contiguous seats from 0.
-Duration is 0–900,000ms; score 0–100,000,000; lives/misses 0–3; hits/dodges
+Duration is 0–900,000ms; score 0–100,000,000; lives 0–3; cumulative misses 0–1000; hits/dodges
 0–100,000; reaction total 0–100,000,000ms; fastest reaction null or 0–1000ms.
 All metrics are integers. These are admission bounds, not independent PHP replay.
 No names, pets, credentials, wallet or achievement fields are accepted.
