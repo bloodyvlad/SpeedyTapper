@@ -15,6 +15,8 @@ final readonly class RunProof
     public const BUILD_ID = '20260729-2';
     public const RULESET = 'reaction-proof-v3';
     public const PROOF_VERSION = 2;
+    public const POWER_UP_RULESET = 'reaction-proof-v4';
+    public const POWER_UP_PROOF_VERSION = 3;
     public const MAX_EVENTS = 10_000;
 
     public const EVENT_TARGET = 0;
@@ -24,6 +26,10 @@ final readonly class RunProof
     public const EVENT_DECOY_EXPIRE = 4;
     public const EVENT_FINISH = 5;
     public const EVENT_DECOY_TICK = 6;
+    public const EVENT_POWER_UP_ACTIVATE = 7;
+    public const EVENT_POWER_UP_CLAIM = 8;
+    public const EVENT_POWER_UP_EXPIRE = 9;
+    public const EVENT_POWER_UP_TICK = 10;
 
     public const MISS_EMPTY = 0;
     public const MISS_WRONG = 1;
@@ -77,7 +83,7 @@ final readonly class RunProof
 
         $normalized = [];
         foreach ($events as $index => $event) {
-            $normalized[] = self::normalizeEvent($event, $index);
+            $normalized[] = self::normalizeEvent($event, $index, $ruleset === self::POWER_UP_RULESET);
         }
 
         return new self(
@@ -95,14 +101,32 @@ final readonly class RunProof
         return ClientBuild::isSupported($buildId);
     }
 
-    public static function ticketContract(mixed $buildId): ?array
+    public static function ticketContract(
+        mixed $buildId,
+        mixed $ruleset = self::RULESET,
+        mixed $proofVersion = self::PROOF_VERSION,
+    ): ?array
     {
-        if (!self::isSupportedBuildId($buildId)) {
+        if (!self::supportsContract($buildId, $ruleset, $proofVersion)) {
             return null;
         }
         return [
-            'ruleset' => self::RULESET,
-            'proofVersion' => self::PROOF_VERSION,
+            'ruleset' => $ruleset,
+            'proofVersion' => $proofVersion,
+        ];
+    }
+
+    /** Preserve absence as legacy v3, but never silently repair partial fields. */
+    public static function requestedContract(array $input): array
+    {
+        $hasRuleset = array_key_exists('ruleset', $input);
+        $hasProofVersion = array_key_exists('proofVersion', $input);
+        if ($hasRuleset !== $hasProofVersion) {
+            throw new ApiException(400, 'Ranked run contract must include both ruleset and proofVersion.');
+        }
+        return [
+            'ruleset' => $hasRuleset ? $input['ruleset'] : self::RULESET,
+            'proofVersion' => $hasProofVersion ? $input['proofVersion'] : self::PROOF_VERSION,
         ];
     }
 
@@ -112,8 +136,14 @@ final readonly class RunProof
         mixed $proofVersion,
     ): bool {
         return self::isSupportedBuildId($buildId)
-            && $ruleset === self::RULESET
-            && $proofVersion === self::PROOF_VERSION;
+            && (($ruleset === self::RULESET && $proofVersion === self::PROOF_VERSION)
+                || ($ruleset === self::POWER_UP_RULESET && $proofVersion === self::POWER_UP_PROOF_VERSION));
+    }
+
+    public function hasPowerUps(): bool
+    {
+        return $this->ruleset === self::POWER_UP_RULESET
+            && $this->proofVersion === self::POWER_UP_PROOF_VERSION;
     }
 
     public function eventCount(): int
@@ -140,10 +170,17 @@ final readonly class RunProof
 
     public function traceHash(): string
     {
-        return hash('sha256', json_encode([
+        $trace = [
             'mode' => $this->mode,
             'events' => $this->semanticEvents(),
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), true);
+        ];
+        // Preserve v3 hashes byte-for-byte. Different v4 timing semantics must
+        // not share the v3 duplicate-trace namespace.
+        if ($this->hasPowerUps()) {
+            $trace['ruleset'] = $this->ruleset;
+            $trace['proofVersion'] = $this->proofVersion;
+        }
+        return hash('sha256', json_encode($trace, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), true);
     }
 
     private function semanticEvents(): array
@@ -161,7 +198,7 @@ final readonly class RunProof
         }, $this->events);
     }
 
-    private static function normalizeEvent(mixed $value, int $index): array
+    private static function normalizeEvent(mixed $value, int $index, bool $powerUps): array
     {
         if (!is_array($value) || !array_is_list($value) || !isset($value[0]) || !is_int($value[0])) {
             throw self::invalidEvent($index);
@@ -177,6 +214,10 @@ final readonly class RunProof
             self::EVENT_DECOY_EXPIRE => $length >= 3,
             self::EVENT_FINISH => $length === 3,
             self::EVENT_DECOY_TICK => $length === 2,
+            self::EVENT_POWER_UP_ACTIVATE => $powerUps && $length === 6,
+            self::EVENT_POWER_UP_CLAIM => $powerUps && $length === 5,
+            self::EVENT_POWER_UP_EXPIRE => $powerUps && $length === 3,
+            self::EVENT_POWER_UP_TICK => $powerUps && $length === 2,
             default => false,
         };
         if (!$validLength) {

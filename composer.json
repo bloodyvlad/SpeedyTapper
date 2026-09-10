@@ -34,7 +34,8 @@
     "test:mariadb:game-center": "test/game-center-autolink-mariadb.sh",
     "test:mariadb:nickname": "test/nickname-migration-mariadb.sh",
     "test:mariadb:internal-alpha-reset": "test/internal-alpha-reset-mariadb.sh",
-    "test:mariadb:multiplayer-v2": "bash test/multiplayer-v2-mariadb.sh"
+    "test:mariadb:multiplayer-v2": "bash test/multiplayer-v2-mariadb.sh",
+    "test:mariadb:arcade-powerups": "bash test/arcade-powerups-mariadb.sh"
   },
   "extra": {
     "google/apiclient-services": [

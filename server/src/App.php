@@ -599,11 +599,14 @@ final class App
             $this->guardMutation($request);
             [$playerId, $sessionBindingHash] = $this->rankedRunContext(false);
             $body = $request->json();
+            $contract = RunProof::requestedContract($body);
             JsonResponse::send(201, $this->attempts->start(
                 $playerId,
                 $sessionBindingHash,
                 $body['mode'] ?? null,
                 $body['buildId'] ?? null,
+                $contract['ruleset'],
+                $contract['proofVersion'],
             ));
         }
 

@@ -48,6 +48,7 @@ if ($command === 'lint') {
 $tests = [
     'test/account-deletion.test.php',
     'test/api-routing.test.php',
+    'test/arcade-powerups.test.php',
     'test/app-store-api-client.test.php',
     'test/app-store-notification.test.php',
     'test/apple-jws-verifier.test.php',

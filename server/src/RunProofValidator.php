@@ -6,8 +6,8 @@ namespace SpeedyTapper;
 
 /**
  * Replays the build-bound Arcade proof contract and derives every persisted
- * score field. Current clients use reaction-proof-v3/proof 2 with explicit
- * color state and persistent independent decoys.
+ * score field. Retained v3/proof 2 has explicit color state and independent
+ * decoys; explicitly negotiated v4/proof 3 additionally replays pickups/tempo.
  *
  * This closes the previous one-shot aggregate-forgery path. It is intentionally
  * not described as proof that a human produced the browser events: a modified
@@ -73,6 +73,7 @@ final class RunProofValidator
         $hits = 0;
         $misses = 0;
         $lives = self::STARTING_LIVES;
+        $powerUps = $proof->hasPowerUps() ? new ArcadePowerUpReplay() : null;
         $dodges = 0;
         $score = 0;
         $reactionBasePoints = 0;
@@ -110,6 +111,7 @@ final class RunProofValidator
             0,
             $hits,
             $challengeStartHits,
+            $powerUps,
         );
         $targetScheduleSamples = 0;
         $targetAtMinimumSamples = 0;
@@ -133,6 +135,9 @@ final class RunProofValidator
                     RunProof::EVENT_DECOY_ACTIVATE,
                     RunProof::EVENT_DECOY_EXPIRE,
                     RunProof::EVENT_DECOY_TICK,
+                    RunProof::EVENT_POWER_UP_ACTIVATE,
+                    RunProof::EVENT_POWER_UP_EXPIRE,
+                    RunProof::EVENT_POWER_UP_TICK,
                 ], true)
                 && $logicalAt < $lastHandledAt
             ) {
@@ -163,7 +168,9 @@ final class RunProofValidator
                 RunProof::EVENT_HIT,
                 RunProof::EVENT_MISS,
                 RunProof::EVENT_FINISH,
+                RunProof::EVENT_POWER_UP_CLAIM,
             ], true) ? $event[2] : $logicalAt;
+            $powerUps?->assertBeforeEvent($type, $logicalAt, $processedAt, $eventIndex);
             if (
                 !$gameOver
                 && !in_array($type, [RunProof::EVENT_DECOY_ACTIVATE, RunProof::EVENT_DECOY_TICK], true)
@@ -180,7 +187,7 @@ final class RunProofValidator
                         $processedAt,
                         $challengeStartHits,
                     );
-                $decoySchedule = $this->decoyScheduleAfterOpportunity($processedAt, $difficulty);
+                $decoySchedule = $this->decoyScheduleAfterOpportunity($processedAt, $difficulty, $powerUps);
             }
 
             if ($type === RunProof::EVENT_TARGET) {
@@ -220,6 +227,9 @@ final class RunProofValidator
                     $at,
                     $challengeStartHits,
                 );
+                if ($powerUps !== null) {
+                    $difficulty['responseWindowMs'] = $powerUps->scaleInterval($difficulty['responseWindowMs'], $at);
+                }
                 $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
                 $this->assertColor($targetColor, $eventIndex);
                 if ($playerColor === null) {
@@ -230,13 +240,14 @@ final class RunProofValidator
                 if (isset($targetCellsByDimension[$difficulty['gridDimension']])) {
                     $targetCellsByDimension[$difficulty['gridDimension']][] = $cell;
                 }
-                if (isset($activeDecoys[$cell])) {
+                if (isset($activeDecoys[$cell]) || $powerUps?->occupiedCell() === $cell) {
                     $this->invalid('A target reused a reserved decoy cell.', $eventIndex);
                 }
                 if (isset($recentlyExpiredCells[$cell])) {
                     $hasUnreservedCell = false;
                     for ($candidate = 0; $candidate < $difficulty['gridDimension'] ** 2; $candidate++) {
-                        if (!isset($activeDecoys[$candidate]) && !isset($recentlyExpiredCells[$candidate])) {
+                        if (!isset($activeDecoys[$candidate]) && !isset($recentlyExpiredCells[$candidate])
+                            && $powerUps?->occupiedCell() !== $candidate) {
                             $hasUnreservedCell = true;
                             break;
                         }
@@ -311,6 +322,7 @@ final class RunProofValidator
                     0,
                     $hits,
                     $challengeStartHits,
+                    $powerUps,
                 );
                 $lastHandledAt = $handledAt;
             } elseif ($type === RunProof::EVENT_MISS) {
@@ -379,8 +391,10 @@ final class RunProofValidator
                 $lastHandledAt = $handledAt;
 
                 $lives--;
+                $powerUps?->loseLife($handledAt, self::LIFE_LOSS_RECOVERY_MS);
                 if ($lives < 0) {
-                    $this->invalid('Arcade run lost more than three lives.', $eventIndex);
+                    $this->invalid($powerUps === null ? 'Arcade run lost more than three lives.'
+                        : 'Arcade run lost more lives than it had available.', $eventIndex);
                 }
                 if ($lives === 0) {
                     $gameOver = true;
@@ -394,12 +408,14 @@ final class RunProofValidator
                         self::LIFE_LOSS_RECOVERY_MS,
                         $hits,
                         $challengeStartHits,
+                        $powerUps,
                     );
                     $decoySchedule = $this->nextDecoySchedule(
                         $handledAt,
                         self::LIFE_LOSS_RECOVERY_MS,
                         $hits,
                         $challengeStartHits,
+                        $powerUps,
                     );
                 }
             } elseif ($type === RunProof::EVENT_DECOY_ACTIVATE) {
@@ -437,12 +453,13 @@ final class RunProofValidator
                         $challengeStartHits,
                     );
                 $cellCount = $difficulty['gridDimension'] ** 2;
-                $capacity = min($difficulty['maximumActiveDecoys'], max(0, $cellCount - 1));
+                $capacity = min($difficulty['maximumActiveDecoys'],
+                    max(0, $cellCount - 1 - ($powerUps?->occupiedCell() === null ? 0 : 1)));
                 if ($difficulty['decoyDelayRangeMs'] === null || $capacity === 0 || count($activeDecoys) >= $capacity) {
                     $this->invalid('Decoy is not allowed at this difficulty.', $eventIndex);
                 }
                 $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
-                if ($cell === $targetCell || isset($activeDecoys[$cell])) {
+                if ($cell === $targetCell || isset($activeDecoys[$cell]) || $powerUps?->occupiedCell() === $cell) {
                     $this->invalid('Decoy overlaps an occupied cell.', $eventIndex);
                 }
                 $this->assertColor($decoyColor, $eventIndex);
@@ -458,7 +475,7 @@ final class RunProofValidator
                 ];
                 $nextDecoyId++;
                 $decoyLifetimes[] = $lifetime;
-                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty);
+                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty, $powerUps);
             } elseif ($type === RunProof::EVENT_DECOY_TICK) {
                 [, $at] = $event;
                 if ($at + self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS < $decoySchedule['minimum']) {
@@ -487,14 +504,19 @@ final class RunProofValidator
                         $challengeStartHits,
                     );
                 $cellCount = $difficulty['gridDimension'] ** 2;
-                $capacity = min($difficulty['maximumActiveDecoys'], max(0, $cellCount - 1));
+                $capacity = min($difficulty['maximumActiveDecoys'],
+                    max(0, $cellCount - 1 - ($powerUps?->occupiedCell() === null ? 0 : 1)));
                 $canActivate = $difficulty['decoyDelayRangeMs'] !== null
                     && $capacity > 0
                     && count($activeDecoys) < $capacity;
+                if ($canActivate && $powerUps?->occupiedCell() !== null) {
+                    $freeCells = $cellCount - count($activeDecoys) - 1 - ($targetCell === null ? 0 : 1);
+                    $canActivate = $freeCells > 0;
+                }
                 if ($canActivate) {
                     $this->invalid('An ignored decoy opportunity could have produced a visible decoy.', $eventIndex);
                 }
-                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty);
+                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty, $powerUps);
             } elseif ($type === RunProof::EVENT_DECOY_EXPIRE) {
                 $at = $event[1];
                 $ids = array_slice($event, 2);
@@ -509,6 +531,29 @@ final class RunProofValidator
                     $dodges++;
                     $score += self::DODGE_POINTS;
                 }
+            } elseif ($powerUps !== null && in_array($type, [
+                RunProof::EVENT_POWER_UP_ACTIVATE, RunProof::EVENT_POWER_UP_TICK,
+            ], true)) {
+                $this->assertNoExpiredDecoys($activeDecoys, $logicalAt, $eventIndex);
+                $difficulty = $state === 'active' && $targetDifficulty !== null
+                    ? $targetDifficulty : $this->difficulty($hits, $logicalAt, $challengeStartHits);
+                if ($type === RunProof::EVENT_POWER_UP_ACTIVATE) {
+                    $powerUps->activate($event, $difficulty['gridDimension'], $targetCell,
+                        $activeDecoys, $recoveryUntil, $eventIndex);
+                } else {
+                    $powerUps->ignoredOpportunity($logicalAt, $difficulty['gridDimension'], $targetCell,
+                        $activeDecoys, $recoveryUntil, $eventIndex);
+                }
+            } elseif ($powerUps !== null && $type === RunProof::EVENT_POWER_UP_CLAIM) {
+                [, $inputAt, $handledAt] = $event;
+                $this->assertHandledAt($inputAt, $handledAt, $lastHandledAt, $eventIndex);
+                $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
+                $lives = $powerUps->claim($event, $lives, $recoveryUntil, $eventIndex);
+                // Pickup does not hit/miss, score, change color/streak or replace
+                // any already sampled target/decoy interval or response window.
+                $lastHandledAt = $handledAt;
+            } elseif ($powerUps !== null && $type === RunProof::EVENT_POWER_UP_EXPIRE) {
+                $powerUps->expire($event, $eventIndex);
             } elseif ($type === RunProof::EVENT_FINISH) {
                 [, $logicalFinishAt, $handledAt] = $event;
                 $this->assertHandledAt($logicalFinishAt, $handledAt, $lastHandledAt, $eventIndex);
@@ -517,11 +562,12 @@ final class RunProofValidator
                 }
                 if (
                     !$gameOver
-                    || $misses !== self::STARTING_LIVES
+                    || $misses !== self::STARTING_LIVES + ($powerUps?->restoredLives() ?? 0)
                     || $logicalFinishAt !== $finalMissAt
                     || $handledAt < $finalMissHandledAt
                 ) {
-                    $this->invalid('Arcade run did not finish on its third life loss.', $eventIndex);
+                    $this->invalid($powerUps === null ? 'Arcade run did not finish on its third life loss.'
+                        : 'Arcade run did not finish when its remaining lives reached zero.', $eventIndex);
                 }
                 $survivalMs = $logicalFinishAt;
                 $finished = true;
@@ -535,6 +581,9 @@ final class RunProofValidator
                 RunProof::EVENT_DECOY_ACTIVATE,
                 RunProof::EVENT_DECOY_EXPIRE,
                 RunProof::EVENT_DECOY_TICK,
+                RunProof::EVENT_POWER_UP_ACTIVATE,
+                RunProof::EVENT_POWER_UP_EXPIRE,
+                RunProof::EVENT_POWER_UP_TICK,
             ], true)) {
                 $lastHandledAt = $logicalAt;
             }
@@ -543,8 +592,9 @@ final class RunProofValidator
         if (!$finished || $survivalMs === null) {
             throw new ApiException(400, 'Run proof has no valid finish event.');
         }
-        if ($misses !== self::STARTING_LIVES) {
-            throw new ApiException(400, 'Arcade run must end after exactly three mistakes.');
+        if ($misses !== self::STARTING_LIVES + ($powerUps?->restoredLives() ?? 0)) {
+            throw new ApiException(400, $powerUps === null ? 'Arcade run must end after exactly three mistakes.'
+                : 'Arcade run cumulative mistakes do not match its restored lives.');
         }
 
         $fastest = $reactions === [] ? null : min($reactions);
@@ -669,6 +719,7 @@ final class RunProofValidator
         int $recoveryMs,
         int $hits,
         ?int $challengeStartHits,
+        ?ArcadePowerUpReplay $powerUps = null,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
         $range = $this->difficulty(
@@ -676,6 +727,9 @@ final class RunProofValidator
             $readyAt,
             $challengeStartHits,
         )['spawnDelayRangeMs'];
+        if ($powerUps !== null) {
+            $range = array_map(fn (int $delay): int => $powerUps->scaleInterval($delay, $baseAt), $range);
+        }
         return ['minimum' => $readyAt + $range[0], 'maximum' => $readyAt + $range[1]];
     }
 
@@ -684,6 +738,7 @@ final class RunProofValidator
         int $recoveryMs,
         int $hits,
         ?int $challengeStartHits,
+        ?ArcadePowerUpReplay $powerUps = null,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
         if ($readyAt < self::COLOR_PATIENCE_STARTS_AT_MS) {
@@ -703,13 +758,14 @@ final class RunProofValidator
                 'maximum' => $readyAt + self::DECOY_RETRY_MS,
             ];
         }
+        $range = $difficulty['decoyDelayRangeMs'];
         return [
-            'minimum' => $readyAt + $difficulty['decoyDelayRangeMs'][0],
-            'maximum' => $readyAt + $difficulty['decoyDelayRangeMs'][1],
+            'minimum' => $readyAt + ($powerUps?->scaleInterval($range[0], $baseAt) ?? $range[0]),
+            'maximum' => $readyAt + ($powerUps?->scaleInterval($range[1], $baseAt) ?? $range[1]),
         ];
     }
 
-    private function decoyScheduleAfterOpportunity(int $at, array $difficulty): array
+    private function decoyScheduleAfterOpportunity(int $at, array $difficulty, ?ArcadePowerUpReplay $powerUps = null): array
     {
         if ($difficulty['gridDimension'] < 2 || $difficulty['decoyDelayRangeMs'] === null) {
             return [
@@ -718,8 +774,10 @@ final class RunProofValidator
             ];
         }
         return [
-            'minimum' => $at + $difficulty['decoyDelayRangeMs'][0],
-            'maximum' => $at + $difficulty['decoyDelayRangeMs'][1],
+            'minimum' => $at + ($powerUps?->scaleInterval($difficulty['decoyDelayRangeMs'][0], $at)
+                ?? $difficulty['decoyDelayRangeMs'][0]),
+            'maximum' => $at + ($powerUps?->scaleInterval($difficulty['decoyDelayRangeMs'][1], $at)
+                ?? $difficulty['decoyDelayRangeMs'][1]),
         ];
     }
 

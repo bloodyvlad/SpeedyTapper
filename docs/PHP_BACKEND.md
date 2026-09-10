@@ -105,7 +105,7 @@ publication destination.
 
 | Method and path | Current request body | Success behavior |
 | --- | --- | --- |
-| `POST /api/runs` | `{ "mode": "normal", "buildId": "YYYYMMDD-N" }` | `201`; issues one 24-hour player/session-bound attempt and abandons any previous issued attempt for that player |
+| `POST /api/runs` | `{ "mode": "normal", "buildId": "YYYYMMDD-N" }`; optionally both exact `ruleset` and integer `proofVersion` | `201`; issues one 24-hour player/session-bound attempt and abandons any previous issued attempt for that player; omitted capabilities retain v3/proof 2 |
 | `POST /api/runs/abandon` | `{ "runId": "uuid-v4" }` | Idempotent `200 { "abandoned": true }` for the bound session |
 | `POST /api/runs/finish` | `{ "runId", "mode", "buildId", "ruleset", "proofVersion", "events" }` | `201` on first accepted finish, `200` on exact retry; PHP derives result and eligibility |
 | `POST /api/achievements/claim` | `{ "id": "stable_achievement_id" }` | `201` on first eligible claim, `200` on retry; returns `authenticated`, `achievements`, `claimedCount`, `totalCount`, `coinBalance`, `achievement`, `coinsEarned`, and `duplicate` |
@@ -115,7 +115,9 @@ publication destination.
 
 Ranked run start/finish requires a Google- or Apple-authenticated profile with a
 confirmed name. Accepted build IDs are exact `YYYYMMDD-N` values at or above
-`20260729-1`. Every accepted build uses only `reaction-proof-v3`, proof `2`;
+`20260729-1`. Build IDs do not choose semantics. Omitted capabilities use retained
+`reaction-proof-v3`, proof `2`; the local, unreleased power-up extension requires
+explicit `reaction-proof-v4`, proof `3` (see [ARCADE_V4.md](ARCADE_V4.md));
 a higher build never selects different replay rules. The finish proof is capped
 at 10,000 events and must match the stored ticket exactly. See
 [CURRENT_VERSION.md](CURRENT_VERSION.md) for its tuples.
@@ -202,7 +204,7 @@ refund debt, and paid or mixed-funded cosmetics.
 ## Migrations and operator commands
 
 The ordered schema history is `server/migrations/001_*.sql` through
-`022_multiplayer_leaderboard.sql`. `php server/bin/migrate.php` runs pending
+`024_multiplayer_v2_heart_result_bounds.sql`. `php server/bin/migrate.php` runs pending
 migrations under a database advisory lock and ensures the configured season.
 Migration `020` is a destructive internal-alpha reset; verify backup,
 maintenance fencing, worker pause, and explicit authorization before its first
@@ -227,9 +229,9 @@ The attempt purge and administrator mutations default to dry-run unless
 `--apply` is supplied. Game Center and StoreKit workers use lane/environment
 advisory locks. Held publication diagnostics expose bounded, redacted metadata.
 
-Composer exposes `dev`, `lint`, `test`, `check`, and the three disposable
-MariaDB harness aliases `test:mariadb:game-center`, `test:mariadb:nickname`, and
-`test:mariadb:internal-alpha-reset`.
+Composer exposes `dev`, `lint`, `test`, `check`, and disposable MariaDB harnesses
+for Game Center, nicknames, internal-alpha reset, Multiplayer v2 and Arcade
+power-ups. See the exact `test:mariadb:*` aliases in `composer.json`.
 
 ## Deployment prerequisites
 

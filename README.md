@@ -68,6 +68,7 @@ whenever possible.
 
 - [Current source contract](docs/CURRENT_VERSION.md)
 - [HTTP and operations contract](docs/PHP_BACKEND.md)
+- [Local Arcade v4 power-up contract](docs/ARCADE_V4.md)
 - [Multiplayer contract](docs/MULTIPLAYER.md)
 - [Multiplayer v2 bridge and verified PHP deployment](docs/MULTIPLAYER_V2.md)
 - [Effective backend decisions](docs/DECISIONS.md)
