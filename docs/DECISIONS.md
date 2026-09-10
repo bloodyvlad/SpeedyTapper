@@ -161,19 +161,26 @@ destructive internal-alpha reset; its first use against data requires explicit
 maintenance authorization, verified backup, API fencing, and paused Game
 Center/StoreKit workers.
 
-## D-013 — Isolate the unreleased Multiplayer v2 bridge
+## D-013 — Isolate the unranked Multiplayer v2 bridge
 
-Local v2 alpha uses explicit `multiplayer-shared-arcade-v2`, protocol `2`.
+V2 alpha uses explicit `multiplayer-shared-arcade-v2`, protocol `2`.
 PHP issues single-use 60-second tickets from existing cookie/CSRF authentication
 and confirmed names, without requiring Game Center. Only ticket and connection
 digests are retained; the existing session registry revokes them on logout,
 rotation, expiry or deletion. The realtime service revalidates bindings at least
 every 15 seconds and on reconnect; there is no claim of instantaneous push revocation.
+The 12-binding cap bounds stored credentials, not reconnects: consuming a valid
+single-use ticket atomically replaces the oldest same-session binding at capacity.
+Invalid or replayed tickets cannot evict credentials or bypass session revocation.
 
 Only the three exact internal redeem, validate, and result routes use an independent
 service Bearer secret instead of cookies/CSRF. All v2 routes default to disabled.
 Service-reported final aggregates are immutable, idempotent, explicitly unranked,
 and excluded from v1 tables, progression, wallets, moderation/public ranking and
 Game Center publication. Account deletion removes shared v2 alpha results.
-Persistent hosting, full service integration, admission validation, observability,
-retention/cleanup scheduling and production cutover remain separate release gates.
+Heart pickups may restore lives without erasing cumulative mistakes. Migration
+024 permits integer misses 0–1000 while lives remain 0–3, preserving existing rows
+and payloads. PHP admission bounds are not independent gameplay replay.
+Host/schema verification, realtime/device acceptance, observability,
+retention/cleanup scheduling and distribution are separate release responsibilities;
+see the dated PHP-only deployment evidence in [MULTIPLAYER_V2.md](MULTIPLAYER_V2.md).

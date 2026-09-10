@@ -69,5 +69,5 @@ whenever possible.
 - [Current source contract](docs/CURRENT_VERSION.md)
 - [HTTP and operations contract](docs/PHP_BACKEND.md)
 - [Multiplayer contract](docs/MULTIPLAYER.md)
-- [Unreleased Multiplayer v2 bridge](docs/MULTIPLAYER_V2.md)
+- [Multiplayer v2 bridge and verified PHP deployment](docs/MULTIPLAYER_V2.md)
 - [Effective backend decisions](docs/DECISIONS.md)

@@ -1,6 +1,6 @@
 # Current backend source contract
 
-Reviewed: 2026-08-16
+Reviewed: 2026-09-10
 
 This is a snapshot of repository source. It is not a claim about a Hostinger
 artifact, database migration state, external worker, iOS binary, TestFlight
@@ -33,7 +33,7 @@ new gameplay contract.
 | --- | --- |
 | Ranked Arcade | `reaction-proof-v3`, proof version `2` |
 | Ranked Multiplayer | `multiplayer-own-color-v1`, protocol version `1`, proof version `1` |
-| Local Multiplayer v2 alpha | `multiplayer-shared-arcade-v2`, protocol `2`; disabled by default, service-reported aggregates only, unranked |
+| Multiplayer v2 alpha | `multiplayer-shared-arcade-v2`, protocol `2`; disabled by default, service-reported aggregates only, unranked |
 | Zen | Historical leaderboard/profile reads only; no ticket, proof, result, coin, or achievement write |
 
 ## Ranked Arcade
@@ -83,9 +83,10 @@ lifecycle.
 - StoreKit: `/api/mobile/v1/storekit/transactions`,
   `/api/app-store/notifications/v2`
 - Multiplayer: `/api/mobile/v1/multiplayer/*`
-- Unreleased v2 bridge: `/api/mobile/v2/multiplayer/tickets` and exact
+- V2 bridge: `/api/mobile/v2/multiplayer/tickets` and exact
   `/api/internal/multiplayer/v2/{tickets/redeem,sessions/validate,results}` routes;
-  see [MULTIPLAYER_V2.md](MULTIPLAYER_V2.md).
+  see [MULTIPLAYER_V2.md](MULTIPLAYER_V2.md) for credential rotation, cumulative
+  mistake bounds, and the separately verified PHP deployment snapshot.
 - Operator moderation: `/api/admin/leaderboard*`
 
 The exact methods, bodies, status behavior, authentication requirements, and

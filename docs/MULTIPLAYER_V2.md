@@ -1,7 +1,8 @@
-# Multiplayer v2 PHP bridge — local source only
+# Multiplayer v2 PHP bridge
 
-Implemented locally on 2026-09-09. Not deployed, configured, ranked, or a claim of
-complete realtime/device acceptance. V1 remains independently available.
+Current source contract; PHP deployment independently verified on 2026-09-10 as
+recorded below. This does not assert realtime/device acceptance or TestFlight
+distribution. V2 remains unranked; v1 remains independently available.
 
 The PHP bridge authenticates the new realtime service and stores unranked alpha
 aggregates. The realtime service owns room membership, Ready, Start and gameplay;
@@ -9,8 +10,8 @@ PHP receives no live taps. The bridge does not provide a competing lobby directo
 
 ## Configuration and migration
 
-Apply additive migration `023_multiplayer_v2_auth.sql` to a disposable/local schema
-for development. It creates four isolated tables and does not rewrite v1 data.
+Additive migration `023_multiplayer_v2_auth.sql` creates four isolated tables and
+does not rewrite v1 data. Exercise upgrades against a disposable schema first.
 Additive migration `024_multiplayer_v2_heart_result_bounds.sql` preserves existing
 aggregates and widens cumulative misses for matches with heart pickups. Apply it
 before releasing heart-enabled gameplay; original v2 result payloads remain valid.
@@ -100,6 +101,8 @@ The envelope requires 2–4 distinct existing players and contiguous seats from 
 Duration is 0–900,000ms; score 0–100,000,000; lives 0–3; cumulative misses 0–1000; hits/dodges
 0–100,000; reaction total 0–100,000,000ms; fastest reaction null or 0–1000ms.
 All metrics are integers. These are admission bounds, not independent PHP replay.
+`misses` counts all mistakes, including those before a heart pickup restores a
+life; it is not bounded by three and is not derived as `3 - lives`.
 No names, pets, credentials, wallet or achievement fields are accepted.
 
 Response: `{"matchID":"<UUID>","duplicate":false,"rankingEligible":false,
@@ -114,14 +117,36 @@ rankings, v1 results, moderation state or Game Center outboxes. Account deletion
 removes the entire shared alpha aggregate and its digest in the deletion transaction.
 There is no public v2 result read or ranked season in this implementation.
 
-## Verification and remaining integration
+## Verification and deployment evidence
 
 `composer check` runs deterministic v2 service and App boundary tests alongside
 retained v1 checks. `composer test:mariadb:multiplayer-v2` runs the same suite
-against a disposable MariaDB 11.4 schema using actual migration 023 and foreign
-keys. The separate account-deletion suite exercises the v2 cleanup hook.
+against a disposable MariaDB 11.4 schema using actual migrations 023/024 and foreign
+keys, including repeated upgrades, retained aggregates, reconnect credential
+rotation, concurrent single-ticket redemption and revocation. The separate
+account-deletion suite exercises the v2 cleanup hook.
 
-Before hosting: verify TLS and Authorization forwarding on the actual API host,
-service revalidation/reconnect behavior, durable outbox retry, cleanup scheduling,
-secret rotation, correlated logs without credentials, and backup/rollback. The
-current PHP work is local code only; hosting purchase/deployment remain unauthorised.
+The PHP-only deployment snapshot verified on 2026-09-10 at approximately 19:12 UTC:
+
+- Host: `https://speedytapper.otcsoft.com`; document root
+  `/home/u966828068/domains/speedytapper.otcsoft.com/public_html`.
+- Exact deployed source: `9fe555d179326cecd5e23f0a6a16788b4af0ba34`, not a later
+  documentation-only HEAD.
+- Allowlisted runtime ZIP SHA-256:
+  `080b96234b290687ddc5b3f38c88881209f640cf423766fbbfe524e3179f99c5`.
+- Direct private audit confirmed ledger 001–024, unsigned SMALLINT `misses`,
+  `seat <= 3 AND lives <= 3 AND misses <= 1000`, exact service source hashes,
+  consumed migration markers and no public operator helper. Migration 020 was
+  already applied before this release; it was not rerun.
+- 35 live boundary checks passed, including TLS API responses, independent
+  service authentication, session/CSRF guards and private-path denial. Runtime,
+  consistent database and private configuration backups were verified. Temporary
+  cron jobs were removed; the two existing workers were preserved.
+
+Full artifact, direct-host, backup and rollback evidence is retained in the private
+[release record](/Users/vlad/Documents/SpeedyTapper-release-artifacts/20260910-mp26.S14gtt/RELEASE.md).
+This dated evidence is not a claim about a future deployment. Positive real-player
+authentication and hosted match results were not exercised by that PHP smoke run.
+Verify realtime/device behavior, durable outbox retry, cleanup scheduling, secret
+rotation and credential-free observability independently when releasing the app
+and socket service.
