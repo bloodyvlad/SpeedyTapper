@@ -42,6 +42,9 @@ pickup kinds/times/cells; canonical proof hashes still bind the exact request.
 - A claim must identify the one live pickup and its cell, with original contact
   in `[appearedAt, expiresAt)`. It cannot revive an eliminated player or resolve
   twice. An event 9 already committed cannot be undone by a later contact.
+- A contact on the active pickup cell at or after its appearance cannot be encoded
+  as an empty/wrong/late miss, including while expiry is pending. A target timeout
+  with cell `-1` and original contacts before pickup appearance remain valid.
 - The client may hide an expired pickup before committing event 9 while draining
   queued contacts. The cell remains reserved in that bounded interval; unrelated
   events may proceed within the existing 5-second scheduler ceiling. Expiry itself

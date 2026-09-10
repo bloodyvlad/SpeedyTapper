@@ -93,6 +93,39 @@ foreach ($fixtures as $fixture) {
         $fixture['name'] . ' matches Swift reaction totals.');
     $rejects(fn () => $proof($fixture['events'], false), 'Complete v4 trace cannot be labeled as v3.');
 }
+
+$waitingPickup = array_slice($fixtures[1]['events'], 0, 39);
+$activePickup = array_slice($fixtures[0]['events'], 0, 107);
+$expiredPickup = array_slice($fixtures[1]['events'], 0, 127);
+$timeoutPickup = [...$waitingPickup, [3, 12_200, 2, 0, 2, 1_000],
+    [0, 12_250, 1, 1], [4, 13_200, 2]];
+foreach ([
+    [...$waitingPickup, [2, 12_100, 12_100, RunProof::MISS_EMPTY, 3]],
+    [...$activePickup, [2, 30_700, 30_700, RunProof::MISS_WRONG, 0]],
+    [...$timeoutPickup, [2, 13_250, 13_250, RunProof::MISS_LATE, 3]],
+    [...$expiredPickup, [2, 33_001, 33_001, RunProof::MISS_EMPTY, 3]],
+] as $events) {
+    try {
+        (new RunProofValidator())->validate($proof($events));
+        $assert(false, 'A contact on a live pickup cannot be changed into a life loss.');
+    } catch (ApiException $error) {
+        $assert(str_contains($error->getMessage(), 'Power-up contact cannot be encoded as a miss'),
+            'Pickup precedence rejects empty/wrong/late contacts, including pending expiry.');
+    }
+}
+$timeoutEvents = [...$timeoutPickup, [2, 13_250, 13_250, RunProof::MISS_LATE, -1],
+    [2, 14_750, 14_750, RunProof::MISS_EMPTY, 0],
+    [2, 16_250, 16_250, RunProof::MISS_EMPTY, 0], [5, 16_250, 16_250]];
+$timeoutScore = (new RunProofValidator())->validate($proof($timeoutEvents));
+$assert($timeoutScore->misses === 3 && $timeoutScore->survivalMs === 16_250,
+    'A legitimate target timeout -1 still clears an outstanding pickup and completes.');
+$preappearanceEvents = [...$waitingPickup, [2, 11_999, 12_010, RunProof::MISS_EMPTY, 3],
+    [2, 13_510, 13_510, RunProof::MISS_EMPTY, 0],
+    [2, 15_010, 15_010, RunProof::MISS_EMPTY, 0], [5, 15_010, 15_010]];
+$preappearanceScore = (new RunProofValidator())->validate($proof($preappearanceEvents));
+$assert($preappearanceScore->misses === 3 && $preappearanceScore->survivalMs === 15_010,
+    'Original contact before pickup appearance remains an ordinary miss when handled later.');
+
 $mutants = [];
 $events = $fixtures[0]['events'];
 $events[54][4] = 0;

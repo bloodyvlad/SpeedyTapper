@@ -32,6 +32,17 @@ final class ArcadePowerUpReplay
         return $this->restoredLives;
     }
 
+    /** Pickup classification precedes wrong/empty/late contact classification. */
+    public function assertMissContact(int $inputAt, int $cell, int $eventIndex): void
+    {
+        if ($this->active !== null && $cell === $this->active['cell']
+            && $inputAt >= $this->active['appearedAt']) {
+            // An expired-but-uncommitted pickup is ignored by Swift, not a miss.
+            // Timer timeouts use -1; a queued preappearance contact stays a miss.
+            $this->invalid('Power-up contact cannot be encoded as a miss.', $eventIndex);
+        }
+    }
+
     public function scaleInterval(int $baseMs, int $sampledAt): int
     {
         if ($this->clockHandledAt === null) {

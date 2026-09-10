@@ -333,6 +333,7 @@ final class RunProofValidator
                 if (!in_array($reason, [RunProof::MISS_EMPTY, RunProof::MISS_WRONG, RunProof::MISS_LATE], true)) {
                     $this->invalid('Miss reason is invalid.', $eventIndex);
                 }
+                $powerUps?->assertMissContact($inputAt, $cell, $eventIndex);
 
                 if ($state === 'waiting') {
                     if ($reason !== RunProof::MISS_EMPTY) {
