@@ -32,6 +32,7 @@ final class App
         private readonly ?MultiplayerLeaderboardRepository $multiplayerLeaderboard = null,
         private readonly ?MultiplayerV2Service $multiplayerV2 = null,
         private readonly ?MultiplayerV2ResultService $multiplayerV2Results = null,
+        private readonly ?MultiplayerV2LeaderboardRepository $multiplayerV2Leaderboard = null,
     ) {
     }
 
@@ -68,6 +69,25 @@ final class App
             JsonResponse::send(200, str_ends_with($request->path, '/redeem')
                 ? $service->redeem($body)
                 : $service->validateSession($body));
+        }
+
+        if ($request->method === 'GET' && $request->path === '/api/mobile/v2/multiplayer/leaderboard') {
+            $leaderboard = $this->multiplayerV2Leaderboard
+                ?? throw new ApiException(503, 'Multiplayer v2 leaderboard is not configured.');
+            $playerId = $this->session->playerId();
+            $this->session->close();
+            JsonResponse::send(200, $leaderboard->payload($playerId), $playerId === null
+                ? ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'] : []);
+        }
+
+        if ($request->method === 'GET'
+            && preg_match('#^/api/mobile/v2/multiplayer/results/([^/]+)$#D', $request->path, $match)) {
+            $playerId = $this->session->playerId()
+                ?? throw new ApiException(401, 'Sign in to continue.');
+            $results = $this->multiplayerV2Results
+                ?? throw new ApiException(503, 'Multiplayer v2 result storage is not configured.');
+            $this->session->close();
+            JsonResponse::send(200, $results->participantReceipt($match[1], $playerId));
         }
 
         if ($request->method === 'GET' && $request->path === '/api/health') {
@@ -942,15 +962,22 @@ final class App
     private function rankings(string $playerId): array
     {
         $rankings = $this->leaderboard->rankings($playerId);
-        if ($this->multiplayerLeaderboard === null) {
-            return $rankings;
+        if ($this->multiplayerLeaderboard !== null) {
+            $multiplayer = $this->multiplayerLeaderboard->payload($playerId);
+            $rankings['multiplayer'] = [
+                'rank' => $multiplayer['playerRank'],
+                'totalEntries' => $multiplayer['totalEntries'],
+                'topPercent' => $multiplayer['topPercent'],
+            ];
         }
-        $multiplayer = $this->multiplayerLeaderboard->payload($playerId);
-        $rankings['multiplayer'] = [
-            'rank' => $multiplayer['playerRank'],
-            'totalEntries' => $multiplayer['totalEntries'],
-            'topPercent' => $multiplayer['topPercent'],
-        ];
+        if ($this->multiplayerV2Leaderboard !== null) {
+            $multiplayer = $this->multiplayerV2Leaderboard->payload($playerId);
+            $rankings['multiplayerV2'] = [
+                'rank' => $multiplayer['playerRank'],
+                'totalEntries' => $multiplayer['totalEntries'],
+                'topPercent' => $multiplayer['topPercent'],
+            ];
+        }
         return $rankings;
     }
 

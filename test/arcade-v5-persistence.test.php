@@ -25,7 +25,7 @@ if ((int) $db->query('SELECT COUNT(*) FROM information_schema.tables WHERE table
     throw new RuntimeException('Disposable database must be empty before test migrations.');
 }
 $applied = (new MigrationRunner($db, $root . '/server/migrations'))->run();
-if (count($applied) !== 24) throw new RuntimeException('Expected exact local schema 001–024.');
+if (count($applied) !== 25) throw new RuntimeException('Expected exact local schema 001–025.');
 $assertions = 0;
 $assert = static function (bool $ok, string $description) use (&$assertions): void {
     $assertions++;
@@ -145,4 +145,4 @@ foreach ($fixtures as $index => $fixture) {
         'creditedPlayMs' => (int) $player['total_play_ms'], 'achievements' => $achievementKeys,
         'exactRetry' => $retry['duplicate']], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n");
 }
-fwrite(STDOUT, 'Full persisted Arcade contract checks passed (' . $assertions . " assertions; actual migrations 001–024; MariaDB).\n");
+fwrite(STDOUT, 'Full persisted Arcade contract checks passed (' . $assertions . " assertions; actual migrations 001–025; MariaDB).\n");

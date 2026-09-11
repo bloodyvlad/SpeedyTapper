@@ -36,7 +36,8 @@
     "test:mariadb:internal-alpha-reset": "test/internal-alpha-reset-mariadb.sh",
     "test:mariadb:multiplayer-v2": "bash test/multiplayer-v2-mariadb.sh",
     "test:mariadb:arcade-powerups": "bash test/arcade-powerups-mariadb.sh",
-    "test:mariadb:arcade-v5": "bash test/arcade-v5-mariadb.sh"
+    "test:mariadb:arcade-v5": "bash test/arcade-v5-mariadb.sh",
+    "test:mariadb:multiplayer-rewards": "bash test/multiplayer-rewards-mariadb.sh"
   },
   "extra": {
     "google/apiclient-services": [

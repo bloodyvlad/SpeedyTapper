@@ -70,6 +70,8 @@ revoke the database mapping, so stale PHP session files fail closed.
 | `GET /api/pets` | Server pet catalog plus optional profile, ownership, selection, and balance |
 | `GET /api/themes` | Server theme catalog plus optional profile, ownership, selection, and balance |
 | `GET /api/mobile/v1/multiplayer/leaderboard` | Public top five plus optional authenticated best result and neighboring ranks |
+| `GET /api/mobile/v2/multiplayer/leaderboard` | Fresh service-reported v2 top five plus optional own context; equal scores share rank, `position` is unique row identity |
+| `GET /api/mobile/v2/multiplayer/results/{matchID}` | Cookie-authenticated own immutable reward receipt only; absent/nonparticipant/malformed IDs return the same `404`, not a settlement failure |
 
 `normal` is the ranked Arcade wire mode. Zen records remain readable through
 the solo leaderboard/profile and administrator filters, but no route creates a
@@ -165,7 +167,7 @@ spendable.
 
 ## Multiplayer routes
 
-The current surface is rooted at `/api/mobile/v1/multiplayer`:
+The retained v1 surface is rooted at `/api/mobile/v1/multiplayer`:
 
 | Method and suffix | Body |
 | --- | --- |
@@ -205,7 +207,7 @@ refund debt, and paid or mixed-funded cosmetics.
 ## Migrations and operator commands
 
 The ordered schema history is `server/migrations/001_*.sql` through
-`024_multiplayer_v2_heart_result_bounds.sql`. `php server/bin/migrate.php` runs pending
+`025_multiplayer_v2_rewards_and_leaderboard.sql`. `php server/bin/migrate.php` runs pending
 migrations under a database advisory lock and ensures the configured season.
 Migration `020` is a destructive internal-alpha reset; verify backup,
 maintenance fencing, worker pause, and explicit authorization before its first

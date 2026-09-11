@@ -58,7 +58,7 @@ namespace {
     if ($mysql) {
         $database->exec("SET time_zone = '+00:00'");
         $database->exec('CREATE TABLE players (id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, '
-            . 'nickname VARCHAR(20) NOT NULL, nickname_confirmed TINYINT NOT NULL DEFAULT 1) ENGINE=InnoDB');
+            . 'nickname VARCHAR(20) NOT NULL, nickname_confirmed TINYINT NOT NULL DEFAULT 1, economy_generation INT NOT NULL DEFAULT 0) ENGINE=InnoDB');
         $database->exec('CREATE TABLE player_pet_selection (player_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, '
             . 'pet_id VARCHAR(32), is_visible TINYINT NOT NULL DEFAULT 1, '
             . 'FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE) ENGINE=InnoDB');
@@ -70,7 +70,7 @@ namespace {
         foreach (MigrationRunner::splitStatements($sql) as $statement) $database->exec($statement);
     } else {
         $database->exec('PRAGMA foreign_keys = ON');
-        $database->exec('CREATE TABLE players (id TEXT PRIMARY KEY, nickname TEXT NOT NULL, nickname_confirmed INTEGER NOT NULL DEFAULT 1)');
+        $database->exec('CREATE TABLE players (id TEXT PRIMARY KEY, nickname TEXT NOT NULL, nickname_confirmed INTEGER NOT NULL DEFAULT 1, economy_generation INTEGER NOT NULL DEFAULT 0)');
         $database->exec('CREATE TABLE player_pet_selection (player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, '
             . 'pet_id TEXT, is_visible INTEGER NOT NULL DEFAULT 1)');
         $database->exec('CREATE TABLE player_sessions (session_auth_hash BLOB PRIMARY KEY, '
@@ -126,6 +126,7 @@ namespace {
     $assert(strlen($stored['ticket_hash']) === 32 && !str_contains(serialize($stored), $issued['ticket']), 'Ticket stored only as digest');
     $redeemed = $service->redeem($contract + ['ticket' => $issued['ticket']]);
     $assert($redeemed['playerID'] === $player && $redeemed['name'] === 'PlayerOne' && $redeemed['petID'] === 'foka', 'Authoritative name/pet returned without Game Center');
+    $assert($redeemed['economyGeneration'] === 0, 'Trusted identity explicitly carries the account economy generation');
     $assert($redeemed['expiresAt'] === $now + 3600 && strlen($redeemed['sessionBinding']) === 43, 'Independent one-hour connection binding');
     $assert(!str_contains(serialize($database->query('SELECT * FROM multiplayer_v2_connections')->fetch()), $redeemed['sessionBinding']), 'Connection secret stored only as digest');
     $throws(401, fn () => $service->redeem($contract + ['ticket' => $issued['ticket']]), 'Ticket single use');

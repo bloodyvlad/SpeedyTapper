@@ -28,7 +28,7 @@ Explicit `reaction-proof-v4`/proof `3` retains 2x2 pickup eligibility. The local
 `reaction-proof-v5`/proof `3` candidate requires 4x4 and retains the same wire tuples.
 Preserve old semantics and bind the exact requested pair to the attempt. See
 [ARCADE_V4.md](ARCADE_V4.md) and [ARCADE_V5.md](ARCADE_V5.md). Every ranked
-Multiplayer build uses `multiplayer-own-color-v1`, protocol `1`, proof `1`.
+v1 Multiplayer build uses `multiplayer-own-color-v1`, protocol `1`, proof `1`.
 Never infer new semantics from a higher build. Any event shape, replay rule,
 ruleset, protocol, or proof change requires an explicit coordinated contract
 release.
@@ -54,9 +54,9 @@ Only mode `normal` can start or finish a run. Retained Zen rows remain readable
 through leaderboard, profile, and administrator views; Zen has no backend write
 path.
 
-## D-004 — Settle Multiplayer from unanimous peer evidence
+## D-004 — Retain v1 unanimous peer evidence without reinterpreting it
 
-Ranked Multiplayer is 2–4 player own-color play. PHP owns authenticated lobbies,
+Retained v1 ranked Multiplayer is 2–4 player own-color play. PHP owns authenticated lobbies,
 seats/colors, roster agreement, immutable manifests, transcript replay,
 settlement, ranking, and publication intent. PHP receives no live tap traffic.
 
@@ -64,7 +64,7 @@ Every participant submits the same bounded seat-only transcript. PHP ranks only
 matching, timely, low-risk evidence that replays under the exact manifest.
 Describe clean results as protocol-verified and `peer_consistent_v1`, not
 server-authoritative, human-verified, bot-proof, or collusion-proof.
-Multiplayer never awards coins or achievements.
+V1 never awards coins or achievements. New v2 authority is separate under D-013.
 
 ## D-005 — Keep one internal profile authority
 
@@ -106,10 +106,14 @@ short-lived.
 
 ## D-008 — Keep economy and paid value server-owned
 
-Only eligible protocol-verified Arcade runs mint gameplay time and unlock
-gameplay achievements. Award one earned coin per cumulative verified Arcade
+Only eligible protocol-verified Arcade runs mint Arcade time and unlock
+Arcade achievements. Award one earned coin per cumulative verified Arcade
 minute and carry the sub-minute remainder. Achievement claims are idempotent
 positive ledger events; pet/theme purchases are atomic negative events.
+Revision-3 completed competitive Multiplayer awards two earned coins per
+cumulative alive/connected minute in its own generation-bound ledger lane; never
+merge that time/remainder or coin achievements into Arcade. Old v2 results,
+tutorial, aborted and missing/stale-generation seats cannot backfill rewards.
 
 Spend earned coins before purchased lots and purchased lots FIFO, retaining
 exact allocation provenance. Apple-signed product, environment, bundle,
@@ -163,16 +167,16 @@ Git commit. Build an allowlisted artifact from that commit, install locked
 Composer dependencies in staging, inject no secrets into source, and record the
 commit and artifact hash.
 
-Migrations `001` through `024` remain the ordered bootstrap/upgrade history and
+Migrations `001` through `025` remain the ordered bootstrap/upgrade history and
 run under a shared advisory lock. The artifact-only pending marker may trigger
 ordinary migration bootstrap on the first request. Migration `020` is a
 destructive internal-alpha reset; its first use against data requires explicit
 maintenance authorization, verified backup, API fencing, and paused Game
 Center/StoreKit workers.
 
-## D-013 — Isolate the unranked Multiplayer v2 bridge
+## D-013 — Isolate versioned Multiplayer v2 authority and rewards
 
-V2 alpha uses explicit `multiplayer-shared-arcade-v2`, protocol `2`.
+V2 uses explicit `multiplayer-shared-arcade-v2`, protocol `2`.
 PHP issues single-use 60-second tickets from existing cookie/CSRF authentication
 and confirmed names, without requiring Game Center. Only ticket and connection
 digests are retained; the existing session registry revokes them on logout,
@@ -184,9 +188,25 @@ Invalid or replayed tickets cannot evict credentials or bypass session revocatio
 
 Only the three exact internal redeem, validate, and result routes use an independent
 service Bearer secret instead of cookies/CSRF. All v2 routes default to disabled.
-Service-reported final aggregates are immutable, idempotent, explicitly unranked,
-and excluded from v1 tables, progression, wallets, moderation/public ranking and
-Game Center publication. Account deletion removes shared v2 alpha results.
+Legacy service-reported final aggregates remain immutable, idempotent and unranked,
+excluded from every reward/public-ranking path. New explicit result revision `2`,
+gameplay revision `3`, policy `multiplayer-alive-minute-v1` accepts trusted
+room-derived alive/connected time and final metrics. Only completed competitive
+matches rank, using highest score and equal places for equal scores; elimination
+order is not a winner tiebreak. The new board is `server_reported_v2`, not PHP replay
+or human verification. V1 test rows are neither copied nor destroyed.
+
+Reward generation is captured at actual match start, never inferred from a missing
+field or refreshed mid-match. Missing/stale generations get zero coins without
+withdrawing their score. Atomic per-owner receipts and `multiplayer_credit` ledger
+entries prevent retries/backfill; current-generation sums carry MP-only time.
+Arcade moderation preserves these earned credits and reset advances their generation
+fence. Existing earned-first spending, purchased lots and refund-debt provenance
+remain authoritative. V2 awards no achievements or Game Center publication.
+Account deletion removes shared aggregates and the deleted owner's rows, not a
+peer's independent receipt/wallet/board. Deletion before first settlement still
+rejects the entire outbox roster; never recreate an account to pay a result.
+See [MULTIPLAYER_V2_REWARDS.md](MULTIPLAYER_V2_REWARDS.md) for local migration 025.
 Heart pickups may restore lives without erasing cumulative mistakes. Migration
 024 permits integer misses 0–1000 while lives remain 0–3, preserving existing rows
 and payloads. PHP admission bounds are not independent gameplay replay.

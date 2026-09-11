@@ -2,10 +2,13 @@
 
 Current source contract; PHP deployment independently verified on 2026-09-10 as
 recorded below. This does not assert realtime/device acceptance or TestFlight
-distribution. V2 remains unranked; v1 remains independently available.
+distribution. Legacy v2 remains unranked; v1 remains independently available.
+The local explicit revision-3 rewards/leaderboard extension and additive025 are
+documented in [MULTIPLAYER_V2_REWARDS.md](MULTIPLAYER_V2_REWARDS.md); they are not
+covered by the historical deployment evidence below.
 
 The PHP bridge authenticates the new realtime service and stores unranked alpha
-aggregates. The realtime service owns room membership, Ready, Start and gameplay;
+aggregates plus explicitly versioned current settlement. The realtime service owns room membership, Ready, Start and gameplay;
 PHP receives no live taps. The bridge does not provide a competing lobby directory.
 
 ## Configuration and migration
@@ -16,7 +19,7 @@ Additive migration `024_multiplayer_v2_heart_result_bounds.sql` preserves existi
 aggregates and widens cumulative misses for matches with heart pickups. Apply it
 before releasing heart-enabled gameplay; original v2 result payloads remain valid.
 `SPEEDYTAPPER_REALTIME_URL` and `SPEEDYTAPPER_MULTIPLAYER_SERVICE_SECRET` are empty
-by default. All v2 routes return 503 until both are valid. Use `wss://` on a host;
+by default. Ticket/internal bridge routes return 503 until both are valid. Use `wss://` on a host;
 `ws://` is permitted only for localhost/loopback development. Credentials, query
 strings and fragments are rejected in the configured URL. The independent secret
 must be 32–512 printable ASCII characters and belongs only in private runtime
@@ -24,9 +27,9 @@ configuration. Never include a service key or ticket in an URL or logs.
 
 ## Exact HTTP contract
 
-All bodies are JSON objects; unexpected fields are rejected. All responses are
-`Cache-Control: no-store`. `expiresAt` is an integer Unix timestamp in seconds.
-Every request below includes `protocolVersion: 2` and
+All bodies are JSON objects; unexpected fields are rejected. Responses default to
+`Cache-Control: no-store`; only anonymous leaderboard reads have short public caching.
+`expiresAt` is an integer Unix timestamp in seconds. Every POST below includes `protocolVersion: 2` and
 `ruleset: "multiplayer-shared-arcade-v2"`. Missing/different capabilities return 409.
 Higher build identifiers never select v2.
 
@@ -59,11 +62,14 @@ Redeem/validate have 1024-byte limits. The identity object contains exactly:
 
 ```json
 {"playerID":"<internal UUID>","name":"ConfirmedName","petID":null,
- "sessionBinding":"<opaque>","expiresAt":1790003600,
+ "sessionBinding":"<opaque>","expiresAt":1790003600,"economyGeneration":0,
  "protocolVersion":2,"ruleset":"multiplayer-shared-arcade-v2"}
 ```
 
-Only visible selected pets are included. `sessionBinding` is an independent random
+Only visible selected pets are included. The current identity adds unsigned
+`economyGeneration`; old clients may ignore it. New services capture it at actual
+match start, never overwrite it on refresh, and never substitute zero when absent.
+`sessionBinding` is an independent random
 credential returned to the service, not the PHP session ID or registry digest.
 The binding expires after at most one hour, bounded by the source session expiry;
 validation never extends it. At most 12 unexpired bindings per session may exist.
@@ -80,7 +86,7 @@ of MariaDB; the service must stop a seat on validation failure. This is bounded
 polling revocation, not instantaneous push revocation. Network/PHP outage must not
 silently promote a stale binding to authenticated ranked authority.
 
-## Unranked aggregate intake
+## Retained unranked aggregate intake
 
 `POST /api/internal/multiplayer/v2/results` accepts at most 16,384 bytes:
 
@@ -115,7 +121,9 @@ This stores one payload digest and normalized seat aggregates atomically. It doe
 not store raw input, claim PHP replay validation, issue rewards, or write public
 rankings, v1 results, moderation state or Game Center outboxes. Account deletion
 removes the entire shared alpha aggregate and its digest in the deletion transaction.
-There is no public v2 result read or ranked season in this implementation.
+The legacy envelope has no reward receipt. The new explicit extension adds a
+separate current board and private per-owner receipt, without reinterpreting any
+legacy aggregate or granting it retrospective value.
 
 ## Verification and deployment evidence
 

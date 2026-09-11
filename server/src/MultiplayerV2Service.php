@@ -216,7 +216,7 @@ final class MultiplayerV2Service
     private function sessionIdentity(string $sessionHash, string $playerId, int $now, bool $lock): array
     {
         $select = $this->database->prepare(
-            'SELECT player.id, player.nickname, player.nickname_confirmed, '
+            'SELECT player.id, player.nickname, player.nickname_confirmed, player.economy_generation, '
             . 'session.expires_at AS session_expires_at FROM player_sessions session '
             . 'JOIN players player ON player.id = session.player_id '
             . 'WHERE session.session_auth_hash = :hash AND session.player_id = :player '
@@ -251,6 +251,9 @@ final class MultiplayerV2Service
             'expiresAt' => $expires,
             'protocolVersion' => self::PROTOCOL_VERSION,
             'ruleset' => self::RULESET,
+            // Trusted service snapshots this generation at match start. Never
+            // refresh it mid-match or let queued pre-reset play earn after reset.
+            'economyGeneration' => (int) $identity['economy_generation'],
         ];
     }
 

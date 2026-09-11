@@ -1,0 +1,44 @@
+{
+  "completionReason" : "completed",
+  "durationMs" : 72204,
+  "gameplayRevision" : 3,
+  "matchID" : "00000000-0000-4000-8000-000000000029",
+  "matchKind" : "competitive",
+  "players" : [
+    {
+      "dodges" : 16,
+      "economyGeneration" : 1,
+      "eligibleAliveMs" : 65000,
+      "fastestReactionMs" : 100,
+      "hits" : 65,
+      "lives" : 0,
+      "maxMultiplier" : 5,
+      "misses" : 0,
+      "playerID" : "00000000-0000-4000-8000-000000000001",
+      "reactionTotalMs" : 6500,
+      "score" : 251816,
+      "seat" : 0,
+      "survivalMs" : 65000
+    },
+    {
+      "dodges" : 11,
+      "economyGeneration" : 4,
+      "eligibleAliveMs" : 72204,
+      "fastestReactionMs" : 500,
+      "hits" : 49,
+      "lives" : 0,
+      "maxMultiplier" : 1,
+      "misses" : 3,
+      "playerID" : "00000000-0000-4000-8000-000000000002",
+      "reactionTotalMs" : 24500,
+      "score" : 20413,
+      "seat" : 1,
+      "survivalMs" : 72204
+    }
+  ],
+  "protocolVersion" : 2,
+  "rankingEligible" : true,
+  "resultRevision" : 2,
+  "rewardPolicy" : "multiplayer-alive-minute-v1",
+  "ruleset" : "multiplayer-shared-arcade-v2"
+}

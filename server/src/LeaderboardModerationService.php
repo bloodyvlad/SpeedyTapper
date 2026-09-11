@@ -1137,6 +1137,11 @@ final class LeaderboardModerationService
             . 'AND ledger.economy_generation = :achievement_generation '
             . "AND ledger.event_type = 'achievement_reward' AND ledger.coin_status = 'eligible') "
             . 'AS achievement_coins, '
+            . '(SELECT COALESCE(SUM(ledger.earned_delta), 0) FROM coin_ledger ledger '
+            . 'WHERE ledger.player_id = :multiplayer_player_id '
+            . 'AND ledger.economy_generation = :multiplayer_generation '
+            . "AND ledger.event_type = 'multiplayer_credit' AND ledger.coin_status = 'eligible') "
+            . 'AS multiplayer_coins, '
             . '(SELECT COALESCE(SUM(allocation.amount), 0) FROM coin_spend_allocations allocation '
             . 'INNER JOIN coin_ledger spend_ledger ON spend_ledger.event_id = allocation.spend_event_id '
             . 'WHERE allocation.player_id = :spend_player_id '
@@ -1153,6 +1158,8 @@ final class LeaderboardModerationService
         $economyStatement->execute([
             'achievement_player_id' => $playerId,
             'achievement_generation' => $economyGeneration,
+            'multiplayer_player_id' => $playerId,
+            'multiplayer_generation' => $economyGeneration,
             'spend_player_id' => $playerId,
             'spend_generation' => $economyGeneration,
             'refund_player_id' => $playerId,
@@ -1162,7 +1169,9 @@ final class LeaderboardModerationService
         $achievementCoins = (int) ($economy['achievement_coins'] ?? 0);
         $earnedSpend = (int) ($economy['earned_spend'] ?? 0);
         $earnedRefundSettlement = (int) ($economy['earned_refund_settlement'] ?? 0);
-        $netCoins = intdiv($totalPlayMs, 60_000) + $achievementCoins
+        // Arcade moderation must preserve unrelated trusted multiplayer earned
+        // credits. Their time/carry and achievement totals remain separate.
+        $netCoins = intdiv($totalPlayMs, 60_000) + $achievementCoins + (int) ($economy['multiplayer_coins'] ?? 0)
             - $earnedSpend - $earnedRefundSettlement;
         $earnedCreditIncrease = max(
             0,

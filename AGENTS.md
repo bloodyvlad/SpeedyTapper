@@ -50,6 +50,7 @@ clearly unreleased until accepted, implemented, verified, and committed.
   - `composer test:mariadb:game-center`
   - `composer test:mariadb:nickname`
   - `composer test:mariadb:internal-alpha-reset`
+  - `composer test:mariadb:multiplayer-rewards`
 - If a new shipped PHP file is added outside the existing lint roots, extend
   `server/bin/check.php` so it is covered.
 
@@ -86,13 +87,20 @@ authoritative, and multi-row value changes atomic.
   Proofs contain at most 10,000 events. See `docs/ARCADE_V4.md` and `docs/ARCADE_V5.md`.
 - Zen has retained leaderboard/profile/administrator reads only. Never issue a
   Zen attempt or accept a Zen proof, result, coin, or achievement write.
-- Ranked Multiplayer accepts only `own_color`, 2–4 players,
+- Retained v1 ranked Multiplayer accepts only `own_color`, 2–4 players,
   `multiplayer-own-color-v1`, protocol `1`, proof `1`. Transcripts contain at
   most 2,500 events and 900,000 logical milliseconds. PHP settles only matching
   replayed peer evidence and receives no live taps.
-- Describe clean Multiplayer results as protocol-verified and
+- Describe clean v1 Multiplayer results as protocol-verified and
   `peer_consistent_v1`, never server-authoritative, human-verified, bot-proof,
-  or collusion-proof. Multiplayer awards no coins or achievements.
+  or collusion-proof. V1 awards no coins or achievements.
+- New trusted v2 results require exact result revision `2`, gameplay revision
+  `3`, and reward policy `multiplayer-alive-minute-v1`. Only completed competitive
+  matches enter the fresh `server_reported_v2` board. Explicitly generation-bound
+  alive/connected time awards two earned coins per cumulative multiplayer minute,
+  with an independent carry. Legacy v2, tutorial and aborted results never earn;
+  missing/stale generations never earn. No multiplayer achievements or Game Center
+  publication. See `docs/MULTIPLAYER_V2_REWARDS.md`.
 - Google and Apple are primary identities. Link a second provider only through
   explicit recent authentication. Game Center is link-only and cannot register,
   log in, merge profiles, or move account-owned data.
@@ -107,11 +115,12 @@ authoritative, and multi-row value changes atomic.
   IDs, provider display names, emails, or passwords.
 - Mutations require the cookie session, same-origin guard, and CSRF except the
   Apple-signed notification receiver and the exact v2 internal redeem, session
-  validation, and unranked-result routes, which require independent service Bearer
+  validation, and result routes, which require independent service Bearer
   authentication. Native requests may omit `Origin`.
   Logout and deletion revoke the database session mapping.
-- Only eligible protocol-verified Arcade play mints gameplay progression.
-  Award one coin per cumulative eligible minute and carry remainder. Claims
+- Only eligible protocol-verified Arcade play mints Arcade progression.
+  Award one Arcade coin per cumulative eligible minute and carry remainder;
+  multiplayer uses its separately versioned trusted two-coin lane above. Claims
   and purchases use immutable, idempotent ledger events.
 - Earned coins spend before purchased lots; purchased lots spend FIFO with
   exact allocation provenance. Refunds and reversals are idempotent. Future

@@ -10,9 +10,11 @@ describing it as current or deployed.
 ## Runtime and schema
 
 - PHP 8.2 or newer and MariaDB/MySQL are required.
-- The ordered schema history is migrations `001` through `024`, inclusive.
+- The ordered schema history is migrations `001` through `025`, inclusive.
 - Additive migration `024` preserves v2 aggregate rows while allowing bounded
   cumulative misses after heart pickups; lives remain capped at three.
+- Additive local migration `025` creates empty per-owner v2 reward receipts and
+  leaderboard tables. It does not reset/copy historical rows or wallet values.
 - Migration `020_reset_internal_alpha_player_data.sql` is a destructive,
   idempotently claimed internal-alpha reset. Treat its first application as a
   separately authorized maintenance operation.
@@ -32,8 +34,8 @@ new gameplay contract.
 | Mode | Current contract |
 | --- | --- |
 | Ranked Arcade | Retained `reaction-proof-v3`/proof `2` and `reaction-proof-v4`/proof `3`; explicit `reaction-proof-v5`/proof `3` is the local 4x4-only pickup candidate |
-| Ranked Multiplayer | `multiplayer-own-color-v1`, protocol version `1`, proof version `1` |
-| Multiplayer v2 alpha | `multiplayer-shared-arcade-v2`, protocol `2`; disabled by default, service-reported aggregates only, unranked |
+| Retained v1 ranked Multiplayer | `multiplayer-own-color-v1`, protocol version `1`, proof version `1` |
+| Multiplayer v2 | `multiplayer-shared-arcade-v2`, protocol `2`; legacy aggregates unranked/unrewarded. Local result revision `2` + gameplay revision `3` + `multiplayer-alive-minute-v1` enables the fresh trusted competitive board and generation-bound rewards |
 | Zen | Historical leaderboard/profile reads only; no ticket, proof, result, coin, or achievement write |
 
 ## Ranked Arcade
@@ -66,7 +68,7 @@ color-bearing tuples and persistent 1–3 second decoys, then derives score,
 ratings, multiplier, dodges, duration, eligibility, coins, and achievements.
 Only exact stored-run retries are idempotent; cloned traces are withheld.
 
-## Ranked Multiplayer
+## Retained v1 ranked Multiplayer
 
 Multiplayer is own-color play for 2–4 eligible profiles. PHP owns lobby state,
 the immutable manifest, unanimous transcript collection, replay, settlement,
@@ -75,9 +77,19 @@ leaderboard rows, and publication intent. It receives no live tap traffic.
 The manifest records the creator's accepted build ID and exact v1 protocol.
 Each participant submits the same seat-only transcript, bounded to 2,500 events
 and 900,000 logical milliseconds. Clean replay creates immutable results with
-verification method `peer_consistent_v1`; Multiplayer awards no coins or
+verification method `peer_consistent_v1`; v1 Multiplayer awards no coins or
 achievements. See [MULTIPLAYER.md](MULTIPLAYER.md) for the exact tuples and
 lifecycle.
+
+## Local v2 competitive settlement
+
+The realtime service, not a device, reports immutable final results over the
+independently authenticated internal bridge. New completed competitive revision-3
+matches rank in a fresh `server_reported_v2` lane. Highest score wins; equal scores
+share place regardless of elimination time. Generation-bound alive/connected time
+earns two coins per cumulative minute, independently of Arcade. Tutorial, aborted,
+legacy and missing/stale-generation play cannot mint value. No multiplayer
+achievements or Game Center publication. See [MULTIPLAYER_V2_REWARDS.md](MULTIPLAYER_V2_REWARDS.md).
 
 ## Current HTTP families
 
@@ -88,7 +100,8 @@ lifecycle.
 - StoreKit: `/api/mobile/v1/storekit/transactions`,
   `/api/app-store/notifications/v2`
 - Multiplayer: `/api/mobile/v1/multiplayer/*`
-- V2 bridge: `/api/mobile/v2/multiplayer/tickets` and exact
+- V2 bridge: `/api/mobile/v2/multiplayer/tickets`, public `/leaderboard`, private
+  `/results/{matchID}` under the same v2 prefix, and exact
   `/api/internal/multiplayer/v2/{tickets/redeem,sessions/validate,results}` routes;
   see [MULTIPLAYER_V2.md](MULTIPLAYER_V2.md) for credential rotation, cumulative
   mistake bounds, and the separately verified PHP deployment snapshot.

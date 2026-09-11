@@ -1372,6 +1372,7 @@ $newRouteApp = static function (SessionStore $session) use (
         'google' => $routeGoogle,
         'gameCenterPublication' => null,
         'multiplayerLeaderboard' => null,
+        'multiplayerV2Leaderboard' => null,
     ] as $property => $value) {
         $appReflection->getProperty($property)->setValue($app, $value);
     }

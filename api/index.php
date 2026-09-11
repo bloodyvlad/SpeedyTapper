@@ -27,6 +27,7 @@ use SpeedyTapper\MultiplayerMatchService;
 use SpeedyTapper\MultiplayerProofValidator;
 use SpeedyTapper\MultiplayerV2Service;
 use SpeedyTapper\MultiplayerV2ResultService;
+use SpeedyTapper\MultiplayerV2LeaderboardRepository;
 use SpeedyTapper\PetShopService;
 use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\PlayerIdentityService;
@@ -76,7 +77,8 @@ try {
     );
     DeploymentBootstrap::migrateIfMarked($database, $projectRoot, $leaderboard);
     $wallets = new CoinWalletRepository($database);
-    $multiplayerV2Results = new MultiplayerV2ResultService($database);
+    $multiplayerV2Leaderboard = new MultiplayerV2LeaderboardRepository($database, $config->seasonId, $config->seasonName);
+    $multiplayerV2Results = new MultiplayerV2ResultService($database, $multiplayerV2Leaderboard);
     $gameCenterPublication = null;
     if ($config->gameCenterPublicationStorageIsConfigured()) {
         $gameCenterPublication = new GameCenterPublicationRepository(
@@ -185,6 +187,7 @@ try {
         multiplayerLeaderboard: $multiplayerLeaderboard,
         multiplayerV2: new MultiplayerV2Service($database, $config),
         multiplayerV2Results: $multiplayerV2Results,
+        multiplayerV2Leaderboard: $multiplayerV2Leaderboard,
     );
     $app->dispatch($request);
 } catch (ApiException $error) {
