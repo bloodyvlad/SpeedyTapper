@@ -149,3 +149,34 @@ rollback, concurrent duplicate/carry settlements and full account deletion.
 The PHP copy adds a final newline only; every decoded value is identical.
 Its earlier-eliminated higher-score player wins with a real peak 5 and zero misses
 after forfeiture. The fixture is not independent PHP replay.
+
+### Local verification — 2026-09-11
+
+Verified implementation commit: `1860c61ae9722cb9526fa599699ac5b52536b384`,
+branch `codex/mp29-rewards`, isolated worktree
+`/Users/vlad/Documents/SpeedyTapper-mp29-rewards`. PHP CLI 8.5.7; disposable
+MariaDB 11.4. This documentation-only follow-up does not change runtime source.
+No production database, Hostinger, Railway, TestFlight or original PHP checkout
+was changed. Native iOS/device acceptance remains a separate gate.
+
+| Command | Result | Local evidence |
+| --- | --- | --- |
+| `composer check` | PASS: Composer validation/audit, all PHP lint and 24 test programs, including 39 new reward-contract assertions | `/tmp/speedytapper-mp29-check-final.log` |
+| `composer test:mariadb:multiplayer-rewards` | PASS: 94 assertions; populated 001–024 upgrade to 025, no backfill, concurrency/rollback, reward/debt/reset/deletion and HTTP privacy | `/tmp/speedytapper-mp29-mariadb.log` |
+| `composer test:mariadb:arcade-v5` | PASS: 154 assertions; retained v3/v4/v5 persisted finish/retry contracts under actual 001–025 | `/tmp/speedytapper-mp29-arcade-v5.log` |
+| `composer test:mariadb:multiplayer-v2` | PASS: 132 assertions; legacy authentication, reconnect, revocation and result compatibility | `/tmp/speedytapper-mp29-v2-auth.log` |
+| `composer test:mariadb:game-center` | PASS: 14 assertions | `/tmp/speedytapper-mp29-game-center.log` |
+| `composer test:mariadb:internal-alpha-reset` | PASS: existing integration harness, no numeric assertion count emitted | `/tmp/speedytapper-mp29-reset.log` |
+| `bash /tmp/speedytapper-mp29-nickname-tcp-check.sh` | PASS: 8 assertions using unchanged `test/nickname-migration-mariadb.php` | `/tmp/speedytapper-mp29-nickname-tcp.log` |
+| `git diff --check` and `git diff --cached --check` | PASS; implementation committed and worktree clean | Local Git checks at commit above |
+
+Nickname exception: the stock `composer test:mariadb:nickname` wrapper twice
+reported its local Unix-socket readiness before MariaDB accepted the published
+TCP connection, failing at PDO connection initialization (`Error while reading
+greeting packet` / `MySQL server has gone away`), before any test assertion.
+The last failure is `/tmp/speedytapper-mp29-nickname.log`. A temporary local
+wrapper waited for `mariadb -h127.0.0.1 ... -e 'SELECT 1'` before invoking the same
+unchanged PHP test against a fresh disposable database; all 8 assertions passed.
+Only that task-created container/volume was removed; no repository harness or
+application behavior was changed to bypass the failure. These `/tmp` evidence
+files are local and ephemeral, not durable production-release records.
