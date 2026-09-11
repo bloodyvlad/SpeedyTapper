@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace SpeedyTapper;
 
-/** Exact v4-only pickup/tempo state. Times remain unscaled wall milliseconds. */
+/** Version-selected pickup/tempo state. Times remain unscaled wall milliseconds. */
 final class ArcadePowerUpReplay
 {
     public const HEART = 0;
@@ -21,6 +21,13 @@ final class ArcadePowerUpReplay
     private int $maximumAt = self::MAXIMUM_DELAY_MS;
     private ?int $clockHandledAt = null;
     private int $restoredLives = 0;
+
+    public function __construct(private readonly int $minimumGridDimension = 2)
+    {
+        if (!in_array($minimumGridDimension, [2, 4], true)) {
+            throw new \InvalidArgumentException('Unsupported Arcade pickup grid threshold.');
+        }
+    }
 
     public function occupiedCell(): ?int
     {
@@ -78,7 +85,7 @@ final class ArcadePowerUpReplay
         [, $at, $id, $kind, $cell, $lifetime] = $event;
         $this->assertOpportunity($at, $recoveryUntil, $eventIndex);
         $available = $this->availableCells($dimension, $targetCell, $activeDecoys);
-        if ($this->active !== null || $dimension < 2 || count($available) < 2
+        if ($this->active !== null || $dimension < $this->minimumGridDimension || count($available) < 2
             || !in_array($cell, $available, true) || $id !== $this->nextId
             || !in_array($kind, [self::HEART, self::CLOCK], true) || $lifetime !== self::LIFETIME_MS) {
             $this->invalid('Power-up placement, identity or lifetime is invalid.', $eventIndex);
@@ -98,7 +105,7 @@ final class ArcadePowerUpReplay
         int $eventIndex,
     ): void {
         $this->assertOpportunity($at, $recoveryUntil, $eventIndex);
-        if ($this->active === null && $dimension >= 2
+        if ($this->active === null && $dimension >= $this->minimumGridDimension
             && count($this->availableCells($dimension, $targetCell, $activeDecoys)) >= 2) {
             $this->invalid('An ignored power-up opportunity could have placed a pickup.', $eventIndex);
         }

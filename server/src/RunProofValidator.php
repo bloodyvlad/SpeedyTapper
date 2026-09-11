@@ -7,7 +7,8 @@ namespace SpeedyTapper;
 /**
  * Replays the build-bound Arcade proof contract and derives every persisted
  * score field. Retained v3/proof 2 has explicit color state and independent
- * decoys; explicitly negotiated v4/proof 3 additionally replays pickups/tempo.
+ * decoys; explicitly negotiated v4/v5 proof 3 additionally replays pickups/tempo
+ * with the selected minimum pickup grid (2x2 for v4, 4x4 for v5).
  *
  * This closes the previous one-shot aggregate-forgery path. It is intentionally
  * not described as proof that a human produced the browser events: a modified
@@ -73,7 +74,8 @@ final class RunProofValidator
         $hits = 0;
         $misses = 0;
         $lives = self::STARTING_LIVES;
-        $powerUps = $proof->hasPowerUps() ? new ArcadePowerUpReplay() : null;
+        $powerUps = $proof->hasPowerUps()
+            ? new ArcadePowerUpReplay($proof->minimumPickupGridDimension()) : null;
         $dodges = 0;
         $score = 0;
         $reactionBasePoints = 0;

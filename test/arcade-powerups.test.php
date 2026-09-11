@@ -53,7 +53,7 @@ foreach ([['ruleset' => 'reaction-proof-v4'], ['proofVersion' => 3], ['ruleset' 
 $assert(RunProof::requestedContract(['ruleset' => null, 'proofVersion' => null])
     === ['ruleset' => null, 'proofVersion' => null], 'Explicit nulls are not silently replaced with v3 defaults.');
 foreach ([['reaction-proof-v3', 3], ['reaction-proof-v4', 2], ['reaction-proof-v4', '3'],
-    ['reaction-proof-v5', 3], [null, null], ['reaction-proof-v4', null]] as [$ruleset, $version]) {
+    ['reaction-proof-v6', 3], [null, null], ['reaction-proof-v4', null]] as [$ruleset, $version]) {
     $assert(RunProof::ticketContract('20260910-1', $ruleset, $version) === null,
         'Unknown, partial, mistyped and mixed contracts are not admitted.');
 }

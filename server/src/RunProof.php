@@ -17,6 +17,7 @@ final readonly class RunProof
     public const PROOF_VERSION = 2;
     public const POWER_UP_RULESET = 'reaction-proof-v4';
     public const POWER_UP_PROOF_VERSION = 3;
+    public const FOUR_BY_FOUR_POWER_UP_RULESET = 'reaction-proof-v5';
     public const MAX_EVENTS = 10_000;
 
     public const EVENT_TARGET = 0;
@@ -83,7 +84,7 @@ final readonly class RunProof
 
         $normalized = [];
         foreach ($events as $index => $event) {
-            $normalized[] = self::normalizeEvent($event, $index, $ruleset === self::POWER_UP_RULESET);
+            $normalized[] = self::normalizeEvent($event, $index, $proofVersion === self::POWER_UP_PROOF_VERSION);
         }
 
         return new self(
@@ -137,13 +138,19 @@ final readonly class RunProof
     ): bool {
         return self::isSupportedBuildId($buildId)
             && (($ruleset === self::RULESET && $proofVersion === self::PROOF_VERSION)
-                || ($ruleset === self::POWER_UP_RULESET && $proofVersion === self::POWER_UP_PROOF_VERSION));
+                || (in_array($ruleset, [self::POWER_UP_RULESET, self::FOUR_BY_FOUR_POWER_UP_RULESET], true)
+                    && $proofVersion === self::POWER_UP_PROOF_VERSION));
     }
 
     public function hasPowerUps(): bool
     {
-        return $this->ruleset === self::POWER_UP_RULESET
+        return in_array($this->ruleset, [self::POWER_UP_RULESET, self::FOUR_BY_FOUR_POWER_UP_RULESET], true)
             && $this->proofVersion === self::POWER_UP_PROOF_VERSION;
+    }
+
+    public function minimumPickupGridDimension(): int
+    {
+        return $this->ruleset === self::FOUR_BY_FOUR_POWER_UP_RULESET ? 4 : 2;
     }
 
     public function eventCount(): int
@@ -174,8 +181,8 @@ final readonly class RunProof
             'mode' => $this->mode,
             'events' => $this->semanticEvents(),
         ];
-        // Preserve v3 hashes byte-for-byte. Different v4 timing semantics must
-        // not share the v3 duplicate-trace namespace.
+        // Preserve v3/v4 hashes byte-for-byte. Each explicitly selected ruleset
+        // keeps its own duplicate-trace namespace, even with shared tuple shapes.
         if ($this->hasPowerUps()) {
             $trace['ruleset'] = $this->ruleset;
             $trace['proofVersion'] = $this->proofVersion;

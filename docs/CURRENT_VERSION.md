@@ -1,6 +1,6 @@
 # Current backend source contract
 
-Reviewed: 2026-09-10
+Reviewed: 2026-09-11
 
 This is a snapshot of repository source. It is not a claim about a Hostinger
 artifact, database migration state, external worker, iOS binary, TestFlight
@@ -31,7 +31,7 @@ new gameplay contract.
 
 | Mode | Current contract |
 | --- | --- |
-| Ranked Arcade | Retained `reaction-proof-v3`/proof `2`; explicit `reaction-proof-v4`/proof `3` is a local, unreleased power-up extension |
+| Ranked Arcade | Retained `reaction-proof-v3`/proof `2` and `reaction-proof-v4`/proof `3`; explicit `reaction-proof-v5`/proof `3` is the local 4x4-only pickup candidate |
 | Ranked Multiplayer | `multiplayer-own-color-v1`, protocol version `1`, proof version `1` |
 | Multiplayer v2 alpha | `multiplayer-shared-arcade-v2`, protocol `2`; disabled by default, service-reported aggregates only, unranked |
 | Zen | Historical leaderboard/profile reads only; no ticket, proof, result, coin, or achievement write |
@@ -40,15 +40,16 @@ new gameplay contract.
 
 `POST /api/runs` accepts only ranked mode `normal` and an accepted build ID.
 It returns a player/session-bound run UUID plus the exact requested contract;
-omitting both capability fields preserves v3/proof 2. V4/proof 3 requires both
-explicit fields and has not been deployed. Partial, mistyped or mixed pairs fail.
+omitting both capability fields preserves v3/proof 2. V4/proof 3 and v5/proof 3
+require both explicit fields. Partial, mistyped or mixed pairs fail.
 `POST /api/runs/finish` must echo that stored contract in an object containing
 only `runId`, `mode`, `buildId`, `ruleset`, `proofVersion`, and `events`.
 `mode` is `normal`; ruleset/proof version must match the issued pair.
 
 The non-empty integer event list has at most 10,000 entries. V3 retains these exact
 tuples; v4 retains their shapes and adds the bounded pickup/tempo rules in
-[ARCADE_V4.md](ARCADE_V4.md):
+[ARCADE_V4.md](ARCADE_V4.md). V5 keeps those wire shapes but requires a 4x4
+visible board before a pickup may appear; see [ARCADE_V5.md](ARCADE_V5.md):
 
 | Opcode | Tuple |
 | ---: | --- |

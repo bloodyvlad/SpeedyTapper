@@ -116,8 +116,9 @@ publication destination.
 Ranked run start/finish requires a Google- or Apple-authenticated profile with a
 confirmed name. Accepted build IDs are exact `YYYYMMDD-N` values at or above
 `20260729-1`. Build IDs do not choose semantics. Omitted capabilities use retained
-`reaction-proof-v3`, proof `2`; the local, unreleased power-up extension requires
-explicit `reaction-proof-v4`, proof `3` (see [ARCADE_V4.md](ARCADE_V4.md));
+`reaction-proof-v3`, proof `2`; explicit `reaction-proof-v4`, proof `3` retains
+2x2 pickup eligibility (see [ARCADE_V4.md](ARCADE_V4.md)). The local v5/proof3
+candidate requires 4x4 with unchanged wire tuples (see [ARCADE_V5.md](ARCADE_V5.md));
 a higher build never selects different replay rules. The finish proof is capped
 at 10,000 events and must match the stored ticket exactly. See
 [CURRENT_VERSION.md](CURRENT_VERSION.md) for its tuples.

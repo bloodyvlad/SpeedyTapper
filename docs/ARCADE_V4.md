@@ -1,9 +1,11 @@
-# Arcade v4 power-ups — local source candidate
+# Arcade v4 power-ups — retained build 27 contract
 
-Implemented for local integration on 2026-09-10. Not deployed or submitted to
-TestFlight. The last separately verified PHP runtime remains source
-`9fe555d179326cecd5e23f0a6a16788b4af0ba34`; it cannot accept v4. Never submit altered
-gameplay as v3 or silently disable requested power-ups to obtain a ranked ticket.
+V4 was separately deployed on 2026-09-10 from
+`0a94f5cfe2a36ae89f0d26db1c72bf7cfe4d683c`. Deployment evidence is the private
+`SpeedyTapper-release-artifacts/20260910-arcade-v4.fgRKTb/RELEASE.md`, not this
+source document. Preserve this contract for build 27 and outstanding attempts.
+The local 4x4-only pickup change is a separate [v5 contract](ARCADE_V5.md); never
+submit it as v4 or silently downgrade gameplay to obtain a ranked ticket.
 
 ## Explicit compatibility
 
@@ -87,7 +89,7 @@ Wallet/achievement policy is unchanged: PHP derives results, records immutable
 proofs and consumes attempts idempotently. Eligible credited time remains
 `min(raw survivalMs, serverElapsedMs)`, not stretched clock time. Pickups mint no
 separate reward. Existing leaderboards and Game Center select by mode/season, not
-ruleset: a future v4 deployment therefore permits power-up scores in the same
+ruleset: v4 therefore permits power-up scores in the same
 Arcade competition unless a separately approved policy changes that. Record this
 comparability choice before any release; do not reset existing results.
 
@@ -98,5 +100,4 @@ MariaDB container. The complete Swift-generated traces in
 `test/fixtures/arcade-v4-powerups.json` originate from PimPoPomCore commit
 `2982e6d7cec0fc7884c30b19f90fcb3af5de78c2`; both agree exactly with PHP, including an
 eight-miss restored-life run and clock sampling/explicit expiry. Physical
-contact/timing validation and coordinated
-PHP/iOS deployment remain separate, unperformed release gates.
+contact/timing validation and external release evidence remain separate gates.

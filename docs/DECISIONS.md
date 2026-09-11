@@ -24,9 +24,10 @@ numeric `(date, sequence)` tuple is at least `(20260729, 1)`. Build IDs bind and
 audit attempts/manifests; they do not choose rules.
 
 Arcade start without explicit capabilities retains `reaction-proof-v3`, proof `2`.
-The local v4 candidate accepts an explicitly requested `reaction-proof-v4`, proof
-`3`; preserve v3 semantics and bind the exact requested pair to the attempt. See
-[ARCADE_V4.md](ARCADE_V4.md) for its unreleased power-up extension. Every ranked
+Explicit `reaction-proof-v4`/proof `3` retains 2x2 pickup eligibility. The local
+`reaction-proof-v5`/proof `3` candidate requires 4x4 and retains the same wire tuples.
+Preserve old semantics and bind the exact requested pair to the attempt. See
+[ARCADE_V4.md](ARCADE_V4.md) and [ARCADE_V5.md](ARCADE_V5.md). Every ranked
 Multiplayer build uses `multiplayer-own-color-v1`, protocol `1`, proof `1`.
 Never infer new semantics from a higher build. Any event shape, replay rule,
 ruleset, protocol, or proof change requires an explicit coordinated contract
@@ -40,7 +41,7 @@ accepted build and exact proof contract, replays the chronological
 color-bearing proof, derives all result fields, bounds it against server time,
 and consumes it idempotently.
 
-V4 pickup/clock effects must be derived from their exact proof transitions, not
+V4/v5 pickup/clock effects must be derived from their exact proof transitions, not
 client-authored lives, rates or result aggregates. Hearts restore at most three
 current lives without erasing cumulative mistakes; clocks affect newly sampled
 intervals only. Wall time remains the authority for survival and coin accrual.

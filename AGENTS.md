@@ -78,11 +78,12 @@ authoritative, and multi-row value changes atomic.
 - Build IDs have exact `YYYYMMDD-N` form and are accepted only when their valid
   numeric tuple is at least `20260729-1`. Higher IDs do not select semantics.
 - Ranked Arcade accepts only `normal` and an exact issued contract: retained
-  `reaction-proof-v3`/proof `2`, or explicitly requested `reaction-proof-v4`/proof
-  `3` in the local power-up candidate. Omitted capabilities retain v3; never
+  `reaction-proof-v3`/proof `2`, explicitly requested `reaction-proof-v4`/proof `3`,
+  or the local `reaction-proof-v5`/proof `3` candidate. V4 pickups begin on 2x2;
+  v5 requires 4x4. Omitted capabilities retain v3; never
   reinterpret its events or infer rules from a build ID. PHP derives every result
   through replay and consumes the player/session-bound attempt idempotently.
-  Proofs contain at most 10,000 events. See `docs/ARCADE_V4.md`; v4 is not deployed.
+  Proofs contain at most 10,000 events. See `docs/ARCADE_V4.md` and `docs/ARCADE_V5.md`.
 - Zen has retained leaderboard/profile/administrator reads only. Never issue a
   Zen attempt or accept a Zen proof, result, coin, or achievement write.
 - Ranked Multiplayer accepts only `own_color`, 2–4 players,
