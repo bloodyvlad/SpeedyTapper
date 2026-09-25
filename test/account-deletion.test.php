@@ -5,6 +5,7 @@ declare(strict_types=1);
 use SpeedyTapper\AccountDeletionService;
 use SpeedyTapper\ApiException;
 use SpeedyTapper\GameCenterPublicationRepository;
+use SpeedyTapper\MultiplayerV2ResultService;
 use SpeedyTapper\StoreKitPseudonym;
 
 require dirname(__DIR__) . '/server/autoload.php';
@@ -38,6 +39,12 @@ $assert = static function (bool $condition, string $message) use (&$assertions):
 $database = new AccountDeletionSqlitePdo();
 $database->exec(<<<'SQL'
 CREATE TABLE players (id TEXT PRIMARY KEY, nickname TEXT NOT NULL);
+CREATE TABLE multiplayer_v2_results (match_id TEXT PRIMARY KEY, payload_hash BLOB NOT NULL);
+CREATE TABLE multiplayer_v2_result_players (
+    match_id TEXT NOT NULL REFERENCES multiplayer_v2_results(match_id) ON DELETE CASCADE,
+    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    PRIMARY KEY (match_id, player_id)
+);
 CREATE TABLE player_sessions (
     session_auth_id TEXT PRIMARY KEY,
     player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE
@@ -555,8 +562,14 @@ $service = new AccountDeletionService(
         str_repeat('deletion-publication-secret-', 2),
         true,
     ),
+    new MultiplayerV2ResultService($database),
 );
+$insert($database, 'INSERT INTO multiplayer_v2_results VALUES (:match, :digest)', ['match' => 'v2-target-match', 'digest' => random_bytes(32)]);
+$insert($database, 'INSERT INTO multiplayer_v2_result_players VALUES (:match, :player)', ['match' => 'v2-target-match', 'player' => $target]);
+$insert($database, 'INSERT INTO multiplayer_v2_result_players VALUES (:match, :player)', ['match' => 'v2-target-match', 'player' => $other]);
 $result = $service->delete($target);
+$assert($count($database, 'multiplayer_v2_results') === 0, 'Account deletion erases shared v2 alpha aggregate and digest.');
+$assert($count($database, 'multiplayer_v2_result_players') === 0, 'Account deletion erases every seat from the shared unranked v2 match.');
 $assert($result === [
     'deleted' => true,
     'retainedStoreKitTransactions' => 1,
@@ -759,6 +772,8 @@ $database->exec(
     "CREATE TRIGGER block_failed_account_delete BEFORE DELETE ON players "
     . "WHEN OLD.id = '$failed' BEGIN SELECT RAISE(ABORT, 'simulated failure'); END"
 );
+$insert($database, 'INSERT INTO multiplayer_v2_results VALUES (:match, :digest)', ['match' => 'v2-rollback-match', 'digest' => random_bytes(32)]);
+$insert($database, 'INSERT INTO multiplayer_v2_result_players VALUES (:match, :player)', ['match' => 'v2-rollback-match', 'player' => $failed]);
 $failedTransaction = false;
 try {
     $service->delete($failed);
@@ -766,6 +781,8 @@ try {
     $failedTransaction = true;
 }
 $assert($failedTransaction, 'A failure during player deletion is surfaced.');
+$assert($count($database, 'multiplayer_v2_results') === 1, 'A failed account deletion restores the shared v2 alpha receipt.');
+$assert($count($database, 'multiplayer_v2_result_players') === 1, 'A failed account deletion restores v2 participant data.');
 $assert($count($database, 'players', 'id = :id', ['id' => $failed]) === 1, 'A failed deletion rolls back the identity removal.');
 $assert($count($database, 'player_sessions', 'player_id = :player', ['player' => $failed]) === 1, 'A failed deletion rolls back session removal.');
 $assert($count($database, 'run_attempts', 'player_id = :player', ['player' => $failed]) === 1, 'A failed deletion rolls back proof-history removal.');

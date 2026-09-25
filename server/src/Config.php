@@ -39,6 +39,8 @@ final readonly class Config
         public ?string $gameCenterApiPrivateKeyPath = null,
         public ?string $gameCenterPlayerIdEncryptionKey = null,
         public ?bool $gameCenterPreReleased = null,
+        public ?string $realtimeUrl = null,
+        public ?string $multiplayerServiceSecret = null,
     ) {
     }
 
@@ -469,7 +471,30 @@ final readonly class Config
             gameCenterApiPrivateKeyPath: $gameCenterApiPrivateKeyPath,
             gameCenterPlayerIdEncryptionKey: $gameCenterPlayerIdEncryptionKey,
             gameCenterPreReleased: $gameCenterPreReleased,
+            realtimeUrl: $optional('SPEEDYTAPPER_REALTIME_URL'),
+            multiplayerServiceSecret: $optional('SPEEDYTAPPER_MULTIPLAYER_SERVICE_SECRET'),
         );
+    }
+
+    public function multiplayerV2IsConfigured(): bool
+    {
+        $url = $this->realtimeUrl;
+        $secret = $this->multiplayerServiceSecret;
+        if ($url === null || strlen($url) > 2048 || preg_match('/[\x00-\x20\x7f]/', $url) === 1 || $secret === null
+            || preg_match('/^[\x21-\x7e]{32,512}$/D', $secret) !== 1
+        ) {
+            return false;
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts) || empty($parts['host'])
+            || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])
+        ) {
+            return false;
+        }
+        return ($parts['scheme'] ?? '') === 'wss'
+            || (($parts['scheme'] ?? '') === 'ws'
+                && in_array($parts['host'], ['localhost', '127.0.0.1', '[::1]'], true));
     }
 
     /** @return list<string> */

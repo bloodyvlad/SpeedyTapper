@@ -22,17 +22,19 @@ final class RunAttemptService
         string $sessionBindingHash,
         mixed $mode,
         mixed $buildId,
+        mixed $ruleset = RunProof::RULESET,
+        mixed $proofVersion = RunProof::PROOF_VERSION,
     ): array
     {
-        if ($mode === 'zen') {
-            throw new ApiException(409, 'Zen is endless unranked practice and does not issue ranked run tickets.');
-        }
         if ($mode !== 'normal') {
             throw new ApiException(400, 'Ranked mode must be normal.');
         }
-        $contract = RunProof::ticketContract($buildId);
-        if ($contract === null) {
+        if (!RunProof::isSupportedBuildId($buildId)) {
             throw new ApiException(409, 'This game version is out of date. Refresh before starting a ranked run.');
+        }
+        $contract = RunProof::ticketContract($buildId, $ruleset, $proofVersion);
+        if ($contract === null) {
+            throw new ApiException(400, 'Ranked run contract is invalid.');
         }
         self::assertBindingHash($sessionBindingHash);
         if (!Uuid::isValidV4($playerId)) {

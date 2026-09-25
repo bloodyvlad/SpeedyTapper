@@ -39,8 +39,11 @@ final readonly class HttpRequest
         );
     }
 
-    public function json(): array
+    public function json(int $maximumBytes = self::MAX_BODY_BYTES): array
     {
+        if (strlen($this->rawBody) > $maximumBytes) {
+            throw new ApiException(413, 'Request data is too large.');
+        }
         if ($this->rawBody === '') {
             return [];
         }

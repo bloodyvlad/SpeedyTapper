@@ -99,7 +99,7 @@ $assert(true, 'The nickname migration safely reruns after completion.');
 
 $createPlayers($database);
 $insert = $database->prepare(
-    'INSERT INTO players (id, nickname, nickname_confirmed) VALUES (?, ?, 1)'
+    'INSERT INTO players (id, nickname, nickname_confirmed) VALUES (?, ?, ?)'
 );
 $insert->execute(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Duplicate', 1]);
 $insert->execute(['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'duplicate', 1]);

@@ -6,8 +6,9 @@ namespace SpeedyTapper;
 
 /**
  * Replays the build-bound Arcade proof contract and derives every persisted
- * score field. Current clients use reaction-proof-v3/proof 2 with explicit
- * color state; retained clients use reaction-proof-v2/proof 1.
+ * score field. Retained v3/proof 2 has explicit color state and independent
+ * decoys; explicitly negotiated v4/v5 proof 3 additionally replays pickups/tempo
+ * with the selected minimum pickup grid (2x2 for v4, 4x4 for v5).
  *
  * This closes the previous one-shot aggregate-forgery path. It is intentionally
  * not described as proof that a human produced the browser events: a modified
@@ -21,7 +22,6 @@ final class RunProofValidator
     public const RULESET_ID = RunProof::RULESET;
     public const PROOF_VERSION = RunProof::PROOF_VERSION;
 
-    private const ZEN_DURATION_MS = 180_000;
     private const MAX_NORMAL_DURATION_MS = 24 * 60 * 60 * 1_000;
     private const MAX_HANDLER_LAG_MS = 10_000;
     private const SCHEDULER_LAG_RISK_MS = 250;
@@ -42,10 +42,8 @@ final class RunProofValidator
     private const FOUR_BY_FOUR_CHALLENGE_STARTS_AT_MS = 50_000;
 
     private const MULTIPLE_DECOYS_STARTS_AT_MS = 70_000;
-    private const LEGACY_DECOY_LIFETIME_MIN_MS = 450;
-    private const LEGACY_DECOY_LIFETIME_MAX_MS = 750;
-    private const PERSISTENT_DECOY_LIFETIME_MIN_MS = 1_000;
-    private const PERSISTENT_DECOY_LIFETIME_MAX_MS = 3_000;
+    private const DECOY_LIFETIME_MIN_MS = 1_000;
+    private const DECOY_LIFETIME_MAX_MS = 3_000;
     private const DECOY_RETRY_MS = 150;
     private const DODGE_POINTS = 550;
 
@@ -53,13 +51,12 @@ final class RunProofValidator
     private const SCORE_CEILING = 1_000;
     private const STREAK_TARGET = 5;
     private const MAX_MULTIPLIER = 5;
-    private const ZEN_INITIAL_TARGET_DELAY_MS = 1_000;
-    private const ZEN_CADENCE_ADAPTATION = 0.5;
 
     public function validate(RunProof $proof): ScoreSubmission
     {
         if (
-            !RunProof::isSupportedBuildId($proof->buildId)
+            $proof->mode !== 'normal'
+            || !RunProof::isSupportedBuildId($proof->buildId)
             || !RunProof::supportsContract(
                 $proof->buildId,
                 $proof->ruleset,
@@ -69,10 +66,6 @@ final class RunProofValidator
             throw new ApiException(400, 'Run proof metadata is invalid.');
         }
 
-        $mode = $proof->mode;
-        $colorProofRules = $proof->ruleset === RunProof::RULESET
-            && $proof->proofVersion === RunProof::PROOF_VERSION;
-        $persistentDecoyRules = RunProof::usesPersistentDecoyRules($proof->buildId);
         $state = 'waiting';
         $gameOver = false;
         $finished = false;
@@ -81,6 +74,8 @@ final class RunProofValidator
         $hits = 0;
         $misses = 0;
         $lives = self::STARTING_LIVES;
+        $powerUps = $proof->hasPowerUps()
+            ? new ArcadePowerUpReplay($proof->minimumPickupGridDimension()) : null;
         $dodges = 0;
         $score = 0;
         $reactionBasePoints = 0;
@@ -100,7 +95,6 @@ final class RunProofValidator
         $targetDifficulty = null;
         $playerColor = null;
         $recoveryUntil = 0;
-        $zenTargetDelayMs = self::ZEN_INITIAL_TARGET_DELAY_MS;
         $recentlyExpiredCells = [];
         $activeDecoys = [];
         $nextDecoyId = 1;
@@ -119,9 +113,7 @@ final class RunProofValidator
             0,
             $hits,
             $challengeStartHits,
-            $mode,
-            $zenTargetDelayMs,
-            $persistentDecoyRules,
+            $powerUps,
         );
         $targetScheduleSamples = 0;
         $targetAtMinimumSamples = 0;
@@ -136,10 +128,7 @@ final class RunProofValidator
             $type = $event[0];
             $logicalAt = $event[1];
             $this->assertTimestamp($logicalAt, $eventIndex);
-            if ($mode === 'zen' && $type !== RunProof::EVENT_FINISH && $logicalAt > self::ZEN_DURATION_MS) {
-                $this->invalid('Zen gameplay continues beyond its deadline.', $eventIndex);
-            }
-            if ($mode === 'normal' && $logicalAt > self::MAX_NORMAL_DURATION_MS) {
+            if ($logicalAt > self::MAX_NORMAL_DURATION_MS) {
                 $this->invalid('Arcade run duration is outside the supported range.', $eventIndex);
             }
             if (
@@ -148,6 +137,9 @@ final class RunProofValidator
                     RunProof::EVENT_DECOY_ACTIVATE,
                     RunProof::EVENT_DECOY_EXPIRE,
                     RunProof::EVENT_DECOY_TICK,
+                    RunProof::EVENT_POWER_UP_ACTIVATE,
+                    RunProof::EVENT_POWER_UP_EXPIRE,
+                    RunProof::EVENT_POWER_UP_TICK,
                 ], true)
                 && $logicalAt < $lastHandledAt
             ) {
@@ -165,8 +157,6 @@ final class RunProofValidator
                 $this->invalid('The next target transition is missing from the proof.', $eventIndex);
             }
             if (
-                $mode !== 'zen'
-                &&
                 $state === 'active'
                 && $targetAt !== null
                 && $targetDifficulty !== null
@@ -180,7 +170,9 @@ final class RunProofValidator
                 RunProof::EVENT_HIT,
                 RunProof::EVENT_MISS,
                 RunProof::EVENT_FINISH,
+                RunProof::EVENT_POWER_UP_CLAIM,
             ], true) ? $event[2] : $logicalAt;
+            $powerUps?->assertBeforeEvent($type, $logicalAt, $processedAt, $eventIndex);
             if (
                 !$gameOver
                 && !in_array($type, [RunProof::EVENT_DECOY_ACTIVATE, RunProof::EVENT_DECOY_TICK], true)
@@ -196,18 +188,12 @@ final class RunProofValidator
                         $hits,
                         $processedAt,
                         $challengeStartHits,
-                        $persistentDecoyRules,
                     );
-                $decoySchedule = $this->decoyScheduleAfterOpportunity($processedAt, $difficulty);
+                $decoySchedule = $this->decoyScheduleAfterOpportunity($processedAt, $difficulty, $powerUps);
             }
 
             if ($type === RunProof::EVENT_TARGET) {
-                if ($colorProofRules) {
-                    [, $at, $cell, $targetColor] = $event;
-                } else {
-                    [, $at, $cell] = $event;
-                    $targetColor = null;
-                }
+                [, $at, $cell, $targetColor] = $event;
                 if ($state !== 'waiting') {
                     $this->invalid('A target was activated while another target was active.', $eventIndex);
                 }
@@ -220,15 +206,14 @@ final class RunProofValidator
                 }
                 $targetScheduleSamples++;
                 $targetRange = $targetSchedule['maximum'] - $targetSchedule['minimum'];
-                if ($mode !== 'zen' && $targetRange > 0) {
+                if ($targetRange > 0) {
                     $targetCadenceFractions[] = max(
                         0,
                         ($at - $targetSchedule['minimum']) / $targetRange,
                     );
                 }
                 if (
-                    $mode !== 'zen'
-                    && abs($at - $targetSchedule['minimum']) <= self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS
+                    abs($at - $targetSchedule['minimum']) <= self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS
                 ) {
                     $targetAtMinimumSamples++;
                 }
@@ -243,27 +228,28 @@ final class RunProofValidator
                     $hits,
                     $at,
                     $challengeStartHits,
-                    $persistentDecoyRules,
                 );
+                if ($powerUps !== null) {
+                    $difficulty['responseWindowMs'] = $powerUps->scaleInterval($difficulty['responseWindowMs'], $at);
+                }
                 $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
-                if ($colorProofRules) {
-                    $this->assertColor($targetColor, $eventIndex);
-                    if ($playerColor === null) {
-                        $playerColor = $targetColor;
-                    } elseif ($targetColor !== $playerColor) {
-                        $this->invalid('Target color does not match the current player color.', $eventIndex);
-                    }
+                $this->assertColor($targetColor, $eventIndex);
+                if ($playerColor === null) {
+                    $playerColor = $targetColor;
+                } elseif ($targetColor !== $playerColor) {
+                    $this->invalid('Target color does not match the current player color.', $eventIndex);
                 }
                 if (isset($targetCellsByDimension[$difficulty['gridDimension']])) {
                     $targetCellsByDimension[$difficulty['gridDimension']][] = $cell;
                 }
-                if (isset($activeDecoys[$cell])) {
+                if (isset($activeDecoys[$cell]) || $powerUps?->occupiedCell() === $cell) {
                     $this->invalid('A target reused a reserved decoy cell.', $eventIndex);
                 }
                 if (isset($recentlyExpiredCells[$cell])) {
                     $hasUnreservedCell = false;
                     for ($candidate = 0; $candidate < $difficulty['gridDimension'] ** 2; $candidate++) {
-                        if (!isset($activeDecoys[$candidate]) && !isset($recentlyExpiredCells[$candidate])) {
+                        if (!isset($activeDecoys[$candidate]) && !isset($recentlyExpiredCells[$candidate])
+                            && $powerUps?->occupiedCell() !== $candidate) {
                             $hasUnreservedCell = true;
                             break;
                         }
@@ -280,16 +266,9 @@ final class RunProofValidator
                 $recoveryUntil = 0;
                 $recentlyExpiredCells = [];
             } elseif ($type === RunProof::EVENT_HIT) {
-                if ($colorProofRules) {
-                    [, $inputAt, $handledAt, $cell, $resultingColor] = $event;
-                } else {
-                    [, $inputAt, $handledAt, $cell] = $event;
-                    $resultingColor = null;
-                }
+                [, $inputAt, $handledAt, $cell, $resultingColor] = $event;
                 $this->assertHandledAt($inputAt, $handledAt, $lastHandledAt, $eventIndex);
-                if ($persistentDecoyRules) {
-                    $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
-                }
+                $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
                 $handlerLags[] = $handledAt - $inputAt;
                 if ($state !== 'active' || $targetAt === null || $targetDifficulty === null) {
                     $this->invalid('A correct tap has no active target.', $eventIndex);
@@ -298,21 +277,19 @@ final class RunProofValidator
                 $reactionMs = $inputAt - $targetAt;
                 if (
                     $reactionMs < 0
-                    || ($mode !== 'zen' && $reactionMs >= $targetDifficulty['responseWindowMs'])
+                    || $reactionMs >= $targetDifficulty['responseWindowMs']
                     || $cell !== $targetCell
                 ) {
                     $this->invalid('A claimed correct tap does not match the active target.', $eventIndex);
                 }
-                if ($colorProofRules) {
-                    $this->assertResultingColor(
-                        $playerColor,
-                        $resultingColor,
-                        max($inputAt, $lastHandledAt),
-                        $activeDecoys,
-                        $eventIndex,
-                    );
-                    $playerColor = $resultingColor;
-                }
+                $this->assertResultingColor(
+                    $playerColor,
+                    $resultingColor,
+                    max($inputAt, $lastHandledAt),
+                    $activeDecoys,
+                    $eventIndex,
+                );
+                $playerColor = $resultingColor;
 
                 $rating = $this->rating($reactionMs);
                 $basePoints = $this->scoreReaction($reactionMs, $targetDifficulty['responseWindowMs']);
@@ -337,46 +314,35 @@ final class RunProofValidator
                     );
                 }
 
-                if ($mode === 'zen') {
-                    $zenTargetDelayMs += self::ZEN_CADENCE_ADAPTATION
-                        * ($reactionMs - $zenTargetDelayMs);
-                }
                 $state = 'waiting';
                 $targetAt = null;
                 $targetCell = null;
                 $targetDifficulty = null;
                 $recoveryUntil = 0;
-                if (!$persistentDecoyRules) {
-                    $activeDecoys = [];
-                }
                 $targetSchedule = $this->targetSchedule(
                     $handledAt,
                     0,
                     $hits,
                     $challengeStartHits,
-                    $mode,
-                    $zenTargetDelayMs,
-                    $persistentDecoyRules,
+                    $powerUps,
                 );
                 $lastHandledAt = $handledAt;
             } elseif ($type === RunProof::EVENT_MISS) {
                 [, $inputAt, $handledAt, $reason, $cell] = $event;
                 $this->assertHandledAt($inputAt, $handledAt, $lastHandledAt, $eventIndex);
-                if ($persistentDecoyRules) {
-                    $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
-                }
+                $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
                 $handlerLags[] = $handledAt - $inputAt;
                 if (!in_array($reason, [RunProof::MISS_EMPTY, RunProof::MISS_WRONG, RunProof::MISS_LATE], true)) {
                     $this->invalid('Miss reason is invalid.', $eventIndex);
                 }
+                $powerUps?->assertMissContact($inputAt, $cell, $eventIndex);
 
                 if ($state === 'waiting') {
                     if ($reason !== RunProof::MISS_EMPTY) {
                         $this->invalid('A waiting-board mistake must be an empty-cell tap.', $eventIndex);
                     }
                     if (
-                        $colorProofRules
-                        && $inputAt + self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS < $recoveryUntil
+                        $inputAt + self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS < $recoveryUntil
                     ) {
                         $this->invalid('Input during the life-loss recovery pause must be ignored.', $eventIndex);
                     }
@@ -387,7 +353,6 @@ final class RunProofValidator
                         $hits,
                         $inputAt,
                         $challengeStartHits,
-                        $persistentDecoyRules,
                     );
                     $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
                 } elseif ($state === 'active' && $targetAt !== null && $targetDifficulty !== null) {
@@ -398,15 +363,12 @@ final class RunProofValidator
                     if ($reason === RunProof::MISS_WRONG) {
                         $this->assertCell($cell, $targetDifficulty['gridDimension'], $eventIndex);
                         if (
-                            ($mode !== 'zen' && $reactionMs >= $targetDifficulty['responseWindowMs'])
+                            $reactionMs >= $targetDifficulty['responseWindowMs']
                             || $cell === $targetCell
                         ) {
                             $this->invalid('Wrong-color miss does not match the active target.', $eventIndex);
                         }
                     } elseif ($reason === RunProof::MISS_LATE) {
-                        if ($mode === 'zen') {
-                            $this->invalid('Zen targets do not expire.', $eventIndex);
-                        }
                         if ($reactionMs < $targetDifficulty['responseWindowMs']) {
                             $this->invalid('Late miss occurred before the response deadline.', $eventIndex);
                         }
@@ -424,63 +386,47 @@ final class RunProofValidator
                 $misses++;
                 $multiplier = 1;
                 $streakProgress = 0;
-                $retainZenTarget = $mode === 'zen' && $state === 'active';
-                if (!$retainZenTarget) {
-                    $state = 'waiting';
-                    $targetAt = null;
-                    $targetCell = null;
-                    $targetDifficulty = null;
-                }
+                $state = 'waiting';
+                $targetAt = null;
+                $targetCell = null;
+                $targetDifficulty = null;
                 $activeDecoys = [];
                 $lastHandledAt = $handledAt;
 
-                if ($mode === 'normal') {
-                    $lives--;
-                    if ($lives < 0) {
-                        $this->invalid('Arcade run lost more than three lives.', $eventIndex);
-                    }
-                    if ($lives === 0) {
-                        $gameOver = true;
-                        $recoveryUntil = 0;
-                        $finalMissAt = $inputAt;
-                        $finalMissHandledAt = $handledAt;
-                    } else {
-                        $recoveryUntil = $handledAt + self::LIFE_LOSS_RECOVERY_MS;
-                        $targetSchedule = $this->targetSchedule(
-                            $handledAt,
-                            self::LIFE_LOSS_RECOVERY_MS,
-                            $hits,
-                            $challengeStartHits,
-                            persistentDecoyRules: $persistentDecoyRules,
-                        );
-                        $decoySchedule = $this->nextDecoySchedule(
-                            $handledAt,
-                            self::LIFE_LOSS_RECOVERY_MS,
-                            $hits,
-                            $challengeStartHits,
-                            $persistentDecoyRules,
-                        );
-                    }
-                } elseif (!$retainZenTarget && $state !== 'waiting') {
-                    $this->invalid('Zen miss left the run in an invalid state.', $eventIndex);
+                $lives--;
+                $powerUps?->loseLife($handledAt, self::LIFE_LOSS_RECOVERY_MS);
+                if ($lives < 0) {
+                    $this->invalid($powerUps === null ? 'Arcade run lost more than three lives.'
+                        : 'Arcade run lost more lives than it had available.', $eventIndex);
+                }
+                if ($lives === 0) {
+                    $gameOver = true;
+                    $recoveryUntil = 0;
+                    $finalMissAt = $inputAt;
+                    $finalMissHandledAt = $handledAt;
+                } else {
+                    $recoveryUntil = $handledAt + self::LIFE_LOSS_RECOVERY_MS;
+                    $targetSchedule = $this->targetSchedule(
+                        $handledAt,
+                        self::LIFE_LOSS_RECOVERY_MS,
+                        $hits,
+                        $challengeStartHits,
+                        $powerUps,
+                    );
+                    $decoySchedule = $this->nextDecoySchedule(
+                        $handledAt,
+                        self::LIFE_LOSS_RECOVERY_MS,
+                        $hits,
+                        $challengeStartHits,
+                        $powerUps,
+                    );
                 }
             } elseif ($type === RunProof::EVENT_DECOY_ACTIVATE) {
-                if ($colorProofRules) {
-                    [, $at, $id, $cell, $decoyColor, $lifetime] = $event;
-                } else {
-                    [, $at, $id, $cell, $lifetime] = $event;
-                    $decoyColor = null;
-                }
-                $minimumLifetime = $persistentDecoyRules
-                    ? self::PERSISTENT_DECOY_LIFETIME_MIN_MS
-                    : self::LEGACY_DECOY_LIFETIME_MIN_MS;
-                $maximumLifetime = $persistentDecoyRules
-                    ? self::PERSISTENT_DECOY_LIFETIME_MAX_MS
-                    : self::LEGACY_DECOY_LIFETIME_MAX_MS;
+                [, $at, $id, $cell, $decoyColor, $lifetime] = $event;
                 if (
                     $id !== $nextDecoyId
-                    || $lifetime < $minimumLifetime
-                    || $lifetime > $maximumLifetime
+                    || $lifetime < self::DECOY_LIFETIME_MIN_MS
+                    || $lifetime > self::DECOY_LIFETIME_MAX_MS
                 ) {
                     $this->invalid('Decoy identity or lifetime is invalid.', $eventIndex);
                 }
@@ -508,22 +454,20 @@ final class RunProofValidator
                         $hits,
                         $at,
                         $challengeStartHits,
-                        $persistentDecoyRules,
                     );
                 $cellCount = $difficulty['gridDimension'] ** 2;
-                $capacity = min($difficulty['maximumActiveDecoys'], max(0, $cellCount - 1));
+                $capacity = min($difficulty['maximumActiveDecoys'],
+                    max(0, $cellCount - 1 - ($powerUps?->occupiedCell() === null ? 0 : 1)));
                 if ($difficulty['decoyDelayRangeMs'] === null || $capacity === 0 || count($activeDecoys) >= $capacity) {
                     $this->invalid('Decoy is not allowed at this difficulty.', $eventIndex);
                 }
                 $this->assertCell($cell, $difficulty['gridDimension'], $eventIndex);
-                if ($cell === $targetCell || isset($activeDecoys[$cell])) {
+                if ($cell === $targetCell || isset($activeDecoys[$cell]) || $powerUps?->occupiedCell() === $cell) {
                     $this->invalid('Decoy overlaps an occupied cell.', $eventIndex);
                 }
-                if ($colorProofRules) {
-                    $this->assertColor($decoyColor, $eventIndex);
-                    if ($playerColor === null || $decoyColor === $playerColor) {
-                        $this->invalid('Decoy color must differ from the current player color.', $eventIndex);
-                    }
+                $this->assertColor($decoyColor, $eventIndex);
+                if ($playerColor === null || $decoyColor === $playerColor) {
+                    $this->invalid('Decoy color must differ from the current player color.', $eventIndex);
                 }
 
                 $activeDecoys[$cell] = [
@@ -534,7 +478,7 @@ final class RunProofValidator
                 ];
                 $nextDecoyId++;
                 $decoyLifetimes[] = $lifetime;
-                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty);
+                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty, $powerUps);
             } elseif ($type === RunProof::EVENT_DECOY_TICK) {
                 [, $at] = $event;
                 if ($at + self::TIMESTAMP_QUANTIZATION_TOLERANCE_MS < $decoySchedule['minimum']) {
@@ -561,17 +505,21 @@ final class RunProofValidator
                         $hits,
                         $at,
                         $challengeStartHits,
-                        $persistentDecoyRules,
                     );
                 $cellCount = $difficulty['gridDimension'] ** 2;
-                $capacity = min($difficulty['maximumActiveDecoys'], max(0, $cellCount - 1));
+                $capacity = min($difficulty['maximumActiveDecoys'],
+                    max(0, $cellCount - 1 - ($powerUps?->occupiedCell() === null ? 0 : 1)));
                 $canActivate = $difficulty['decoyDelayRangeMs'] !== null
                     && $capacity > 0
                     && count($activeDecoys) < $capacity;
+                if ($canActivate && $powerUps?->occupiedCell() !== null) {
+                    $freeCells = $cellCount - count($activeDecoys) - 1 - ($targetCell === null ? 0 : 1);
+                    $canActivate = $freeCells > 0;
+                }
                 if ($canActivate) {
                     $this->invalid('An ignored decoy opportunity could have produced a visible decoy.', $eventIndex);
                 }
-                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty);
+                $decoySchedule = $this->decoyScheduleAfterOpportunity($at, $difficulty, $powerUps);
             } elseif ($type === RunProof::EVENT_DECOY_EXPIRE) {
                 $at = $event[1];
                 $ids = array_slice($event, 2);
@@ -584,29 +532,45 @@ final class RunProofValidator
                     unset($activeDecoys[$decoy['cell']]);
                     $recentlyExpiredCells[$decoy['cell']] = true;
                     $dodges++;
-                    if ($mode !== 'zen') {
-                        $score += self::DODGE_POINTS;
-                    }
+                    $score += self::DODGE_POINTS;
                 }
+            } elseif ($powerUps !== null && in_array($type, [
+                RunProof::EVENT_POWER_UP_ACTIVATE, RunProof::EVENT_POWER_UP_TICK,
+            ], true)) {
+                $this->assertNoExpiredDecoys($activeDecoys, $logicalAt, $eventIndex);
+                $difficulty = $state === 'active' && $targetDifficulty !== null
+                    ? $targetDifficulty : $this->difficulty($hits, $logicalAt, $challengeStartHits);
+                if ($type === RunProof::EVENT_POWER_UP_ACTIVATE) {
+                    $powerUps->activate($event, $difficulty['gridDimension'], $targetCell,
+                        $activeDecoys, $recoveryUntil, $eventIndex);
+                } else {
+                    $powerUps->ignoredOpportunity($logicalAt, $difficulty['gridDimension'], $targetCell,
+                        $activeDecoys, $recoveryUntil, $eventIndex);
+                }
+            } elseif ($powerUps !== null && $type === RunProof::EVENT_POWER_UP_CLAIM) {
+                [, $inputAt, $handledAt] = $event;
+                $this->assertHandledAt($inputAt, $handledAt, $lastHandledAt, $eventIndex);
+                $this->assertNoExpiredDecoys($activeDecoys, $inputAt, $eventIndex);
+                $lives = $powerUps->claim($event, $lives, $recoveryUntil, $eventIndex);
+                // Pickup does not hit/miss, score, change color/streak or replace
+                // any already sampled target/decoy interval or response window.
+                $lastHandledAt = $handledAt;
+            } elseif ($powerUps !== null && $type === RunProof::EVENT_POWER_UP_EXPIRE) {
+                $powerUps->expire($event, $eventIndex);
             } elseif ($type === RunProof::EVENT_FINISH) {
                 [, $logicalFinishAt, $handledAt] = $event;
                 $this->assertHandledAt($logicalFinishAt, $handledAt, $lastHandledAt, $eventIndex);
                 if ($eventIndex !== $proof->eventCount() - 1) {
                     $this->invalid('Finish must be the final proof event.', $eventIndex);
                 }
-                if ($mode === 'normal') {
-                    if (
-                        !$gameOver
-                        || $misses !== self::STARTING_LIVES
-                        || $logicalFinishAt !== $finalMissAt
-                        || $handledAt < $finalMissHandledAt
-                    ) {
-                        $this->invalid('Arcade run did not finish on its third life loss.', $eventIndex);
-                    }
-                } else {
-                    if ($logicalFinishAt !== self::ZEN_DURATION_MS) {
-                        $this->invalid('Zen run must finish at exactly three minutes.', $eventIndex);
-                    }
+                if (
+                    !$gameOver
+                    || $misses !== self::STARTING_LIVES + ($powerUps?->restoredLives() ?? 0)
+                    || $logicalFinishAt !== $finalMissAt
+                    || $handledAt < $finalMissHandledAt
+                ) {
+                    $this->invalid($powerUps === null ? 'Arcade run did not finish on its third life loss.'
+                        : 'Arcade run did not finish when its remaining lives reached zero.', $eventIndex);
                 }
                 $survivalMs = $logicalFinishAt;
                 $finished = true;
@@ -620,6 +584,9 @@ final class RunProofValidator
                 RunProof::EVENT_DECOY_ACTIVATE,
                 RunProof::EVENT_DECOY_EXPIRE,
                 RunProof::EVENT_DECOY_TICK,
+                RunProof::EVENT_POWER_UP_ACTIVATE,
+                RunProof::EVENT_POWER_UP_EXPIRE,
+                RunProof::EVENT_POWER_UP_TICK,
             ], true)) {
                 $lastHandledAt = $logicalAt;
             }
@@ -628,8 +595,9 @@ final class RunProofValidator
         if (!$finished || $survivalMs === null) {
             throw new ApiException(400, 'Run proof has no valid finish event.');
         }
-        if ($mode === 'normal' && $misses !== self::STARTING_LIVES) {
-            throw new ApiException(400, 'Arcade run must end after exactly three mistakes.');
+        if ($misses !== self::STARTING_LIVES + ($powerUps?->restoredLives() ?? 0)) {
+            throw new ApiException(400, $powerUps === null ? 'Arcade run must end after exactly three mistakes.'
+                : 'Arcade run cumulative mistakes do not match its restored lives.');
         }
 
         $fastest = $reactions === [] ? null : min($reactions);
@@ -653,7 +621,7 @@ final class RunProofValidator
 
         return new ScoreSubmission(
             runId: $proof->runId,
-            mode: $mode,
+            mode: $proof->mode,
             score: $score,
             reactionBasePoints: $reactionBasePoints,
             multiplierBonusPoints: $multiplierBonusPoints,
@@ -689,7 +657,6 @@ final class RunProofValidator
         int $hits,
         int $elapsedMs,
         ?int $challengeStartHits,
-        bool $persistentDecoyRules,
     ): array
     {
         $gridDimension = $elapsedMs >= self::FOUR_BY_FOUR_STARTS_AT_MS
@@ -716,7 +683,7 @@ final class RunProofValidator
             $responseWindowMs = 750;
             $spawnRange = [475, 900];
             $decoyRange = [600, 3_400];
-            $maximumActiveDecoys = $persistentDecoyRules ? 1 : 2;
+            $maximumActiveDecoys = 1;
         }
         if ($elapsedMs >= self::FOUR_BY_FOUR_STARTS_AT_MS) {
             $responseWindowMs = 1_000;
@@ -729,18 +696,16 @@ final class RunProofValidator
             $tier = intdiv($challengeHits, 10);
             $responseWindowMs = max(
                 200,
-                1_000 - $challengeHits * ($persistentDecoyRules ? 5 : 10),
+                1_000 - $challengeHits * 5,
             );
             $spawnRange = [
                 max(250, 425 - $tier * 15),
                 max(500, 825 - $tier * 25),
             ];
             $decoyRange = [600, max(1_100, 2_000 - $tier * 170)];
-            $maximumActiveDecoys = $persistentDecoyRules
-                ? ($elapsedMs >= self::MULTIPLE_DECOYS_STARTS_AT_MS
-                    ? min(6, 2 + $tier)
-                    : 1)
-                : min(6, 2 + $tier);
+            $maximumActiveDecoys = $elapsedMs >= self::MULTIPLE_DECOYS_STARTS_AT_MS
+                ? min(6, 2 + $tier)
+                : 1;
         }
 
         return [
@@ -757,21 +722,17 @@ final class RunProofValidator
         int $recoveryMs,
         int $hits,
         ?int $challengeStartHits,
-        string $mode = 'normal',
-        float $zenTargetDelayMs = self::ZEN_INITIAL_TARGET_DELAY_MS,
-        bool $persistentDecoyRules = false,
+        ?ArcadePowerUpReplay $powerUps = null,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
-        if ($mode === 'zen') {
-            $targetAt = $readyAt + $zenTargetDelayMs;
-            return ['minimum' => $targetAt, 'maximum' => $targetAt];
-        }
         $range = $this->difficulty(
             $hits,
             $readyAt,
             $challengeStartHits,
-            $persistentDecoyRules,
         )['spawnDelayRangeMs'];
+        if ($powerUps !== null) {
+            $range = array_map(fn (int $delay): int => $powerUps->scaleInterval($delay, $baseAt), $range);
+        }
         return ['minimum' => $readyAt + $range[0], 'maximum' => $readyAt + $range[1]];
     }
 
@@ -780,7 +741,7 @@ final class RunProofValidator
         int $recoveryMs,
         int $hits,
         ?int $challengeStartHits,
-        bool $persistentDecoyRules,
+        ?ArcadePowerUpReplay $powerUps = null,
     ): array {
         $readyAt = $baseAt + $recoveryMs;
         if ($readyAt < self::COLOR_PATIENCE_STARTS_AT_MS) {
@@ -793,7 +754,6 @@ final class RunProofValidator
             $hits,
             $readyAt,
             $challengeStartHits,
-            $persistentDecoyRules,
         );
         if ($difficulty['gridDimension'] < 2 || $difficulty['decoyDelayRangeMs'] === null) {
             return [
@@ -801,13 +761,14 @@ final class RunProofValidator
                 'maximum' => $readyAt + self::DECOY_RETRY_MS,
             ];
         }
+        $range = $difficulty['decoyDelayRangeMs'];
         return [
-            'minimum' => $readyAt + $difficulty['decoyDelayRangeMs'][0],
-            'maximum' => $readyAt + $difficulty['decoyDelayRangeMs'][1],
+            'minimum' => $readyAt + ($powerUps?->scaleInterval($range[0], $baseAt) ?? $range[0]),
+            'maximum' => $readyAt + ($powerUps?->scaleInterval($range[1], $baseAt) ?? $range[1]),
         ];
     }
 
-    private function decoyScheduleAfterOpportunity(int $at, array $difficulty): array
+    private function decoyScheduleAfterOpportunity(int $at, array $difficulty, ?ArcadePowerUpReplay $powerUps = null): array
     {
         if ($difficulty['gridDimension'] < 2 || $difficulty['decoyDelayRangeMs'] === null) {
             return [
@@ -816,8 +777,10 @@ final class RunProofValidator
             ];
         }
         return [
-            'minimum' => $at + $difficulty['decoyDelayRangeMs'][0],
-            'maximum' => $at + $difficulty['decoyDelayRangeMs'][1],
+            'minimum' => $at + ($powerUps?->scaleInterval($difficulty['decoyDelayRangeMs'][0], $at)
+                ?? $difficulty['decoyDelayRangeMs'][0]),
+            'maximum' => $at + ($powerUps?->scaleInterval($difficulty['decoyDelayRangeMs'][1], $at)
+                ?? $difficulty['decoyDelayRangeMs'][1]),
         ];
     }
 

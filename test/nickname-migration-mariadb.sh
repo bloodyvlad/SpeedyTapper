@@ -3,7 +3,7 @@ set -euo pipefail
 
 container="pimpopom-nickname-mariadb-$$"
 cleanup() {
-    docker rm -f "$container" >/dev/null 2>&1 || true
+    docker rm -f -v "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -16,7 +16,7 @@ docker info >/dev/null 2>&1 || {
     exit 1
 }
 
-docker run --rm -d \
+docker run -d \
     --name "$container" \
     -e MARIADB_ROOT_PASSWORD=root \
     -e MARIADB_DATABASE=speedytapper \

@@ -44,10 +44,6 @@ final class RunSubmissionService
         $payload['coinBalance'] = $record['coinBalance'];
         $payload['totalPlayMs'] = $record['totalPlayMs'];
         $payload['verifiedResult'] = $record['verifiedResult'];
-        $payload['achievementSnapshot'] = $this->achievements->currentPayload(
-            $playerId,
-            $record['coinBalance'],
-        );
         return $payload;
     }
 
@@ -589,7 +585,8 @@ final class RunSubmissionService
         $maximum = 0;
         foreach ($proof->events as $event) {
             $handled = match ($event[0]) {
-                RunProof::EVENT_HIT, RunProof::EVENT_MISS, RunProof::EVENT_FINISH => $event[2],
+                RunProof::EVENT_HIT, RunProof::EVENT_MISS, RunProof::EVENT_FINISH,
+                RunProof::EVENT_POWER_UP_CLAIM => $event[2],
                 default => $event[1],
             };
             $maximum = max($maximum, (int) $handled);

@@ -30,11 +30,66 @@ final class App
         private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
         private readonly ?MultiplayerMatchService $multiplayer = null,
         private readonly ?MultiplayerLeaderboardRepository $multiplayerLeaderboard = null,
+        private readonly ?MultiplayerV2Service $multiplayerV2 = null,
+        private readonly ?MultiplayerV2ResultService $multiplayerV2Results = null,
+        private readonly ?MultiplayerV2LeaderboardRepository $multiplayerV2Leaderboard = null,
     ) {
     }
 
     public function dispatch(HttpRequest $request): never
     {
+        if ($request->method === 'POST' && $request->path === '/api/mobile/v2/multiplayer/tickets') {
+            $service = $this->multiplayerV2
+                ?? throw new ApiException(503, 'Multiplayer v2 is not configured.');
+            $service->requireConfigured();
+            $this->guardMutation($request);
+            $playerId = $this->session->playerId()
+                ?? throw new ApiException(401, 'Sign in to continue.');
+            $sessionHash = $this->session->authenticationHash();
+            $body = $request->json(1024);
+            $this->session->close();
+            JsonResponse::send(201, $service->issue($playerId, $sessionHash, $body));
+        }
+
+        if ($request->method === 'POST' && in_array($request->path, [
+            '/api/internal/multiplayer/v2/tickets/redeem',
+            '/api/internal/multiplayer/v2/sessions/validate',
+            '/api/internal/multiplayer/v2/results',
+        ], true)) {
+            $service = $this->multiplayerV2
+                ?? throw new ApiException(503, 'Multiplayer v2 is not configured.');
+            // These exact internal routes use service authentication, never cookie authority.
+            $service->authorizeService($request);
+            if (str_ends_with($request->path, '/results')) {
+                $results = $this->multiplayerV2Results
+                    ?? throw new ApiException(503, 'Multiplayer v2 result storage is not configured.');
+                JsonResponse::send(200, $results->store($request->json(16_384)));
+            }
+            $body = $request->json(1024);
+            JsonResponse::send(200, str_ends_with($request->path, '/redeem')
+                ? $service->redeem($body)
+                : $service->validateSession($body));
+        }
+
+        if ($request->method === 'GET' && $request->path === '/api/mobile/v2/multiplayer/leaderboard') {
+            $leaderboard = $this->multiplayerV2Leaderboard
+                ?? throw new ApiException(503, 'Multiplayer v2 leaderboard is not configured.');
+            $playerId = $this->session->playerId();
+            $this->session->close();
+            JsonResponse::send(200, $leaderboard->payload($playerId), $playerId === null
+                ? ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'] : []);
+        }
+
+        if ($request->method === 'GET'
+            && preg_match('#^/api/mobile/v2/multiplayer/results/([^/]+)$#D', $request->path, $match)) {
+            $playerId = $this->session->playerId()
+                ?? throw new ApiException(401, 'Sign in to continue.');
+            $results = $this->multiplayerV2Results
+                ?? throw new ApiException(503, 'Multiplayer v2 result storage is not configured.');
+            $this->session->close();
+            JsonResponse::send(200, $results->participantReceipt($match[1], $playerId));
+        }
+
         if ($request->method === 'GET' && $request->path === '/api/health') {
             JsonResponse::send(200, [
                 'ok' => true,
@@ -44,14 +99,6 @@ final class App
 
         if ($request->method === 'GET' && $request->path === '/api/session') {
             JsonResponse::send(200, $this->sessionPayload());
-        }
-
-        if ($request->method === 'GET' && $request->path === '/api/top-scores') {
-            JsonResponse::send(
-                200,
-                $this->leaderboard->topPayload($this->modeFromQuery($request)),
-                ['Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'],
-            );
         }
 
         if (
@@ -226,11 +273,11 @@ final class App
             if (!is_string($credential)) {
                 throw new ApiException(400, 'Google credential is required.');
             }
-            $identity = $this->google->verify($credential);
-            $intent = $body['intent'] ?? 'login_or_register';
-            if (!is_string($intent) || !in_array($intent, ['login', 'register', 'login_or_register', 'reauth'], true)) {
+            $intent = $body['intent'] ?? null;
+            if (!is_string($intent) || !in_array($intent, ['login', 'register', 'reauth'], true)) {
                 throw new ApiException(400, 'Google sign-in intent is invalid.');
             }
+            $identity = $this->google->verify($credential);
             $currentPlayerId = $this->session->playerId();
             if ($currentPlayerId === null) {
                 if ($intent === 'reauth') {
@@ -239,14 +286,14 @@ final class App
                 $resolution = $this->identities->loginOrRegister(
                     PlayerIdentityService::PROVIDER_GOOGLE,
                     $identity->subject,
-                    $intent !== 'login',
+                    $intent === 'register',
                 );
                 $this->session->login(
                     $resolution['playerId'],
                     PlayerIdentityService::PROVIDER_GOOGLE,
                 );
             } else {
-                if ($intent !== 'reauth' && $intent !== 'login_or_register') {
+                if ($intent !== 'reauth') {
                     throw new ApiException(409, 'Use the explicit link flow to add another sign-in method.');
                 }
                 $this->identities->reauthenticate(
@@ -371,11 +418,10 @@ final class App
             JsonResponse::send(200, $this->sessionPayload());
         }
 
-        if ($request->method === 'POST' && in_array(
-            $request->path,
-            ['/api/storekit/transactions', '/api/mobile/v1/storekit/transactions'],
-            true,
-        )) {
+        if (
+            $request->method === 'POST'
+            && $request->path === '/api/mobile/v1/storekit/transactions'
+        ) {
             $this->guardMutation($request);
             $profile = $this->requirePlayer();
             $body = $request->json();
@@ -399,14 +445,12 @@ final class App
             JsonResponse::send(200, $this->appStoreNotifications->receive($body['signedPayload'] ?? null));
         }
 
-        if ($request->method === 'DELETE' && in_array(
-            $request->path,
-            ['/api/profile', '/api/account', '/api/mobile/v1/account'],
-            true,
-        )) {
+        if ($request->method === 'DELETE' && $request->path === '/api/profile') {
             $this->guardMutation($request);
             $profile = $this->requirePlayer();
-            $confirmation = $request->json()['confirmation'] ?? null;
+            $body = $request->json();
+            $this->requireOnlyFields($body, ['confirmation'], 'Account deletion');
+            $confirmation = $body['confirmation'] ?? null;
             if (!is_string($confirmation) || !hash_equals('DELETE MY ACCOUNT', $confirmation)) {
                 throw new ApiException(400, 'Explicit account-deletion confirmation is required.');
             }
@@ -575,11 +619,14 @@ final class App
             $this->guardMutation($request);
             [$playerId, $sessionBindingHash] = $this->rankedRunContext(false);
             $body = $request->json();
+            $contract = RunProof::requestedContract($body);
             JsonResponse::send(201, $this->attempts->start(
                 $playerId,
                 $sessionBindingHash,
                 $body['mode'] ?? null,
                 $body['buildId'] ?? null,
+                $contract['ruleset'],
+                $contract['proofVersion'],
             ));
         }
 
@@ -729,10 +776,6 @@ final class App
             }
         }
 
-        if ($request->path === '/api/leaderboard' && $request->method === 'POST') {
-            throw new ApiException(410, 'Aggregate score submission is retired. Refresh before playing again.');
-        }
-
         if ($request->path === '/api/admin/leaderboard' && $request->method === 'GET') {
             $this->requireAdmin();
             [$offset, $limit] = $this->adminPagination($request);
@@ -866,9 +909,6 @@ final class App
                 'storeKit' => null,
             ] : $this->storeKitAccounts->state($profile['id'])),
             'ranks' => $profile === null ? null : $this->rankings($profile['id']),
-            'achievementSnapshot' => $profile === null
-                ? $this->achievements->payload(null)
-                : $this->achievements->currentPayload($profile['id'], (int) $profile['coins']),
         ];
     }
 
@@ -922,15 +962,22 @@ final class App
     private function rankings(string $playerId): array
     {
         $rankings = $this->leaderboard->rankings($playerId);
-        if ($this->multiplayerLeaderboard === null) {
-            return $rankings;
+        if ($this->multiplayerLeaderboard !== null) {
+            $multiplayer = $this->multiplayerLeaderboard->payload($playerId);
+            $rankings['multiplayer'] = [
+                'rank' => $multiplayer['playerRank'],
+                'totalEntries' => $multiplayer['totalEntries'],
+                'topPercent' => $multiplayer['topPercent'],
+            ];
         }
-        $multiplayer = $this->multiplayerLeaderboard->payload($playerId);
-        $rankings['multiplayer'] = [
-            'rank' => $multiplayer['playerRank'],
-            'totalEntries' => $multiplayer['totalEntries'],
-            'topPercent' => $multiplayer['topPercent'],
-        ];
+        if ($this->multiplayerV2Leaderboard !== null) {
+            $multiplayer = $this->multiplayerV2Leaderboard->payload($playerId);
+            $rankings['multiplayerV2'] = [
+                'rank' => $multiplayer['playerRank'],
+                'totalEntries' => $multiplayer['totalEntries'],
+                'topPercent' => $multiplayer['topPercent'],
+            ];
+        }
         return $rankings;
     }
 

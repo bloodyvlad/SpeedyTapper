@@ -5,6 +5,11 @@ declare(strict_types=1);
 // Production: copy to ~/.config/speedytapper/config.php outside the web root.
 // Local development may copy this to ignored server/config.local.php instead.
 return [
+    // Multiplayer v2 local alpha remains disabled until both are configured.
+    // Use wss:// for a host, or ws://127.0.0.1:<port>/socket for local testing.
+    'SPEEDYTAPPER_REALTIME_URL' => '',
+    // Independent random secret (32+ printable characters); service-to-service only.
+    'SPEEDYTAPPER_MULTIPLAYER_SERVICE_SECRET' => '',
     'SPEEDYTAPPER_DB_HOST' => 'localhost',
     'SPEEDYTAPPER_DB_PORT' => '3306',
     'SPEEDYTAPPER_DB_NAME' => '',

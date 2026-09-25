@@ -3,16 +3,24 @@
 declare(strict_types=1);
 
 use SpeedyTapper\ApiException;
+use SpeedyTapper\App;
 use SpeedyTapper\AchievementCatalog;
+use SpeedyTapper\AchievementService;
 use SpeedyTapper\CoinEconomy;
 use SpeedyTapper\CoinProgression;
+use SpeedyTapper\CoinWalletRepository;
 use SpeedyTapper\Config;
+use SpeedyTapper\GoogleIdentity;
+use SpeedyTapper\GoogleIdentityVerifier;
 use SpeedyTapper\HttpRequest;
+use SpeedyTapper\LeaderboardRepository;
 use SpeedyTapper\LeaderboardModerationService;
 use SpeedyTapper\LeaderboardWindow;
 use SpeedyTapper\MigrationRunner;
 use SpeedyTapper\Nickname;
 use SpeedyTapper\PetCatalog;
+use SpeedyTapper\PetShopService;
+use SpeedyTapper\PlayerRepository;
 use SpeedyTapper\RunAttemptService;
 use SpeedyTapper\RunProof;
 use SpeedyTapper\RunProofValidator;
@@ -20,10 +28,89 @@ use SpeedyTapper\RunSubmissionService;
 use SpeedyTapper\ScoreSubmission;
 use SpeedyTapper\SessionStore;
 use SpeedyTapper\SessionRegistry;
+use SpeedyTapper\StoreKitAccountRepository;
 use SpeedyTapper\ThemeCatalog;
+use SpeedyTapper\ThemeShopService;
 use SpeedyTapper\Uuid;
 
 require dirname(__DIR__) . '/server/autoload.php';
+
+final class CapturedJsonResponse extends RuntimeException
+{
+    public function __construct(
+        public readonly int $status,
+        public readonly array $body,
+        public readonly array $headers,
+    ) {
+        parent::__construct('Captured JSON response.');
+    }
+}
+
+if (!class_exists(\SpeedyTapper\JsonResponse::class, false)) {
+    eval(<<<'PHP'
+namespace SpeedyTapper;
+
+final class JsonResponse
+{
+    public static function send(int $status, array $body, array $headers = []): never
+    {
+        throw new \CapturedJsonResponse($status, $body, $headers);
+    }
+}
+PHP);
+}
+
+final class BackendContractSqlitePdo extends PDO
+{
+    public function __construct()
+    {
+        parent::__construct('sqlite::memory:', null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+        $this->exec('PRAGMA foreign_keys = ON');
+    }
+
+    public function prepare(string $query, array $options = []): PDOStatement|false
+    {
+        $query = str_replace('UTC_TIMESTAMP(3)', 'CURRENT_TIMESTAMP', $query);
+        $query = str_replace(
+            'status, (expires_at < CURRENT_TIMESTAMP) AS is_expired, '
+                . 'GREATEST(0, FLOOR(TIMESTAMPDIFF(MICROSECOND, started_at, CURRENT_TIMESTAMP) / 1000)) '
+                . 'AS server_elapsed_ms FROM run_attempts',
+            'status, 0 AS is_expired, server_elapsed_ms FROM run_attempts',
+            $query,
+        );
+        $query = str_replace(
+            'submitted_at > CURRENT_TIMESTAMP - INTERVAL 1 MINUTE',
+            "submitted_at > datetime('now', '-1 minute')",
+            $query,
+        );
+        $query = str_replace(
+            'submitted_at > CURRENT_TIMESTAMP - INTERVAL 1 DAY',
+            "submitted_at > datetime('now', '-1 day')",
+            $query,
+        );
+        $query = preg_replace('/\bINSERT IGNORE INTO\b/i', 'INSERT OR IGNORE INTO', $query) ?? $query;
+        $query = preg_replace('/\s+FOR UPDATE\b/i', '', $query) ?? $query;
+        return parent::prepare($query, $options);
+    }
+}
+
+final class UntouchedRunSubmissionPdo extends PDO
+{
+    public int $touches = 0;
+
+    public function __construct()
+    {
+    }
+
+    public function beginTransaction(): bool
+    {
+        $this->touches++;
+        throw new RuntimeException('Zen submission touched the database collaborator.');
+    }
+}
 
 $assertions = 0;
 
@@ -137,68 +224,14 @@ $normalProof = static function (string $runId, array $reactions = [100]) use ($p
     return $proofPayload($runId, 'normal', $events);
 };
 
-$zenProof = static function (string $runId) use ($proofPayload): array {
-    $events = [];
-    $handledAt = 0;
-    $hits = 0;
-    $playerColor = 0;
-    $targetDelayMs = 1_000.0;
-
-    while (true) {
-        $targetAt = (int) round($handledAt + $targetDelayMs);
-        if ($targetAt >= 180_000) break;
-        $dimension = $targetAt >= 40_000 ? 4 : ($hits >= 4 ? 2 : 1);
-        $cell = $hits % ($dimension ** 2);
-        $events[] = [RunProof::EVENT_TARGET, $targetAt, $cell, $playerColor];
-        $reactionMs = 90 + ($hits % 21);
-        if ($targetAt + $reactionMs >= 180_000) break;
-        $inputAt = $targetAt + $reactionMs;
-        $handledAt = $inputAt + 2;
-        if ($inputAt >= 10_000) {
-            $playerColor = ($playerColor + 1) % 6;
-        }
-        $events[] = [RunProof::EVENT_HIT, $inputAt, $handledAt, $cell, $playerColor];
-        $targetDelayMs += 0.5 * ($reactionMs - $targetDelayMs);
-        $hits++;
-    }
-
-    $events[] = [RunProof::EVENT_FINISH, 180_000, 180_000];
-    return $proofPayload($runId, 'zen', $events);
-};
-
-$toLegacyPayload = static function (
-    array $payload,
-    string $buildId = '20260728-2',
-) use ($proofPayload): array {
-    $events = array_map(
-        static fn (array $event): array => match ($event[0]) {
-            RunProof::EVENT_TARGET => array_slice($event, 0, 3),
-            RunProof::EVENT_HIT => array_slice($event, 0, 4),
-            RunProof::EVENT_DECOY_ACTIVATE => [
-                $event[0],
-                $event[1],
-                $event[2],
-                $event[3],
-                $event[count($event) - 1],
-            ],
-            default => $event,
-        },
-        $payload['events'],
-    );
-    return $proofPayload(
-        $payload['runId'],
-        $payload['mode'],
-        $events,
-        $buildId,
-        RunProof::LEGACY_RULESET,
-        RunProof::LEGACY_PROOF_VERSION,
-    );
-};
-
 $devRouter = file_get_contents(dirname(__DIR__) . '/server/dev-router.php');
 $assert(is_string($devRouter), 'PHP development router must be readable.');
 $assert(str_contains($devRouter, "require \$projectRoot . '/api/index.php'"), 'PHP development router must dispatch API requests.');
-$assert(str_contains($devRouter, '(?:server|vendor|\\.git)'), 'PHP development router must deny internal directories.');
+$assert(
+    str_contains($devRouter, 'http_response_code(404)')
+        && !str_contains($devRouter, 'return false'),
+    'PHP development router must return 404 without serving non-API files.',
+);
 
 $assert(Nickname::normalize('Speedy_Player') === 'Speedy_Player', 'Underscores remain valid in player names.');
 $assert(Nickname::normalize('кокос') === 'кокос', 'Unicode player names remain valid without whitespace.');
@@ -381,20 +414,8 @@ try {
     $assert(false, 'Zen must not issue a ranked run ticket.');
 } catch (ApiException $error) {
     $assert(
-        $error->status === 409 && str_contains($error->getMessage(), 'unranked practice'),
-        'Zen start requests are rejected before any database or coin accounting work.',
-    );
-}
-
-$unrankedSubmissionService = (new ReflectionClass(RunSubmissionService::class))->newInstanceWithoutConstructor();
-$unrankedProof = RunProof::fromArray($zenProof('b2392db0-7cfa-4cbc-a2b2-6dadf2b76310'));
-try {
-    $unrankedSubmissionService->submit(Uuid::v4(), str_repeat('b', 32), $unrankedProof);
-    $assert(false, 'Zen must not submit a leaderboard result.');
-} catch (ApiException $error) {
-    $assert(
-        $error->status === 409 && str_contains($error->getMessage(), 'does not submit scores or award coins'),
-        'Zen finish requests are rejected before validation, leaderboard, achievement, or coin work.',
+        $error->status === 400 && str_contains($error->getMessage(), 'Ranked mode must be normal'),
+        'Only normal-mode start requests reach ranked database or coin accounting work.',
     );
 }
 
@@ -420,18 +441,113 @@ $assert(
 );
 $assert(
     RunProof::ticketContract('20260729-1') === [
-        'ruleset' => RunProof::RULESET,
-        'proofVersion' => RunProof::PROOF_VERSION,
+        'ruleset' => 'reaction-proof-v3',
+        'proofVersion' => 2,
     ]
-        && RunProof::ticketContract(RunProof::BUILD_ID) === [
-            'ruleset' => RunProof::RULESET,
-            'proofVersion' => RunProof::PROOF_VERSION,
+        && RunProof::ticketContract('20260729-2') === [
+            'ruleset' => 'reaction-proof-v3',
+            'proofVersion' => 2,
         ]
-        && RunProof::ticketContract('20260728-2') === [
-            'ruleset' => RunProof::LEGACY_RULESET,
-            'proofVersion' => RunProof::LEGACY_PROOF_VERSION,
-        ],
-    'Run tickets dispatch the color-aware contract only to current native and web builds.',
+        && RunProof::ticketContract('20260728-99') === null,
+    'Every supported build receives only the current Arcade proof contract.',
+);
+$currentTuplePayload = $proofPayload('661e7758-989c-4362-9a15-3896cf27e624', 'normal', [
+    [RunProof::EVENT_TARGET, 600, 0, 0],
+    [RunProof::EVENT_HIT, 700, 702, 0, 0],
+    [RunProof::EVENT_MISS, 802, 804, RunProof::MISS_EMPTY, 0],
+    [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 1, 1, 1_000],
+    [RunProof::EVENT_DECOY_EXPIRE, 11_000, 1],
+    [RunProof::EVENT_FINISH, 12_000, 12_002],
+    [RunProof::EVENT_DECOY_TICK, 13_000],
+]);
+$assert(
+    RunProof::fromArray($currentTuplePayload)->events === $currentTuplePayload['events'],
+    'The parser retains the exact current tuple shape for every opcode from zero through six.',
+);
+$zenPayload = $singleHitPayload;
+$zenPayload['mode'] = 'zen';
+$throwsApi(
+    static fn () => RunProof::fromArray($zenPayload),
+    'Ranked proof parsing rejects Zen mode.',
+);
+$constructedZenProof = new RunProof(
+    runId: $singleHitPayload['runId'],
+    mode: 'zen',
+    buildId: $singleHitPayload['buildId'],
+    ruleset: $singleHitPayload['ruleset'],
+    proofVersion: $singleHitPayload['proofVersion'],
+    events: $singleHitPayload['events'],
+);
+try {
+    (new RunProofValidator())->validate($constructedZenProof);
+    $assert(false, 'The replay validator must reject a constructed Zen proof.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 400 && str_contains($error->getMessage(), 'metadata'),
+        'The replay validator accepts only normal-mode current metadata.',
+    );
+}
+$untouchedSubmissionDatabase = new UntouchedRunSubmissionPdo();
+$untouchedSubmissionWallets = new CoinWalletRepository($untouchedSubmissionDatabase);
+$constructedZenSubmissionService = new RunSubmissionService(
+    $untouchedSubmissionDatabase,
+    new LeaderboardRepository($untouchedSubmissionDatabase, 'season', 'Season'),
+    new RunProofValidator(),
+    new AchievementService($untouchedSubmissionDatabase, $untouchedSubmissionWallets),
+    $untouchedSubmissionWallets,
+);
+try {
+    $constructedZenSubmissionService->submit(
+        '35438c65-20b9-45d2-99f4-fbe82e4df640',
+        str_repeat('z', 32),
+        $constructedZenProof,
+    );
+    $assert(false, 'The run-submission service must reject a constructed Zen proof.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 409
+            && str_contains($error->getMessage(), 'Zen practice')
+            && $untouchedSubmissionDatabase->touches === 0,
+        'The run-submission service rejects constructed Zen with 409 before any persistence or domain collaborator can run.',
+    );
+}
+$legacyRulesetPayload = $singleHitPayload;
+$legacyRulesetPayload['ruleset'] = 'reaction-proof-v2';
+$throwsApi(
+    static fn () => RunProof::fromArray($legacyRulesetPayload),
+    'Ranked proof parsing rejects the v2 ruleset.',
+);
+$legacyVersionPayload = $singleHitPayload;
+$legacyVersionPayload['proofVersion'] = 1;
+$throwsApi(
+    static fn () => RunProof::fromArray($legacyVersionPayload),
+    'Ranked proof parsing rejects proof version one.',
+);
+$transitionalPayload = $singleHitPayload;
+$transitionalPayload['buildId'] = '20260729-1';
+$transitionalPayload['ruleset'] = 'reaction-proof-v2';
+$transitionalPayload['proofVersion'] = 1;
+$throwsApi(
+    static fn () => RunProof::fromArray($transitionalPayload),
+    'The former 20260729-1 transitional v2/proof-1 contract is retired.',
+);
+$colorlessTargetPayload = $singleHitPayload;
+array_pop($colorlessTargetPayload['events'][0]);
+$throwsApi(
+    static fn () => RunProof::fromArray($colorlessTargetPayload),
+    'Current target tuples require a player color.',
+);
+$colorlessHitPayload = $singleHitPayload;
+array_pop($colorlessHitPayload['events'][1]);
+$throwsApi(
+    static fn () => RunProof::fromArray($colorlessHitPayload),
+    'Current hit tuples require a resulting player color.',
+);
+$colorlessDecoyPayload = $currentTuplePayload;
+array_splice($colorlessDecoyPayload['events'][3], 4, 1);
+$throwsApi(
+    static fn () => RunProof::fromArray($colorlessDecoyPayload),
+    'Current decoy activation tuples require a decoy color.',
 );
 $assert($singleHit->score === 829, 'The server derives the rounded one-hit reaction score.');
 $assert($singleHit->hits === 1 && $singleHit->misses === 3, 'The server derives hit and miss totals from proof events.');
@@ -535,40 +651,6 @@ $sevenDay = $proofPayload('d4d867d5-4077-45dd-8428-8b652fcf1299', 'normal', [
     [RunProof::EVENT_FINISH, 604_800_200, 604_800_200],
 ]);
 $throwsApi(static fn () => ScoreSubmission::fromArray($sevenDay), 'Fabricated week-long Arcade proofs are rejected.');
-
-$zen = ScoreSubmission::fromArray($zenProof('cc2dc024-3300-4cb8-9d3c-e7f68eb8963c'));
-$assert($zen->mode === 'zen' && $zen->survivalMs === 180_000, 'A complete chronological Zen proof ends at exactly three minutes.');
-$assert(
-    $zen->hits > 100
-        && $zen->riskLevel === 'high'
-        && in_array('missing_decoy_cadence', $zen->riskFlags, true)
-        && in_array('missing_decoy_transitions', $zen->riskFlags, true)
-        && in_array('near_uniform_godlike_reactions', $zen->riskFlags, true),
-    'A long proof that silently omits the independent decoy engine is held for review.',
-);
-
-$persistentZen = $proofPayload('08fc9d30-f3e1-4e6f-9cb8-b223f6df6ec5', 'zen', [
-    [RunProof::EVENT_TARGET, 1_000, 0, 0],
-    [RunProof::EVENT_HIT, 1_100, 1_102, 0, 0],
-    [RunProof::EVENT_TARGET, 1_652, 0, 0],
-    [RunProof::EVENT_HIT, 1_752, 1_754, 0, 0],
-    [RunProof::EVENT_TARGET, 2_079, 0, 0],
-    [RunProof::EVENT_HIT, 2_179, 2_181, 0, 0],
-    [RunProof::EVENT_TARGET, 2_394, 0, 0],
-    [RunProof::EVENT_HIT, 2_494, 2_496, 0, 0],
-    [RunProof::EVENT_TARGET, 2_652, 0, 0],
-    [RunProof::EVENT_MISS, 3_082, 3_084, RunProof::MISS_WRONG, 1],
-    [RunProof::EVENT_HIT, 3_882, 3_884, 0, 0],
-    [RunProof::EVENT_TARGET, 4_577, 0, 0],
-    [RunProof::EVENT_FINISH, 180_000, 180_000],
-]);
-$persistentZenScore = ScoreSubmission::fromArray($persistentZen);
-$assert(
-    $persistentZenScore->hits === 5
-        && $persistentZenScore->misses === 1
-        && $persistentZenScore->goodCount === 1,
-    'PHP replay retains a Zen target through a wrong tap and accepts its later correct tap.',
-);
 
 $tickPayload = $proofPayload('46adf276-4ab7-4ae1-8f5d-ae0ddc3a7131', 'normal', [
     [RunProof::EVENT_DECOY_TICK, 10_000],
@@ -679,37 +761,6 @@ $throwsApi(
     static fn () => ScoreSubmission::fromArray($unsafeResultingColor),
     'A post-opening color transition cannot select a visible decoy color.',
 );
-$legacyProofPayload = $toLegacyPayload($equalMillisecondProof);
-$legacyProofPayload['events'][28] = [RunProof::EVENT_DECOY_ACTIVATE, 10_000, 1, 3, 750];
-array_splice($legacyProofPayload['events'], 31, 1);
-$legacyProofPayload['events'][count($legacyProofPayload['events']) - 1] = [
-    RunProof::EVENT_FINISH,
-    $legacyProofPayload['events'][count($legacyProofPayload['events']) - 2][1],
-    $legacyProofPayload['events'][count($legacyProofPayload['events']) - 2][2],
-];
-$legacyProofPayload['runId'] = '68e210a5-36d5-4eb8-a8f5-d9365eb43113';
-$legacyRun = ScoreSubmission::fromArray($legacyProofPayload);
-$assert(
-    $legacyRun->hits === 15 && $legacyRun->dodges === 0,
-    'The immediately previous build retains its 750ms tap-cleared decoy verifier during rollout.',
-);
-$transitionalBrowserPayload = $toLegacyPayload($singleHitPayload, '20260729-1');
-$transitionalBrowserPayload['runId'] = 'e56a41e9-6986-45e7-9a45-4ada34a42db9';
-$assert(
-    ScoreSubmission::fromArray($transitionalBrowserPayload)->score === $singleHit->score,
-    'An already-issued browser v2/1 attempt from build 20260729-1 can finish during rollout.',
-);
-$currentBuildLegacyContract = $toLegacyPayload($singleHitPayload, RunProof::BUILD_ID);
-$currentBuildLegacyContract['runId'] = '194385ff-c0a4-4c76-aa29-1e6d0e93e166';
-$throwsApi(
-    static fn () => ScoreSubmission::fromArray($currentBuildLegacyContract),
-    'The refreshed web build cannot downgrade from its v3/proof-2 contract.',
-);
-$assert(
-    RunProof::usesPersistentDecoyRules('20260729-1')
-        && !RunProof::usesPersistentDecoyRules('20260728-2'),
-    'Persistent decoy replay stays pinned to its immutable introduction build.',
-);
 $newBuildWithLegacyLifetime = $equalMillisecondProof;
 $newBuildWithLegacyLifetime['runId'] = '145fd5f8-06bd-4ea8-8dc3-5874129d9e37';
 $newBuildWithLegacyLifetime['events'][28][5] = 750;
@@ -717,20 +768,51 @@ $throwsApi(
     static fn () => ScoreSubmission::fromArray($newBuildWithLegacyLifetime),
     'The new build rejects legacy sub-second decoy lifetimes.',
 );
+$maximumLifetimeProof = $equalMillisecondProof;
+$maximumLifetimeProof['runId'] = '25cf5847-67d0-4bbc-8833-31f09075264b';
+$maximumLifetimeProof['events'][28][5] = 3_000;
+$maximumLifetimeProof['events'][31][1] = 13_000;
+$maximumLifetimeProof['events'][32] = [RunProof::EVENT_MISS, 13_100, 13_102, RunProof::MISS_EMPTY, 0];
+$maximumLifetimeProof['events'][33] = [RunProof::EVENT_MISS, 14_702, 14_704, RunProof::MISS_EMPTY, 0];
+$maximumLifetimeProof['events'][34] = [RunProof::EVENT_MISS, 16_304, 16_306, RunProof::MISS_EMPTY, 0];
+$maximumLifetimeProof['events'][35] = [RunProof::EVENT_FINISH, 16_304, 16_306];
+$maximumLifetimeRun = ScoreSubmission::fromArray($maximumLifetimeProof);
+$assert(
+    $maximumLifetimeRun->dodges === 1,
+    'Arcade replay accepts the exact 3,000-millisecond decoy lifetime boundary.',
+);
+$overlongLifetimeProof = $maximumLifetimeProof;
+$overlongLifetimeProof['runId'] = '31339737-2392-486e-9908-c94c5bd167bc';
+$overlongLifetimeProof['events'][28][5] = 3_001;
+try {
+    ScoreSubmission::fromArray($overlongLifetimeProof);
+    $assert(false, 'Arcade replay must reject a 3,001-millisecond decoy lifetime.');
+} catch (ApiException $error) {
+    $assert(
+        $error->status === 400 && str_contains($error->getMessage(), 'lifetime'),
+        'Arcade replay rejects 3,001 milliseconds specifically at the decoy lifetime boundary.',
+    );
+}
 $difficultyMethod = new ReflectionMethod(RunProofValidator::class, 'difficulty');
-$newDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0, true);
-$legacyDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0, false);
+$newDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 60_000, 0);
 $assert(
     $newDifficulty['responseWindowMs'] === 900
-        && $newDifficulty['maximumActiveDecoys'] === 1
-        && $legacyDifficulty['responseWindowMs'] === 800
-        && $legacyDifficulty['maximumActiveDecoys'] === 4,
-    'The new verifier uses a 5ms ramp and defers overlapping decoys while legacy builds keep 10ms overlap rules.',
+        && $newDifficulty['maximumActiveDecoys'] === 1,
+    'The verifier uses a 5ms challenge ramp and defers overlapping decoys until 70 seconds.',
 );
-$newLateDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 70_000, 0, true);
+$newLateDifficulty = $difficultyMethod->invoke(new RunProofValidator(), 20, 70_000, 0);
 $assert(
     $newLateDifficulty['maximumActiveDecoys'] === 4,
     'The new verifier permits multiple independent decoys only from 70 seconds onward.',
+);
+$challengeWindow205 = $difficultyMethod->invoke(new RunProofValidator(), 159, 60_000, 0);
+$challengeWindow200 = $difficultyMethod->invoke(new RunProofValidator(), 160, 60_000, 0);
+$challengeWindowFloored = $difficultyMethod->invoke(new RunProofValidator(), 161, 60_000, 0);
+$assert(
+    $challengeWindow205['responseWindowMs'] === 205
+        && $challengeWindow200['responseWindowMs'] === 200
+        && $challengeWindowFloored['responseWindowMs'] === 200,
+    'Real Arcade difficulty shrinks the challenge window to 205 ms, then 200 ms, and stays at the 200 ms floor.',
 );
 $falseTickProof = $equalMillisecondProof;
 $falseTickProof['runId'] = 'ce3cefda-0507-420f-b89c-304d287f5168';
@@ -785,10 +867,6 @@ $assert(
     'Sustained automated elite timing is withheld for operator review.',
 );
 
-$badZen = $zenProof('5e4f46d1-a132-4b97-b9a1-481090dca940');
-$badZen['events'][count($badZen['events']) - 1][1] = 179_999;
-$throwsApi(static fn () => ScoreSubmission::fromArray($badZen), 'Zen cannot claim completion before its exact deadline.');
-
 $parsedProof = RunProof::fromArray($singleHitPayload);
 $assert(hash_equals($parsedProof->proofHash(), RunProof::fromArray($singleHitPayload)->proofHash()), 'Canonical proof hashes are stable.');
 $nativeBuildPayload = $singleHitPayload;
@@ -804,31 +882,6 @@ $assert(
     !hash_equals($parsedProof->proofHash(), $nativeBuildProof->proofHash())
         && hash_equals($parsedProof->traceHash(), $nativeBuildProof->traceHash()),
     'The proof hash binds the native build while same-contract trace-clone detection remains stable.',
-);
-$compatibleBuildProofs = [];
-foreach ([
-    '20260718-1',
-    '20260719-1',
-    '20260719-2',
-    '20260719-3',
-    '20260720-1',
-    '20260725-1',
-    '20260727-1',
-    '20260727-2',
-    '20260727-3',
-    '20260728-2',
-] as $compatibleBuildId) {
-    $compatibleBuildPayload = $toLegacyPayload($singleHitPayload, $compatibleBuildId);
-    $compatibleBuildProofs[$compatibleBuildId] = RunProof::fromArray($compatibleBuildPayload);
-    $assert(
-        $compatibleBuildProofs[$compatibleBuildId]->buildId === $compatibleBuildId
-            && (new RunProofValidator())->validate($compatibleBuildProofs[$compatibleBuildId])->score === $singleHit->score,
-        'Each explicitly compatible build keeps its ticket-bound build ID and replays under the unchanged ruleset.',
-    );
-}
-$assert(
-    hash_equals($parsedProof->traceHash(), $compatibleBuildProofs['20260718-1']->traceHash()),
-    'Trace-clone detection remains stable across colorless and color-aware proof generations.',
 );
 $unsupportedBuildPayload = $singleHitPayload;
 $unsupportedBuildPayload['buildId'] = 'future-build';
@@ -853,16 +906,55 @@ $assert(
     hash_equals($parsedProof->traceHash(), $futureMetadataTrace->traceHash()),
     'Exact event replay detection cannot be reset merely by deploying a new build.',
 );
+$recoloredArcadePayload = $equalMillisecondProof;
+$recoloredArcadePayload['runId'] = '77f5f360-fcc8-4992-8671-9267e96f184c';
+foreach ($recoloredArcadePayload['events'] as &$event) {
+    $colorPosition = match ($event[0]) {
+        RunProof::EVENT_TARGET => 3,
+        RunProof::EVENT_HIT, RunProof::EVENT_DECOY_ACTIVATE => 4,
+        default => null,
+    };
+    if ($colorPosition !== null) {
+        $event[$colorPosition] = ($event[$colorPosition] + 3) % 6;
+    }
+}
+unset($event);
+$recoloredArcadeProof = RunProof::fromArray($recoloredArcadePayload);
+$recoloredArcadeRun = (new RunProofValidator())->validate($recoloredArcadeProof);
+$assert(
+    $recoloredArcadeRun->score === $equalMillisecondRun->score
+        && $recoloredArcadeRun->hits === $equalMillisecondRun->hits
+        && $recoloredArcadeRun->dodges === $equalMillisecondRun->dodges,
+    'A global Arcade palette permutation preserves replay-derived gameplay results.',
+);
+$assert(
+    !hash_equals($recoloredArcadeProof->proofHash(), RunProof::fromArray($equalMillisecondProof)->proofHash())
+        && hash_equals($recoloredArcadeProof->traceHash(), RunProof::fromArray($equalMillisecondProof)->traceHash()),
+    'Arcade trace fingerprints ignore target, resulting-player, and decoy colors while full proof hashes retain them.',
+);
+
+$arcadeSemanticMutations = [
+    ['target timing', 0, 1, 601],
+    ['target cell', 0, 2, 1],
+    ['miss reason', 2, 3, RunProof::MISS_WRONG],
+    ['decoy identity', 3, 2, 2],
+    ['decoy lifetime', 3, 5, 1_001],
+    ['finish timing', 5, 2, 12_003],
+    ['decoy tick timing', 6, 1, 13_001],
+];
+$arcadeSemanticBaseline = RunProof::fromArray($currentTuplePayload);
+foreach ($arcadeSemanticMutations as [$label, $eventIndex, $partIndex, $replacement]) {
+    $changedPayload = $currentTuplePayload;
+    $changedPayload['events'][$eventIndex][$partIndex] = $replacement;
+    $changedProof = RunProof::fromArray($changedPayload);
+    $assert(
+        !hash_equals($arcadeSemanticBaseline->traceHash(), $changedProof->traceHash()),
+        'Arcade trace fingerprints retain ' . $label . '.',
+    );
+}
 $invalidTuple = $singleHitPayload;
 $invalidTuple['events'][0][1] = 600.5;
 $throwsApi(static fn () => RunProof::fromArray($invalidTuple), 'Proof tuple values must be integers.');
-$missingColorTuple = $singleHitPayload;
-array_pop($missingColorTuple['events'][0]);
-$throwsApi(
-    static fn () => RunProof::fromArray($missingColorTuple),
-    'The current proof contract requires a color on every target tuple.',
-);
-
 $firstHalfMinute = CoinProgression::accrue(0, 30_000);
 $secondHalfMinute = CoinProgression::accrue($firstHalfMinute->remainderMs, 30_000);
 $assert($firstHalfMinute->coinsEarned === 0, 'An incomplete cumulative minute does not award a coin yet.');
@@ -875,6 +967,197 @@ $assert(
 $assert(
     CoinProgression::accrue(0, $singleHit->survivalMs) == CoinProgression::accrue(0, 4_006),
     'Coin accounting depends on derived play time, not score or multiplier.',
+);
+
+$submissionDatabase = new BackendContractSqlitePdo();
+$submissionDatabase->exec(<<<'SQL'
+CREATE TABLE players (
+    id TEXT PRIMARY KEY,
+    nickname TEXT NOT NULL,
+    nickname_confirmed INTEGER NOT NULL DEFAULT 1,
+    earned_coins INTEGER NOT NULL DEFAULT 0,
+    purchased_coins INTEGER NOT NULL DEFAULT 0,
+    earned_coin_debt INTEGER NOT NULL DEFAULT 0,
+    refund_coin_debt INTEGER NOT NULL DEFAULT 0,
+    coins INTEGER NOT NULL DEFAULT 0,
+    coin_debt INTEGER NOT NULL DEFAULT 0,
+    total_play_ms INTEGER NOT NULL DEFAULT 0,
+    total_coins_collected INTEGER NOT NULL DEFAULT 0,
+    coin_time_remainder_ms INTEGER NOT NULL DEFAULT 0,
+    economy_generation INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE player_pet_selection (
+    player_id TEXT PRIMARY KEY,
+    pet_id TEXT NULL,
+    is_visible INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE leaderboard_entries (
+    id TEXT PRIMARY KEY,
+    season_id TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    fastest_reaction_ms INTEGER NULL,
+    average_reaction_ms INTEGER NULL,
+    correct_taps INTEGER NOT NULL,
+    dodge_count INTEGER NOT NULL,
+    godlike_count INTEGER NOT NULL,
+    perfect_count INTEGER NOT NULL,
+    great_count INTEGER NOT NULL,
+    good_count INTEGER NOT NULL,
+    ruleset_id TEXT NOT NULL,
+    proof_version INTEGER NOT NULL,
+    verified_at TEXT NULL,
+    verification_status TEXT NOT NULL,
+    risk_score INTEGER NOT NULL DEFAULT 0,
+    risk_reasons TEXT NULL,
+    achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE run_attempts (
+    run_id TEXT PRIMARY KEY,
+    session_binding_hash BLOB NOT NULL,
+    player_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    build_id TEXT NOT NULL,
+    ruleset_id TEXT NOT NULL,
+    proof_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TEXT NULL,
+    completed_at TEXT NULL,
+    server_elapsed_ms INTEGER NOT NULL,
+    proof_hash BLOB NULL,
+    risk_score INTEGER NOT NULL DEFAULT 0,
+    risk_reasons TEXT NULL,
+    rejection_code TEXT NULL,
+    submission_attempts INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE run_trace_claims (
+    trace_hash BLOB PRIMARY KEY,
+    first_run_id TEXT NOT NULL,
+    claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE completed_runs (
+    run_id TEXT PRIMARY KEY,
+    leaderboard_entry_id TEXT NULL,
+    player_id TEXT NOT NULL,
+    economy_generation INTEGER NOT NULL,
+    payload_hash BLOB NOT NULL,
+    mode TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    reaction_base_points INTEGER NOT NULL,
+    multiplier_bonus_points INTEGER NOT NULL,
+    max_multiplier INTEGER NOT NULL,
+    multiplier_1_hits INTEGER NOT NULL,
+    multiplier_2_hits INTEGER NOT NULL,
+    multiplier_3_hits INTEGER NOT NULL,
+    multiplier_4_hits INTEGER NOT NULL,
+    multiplier_5_hits INTEGER NOT NULL,
+    multiplier_1_base_points INTEGER NOT NULL,
+    multiplier_2_base_points INTEGER NOT NULL,
+    multiplier_3_base_points INTEGER NOT NULL,
+    multiplier_4_base_points INTEGER NOT NULL,
+    multiplier_5_base_points INTEGER NOT NULL,
+    coins_awarded INTEGER NOT NULL,
+    leaderboard_improved INTEGER NOT NULL,
+    verification_status TEXT NOT NULL,
+    coin_status TEXT NOT NULL,
+    ruleset_id TEXT NOT NULL,
+    proof_version INTEGER NOT NULL,
+    verified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    server_elapsed_ms INTEGER NOT NULL,
+    credited_play_ms INTEGER NOT NULL,
+    miss_count INTEGER NOT NULL,
+    risk_score INTEGER NOT NULL,
+    risk_reasons TEXT NULL
+);
+CREATE TABLE run_proofs (
+    run_id TEXT PRIMARY KEY,
+    proof_version INTEGER NOT NULL,
+    event_count INTEGER NOT NULL,
+    payload_hash BLOB NOT NULL,
+    trace_hash BLOB NOT NULL,
+    proof_json TEXT NOT NULL,
+    validation_status TEXT NOT NULL,
+    validation_reason TEXT NULL,
+    validated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE coin_ledger (
+    event_id TEXT PRIMARY KEY,
+    event_key TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    economy_generation INTEGER NOT NULL,
+    run_id TEXT NULL,
+    event_type TEXT NOT NULL,
+    play_ms_delta INTEGER NOT NULL,
+    coin_delta INTEGER NOT NULL,
+    remainder_before_ms INTEGER NOT NULL,
+    remainder_after_ms INTEGER NOT NULL,
+    earned_delta INTEGER NOT NULL,
+    purchased_delta INTEGER NOT NULL,
+    coin_balance_after INTEGER NOT NULL,
+    earned_balance_after INTEGER NOT NULL,
+    purchased_balance_after INTEGER NOT NULL,
+    coin_debt_after INTEGER NOT NULL,
+    earned_debt_after INTEGER NOT NULL,
+    refund_debt_after INTEGER NOT NULL,
+    total_play_ms_after INTEGER NOT NULL,
+    coin_status TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL
+);
+CREATE TABLE player_achievements (
+    player_id TEXT NOT NULL,
+    achievement_key TEXT NOT NULL,
+    reward_coins INTEGER NOT NULL,
+    unlocked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at TEXT NULL,
+    PRIMARY KEY (player_id, achievement_key)
+);
+SQL);
+$submissionPlayerId = '7aa55536-180e-4e30-bb50-05957cafc74a';
+$submissionRunId = 'a103a64b-7f90-47ad-9754-a5b4fc2d12a7';
+$submissionBindingHash = hash('sha256', 'submission-response-session', true);
+$submissionDatabase->prepare(
+    'INSERT INTO players (id, nickname) VALUES (:id, :nickname)'
+)->execute(['id' => $submissionPlayerId, 'nickname' => 'Submitter']);
+$submissionProof = RunProof::fromArray($normalProof($submissionRunId));
+$submissionDatabase->prepare(
+    'INSERT INTO run_attempts '
+    . '(run_id, session_binding_hash, player_id, mode, build_id, ruleset_id, proof_version, status, server_elapsed_ms) '
+    . 'VALUES (:run_id, :binding, :player_id, :mode, :build_id, :ruleset_id, :proof_version, :status, :elapsed)'
+)->execute([
+    'run_id' => $submissionRunId,
+    'binding' => $submissionBindingHash,
+    'player_id' => $submissionPlayerId,
+    'mode' => 'normal',
+    'build_id' => $submissionProof->buildId,
+    'ruleset_id' => $submissionProof->ruleset,
+    'proof_version' => $submissionProof->proofVersion,
+    'status' => 'issued',
+    'elapsed' => 4_100,
+]);
+$submissionWallets = new CoinWalletRepository($submissionDatabase);
+$submissionLeaderboard = new LeaderboardRepository($submissionDatabase, 'season', 'Season');
+$submissionAchievements = new AchievementService($submissionDatabase, $submissionWallets);
+$submittedRunPayload = (new RunSubmissionService(
+    $submissionDatabase,
+    $submissionLeaderboard,
+    new RunProofValidator(),
+    $submissionAchievements,
+    $submissionWallets,
+))->submit($submissionPlayerId, $submissionBindingHash, $submissionProof);
+$assert(
+    ($submittedRunPayload['submittedEntryId'] ?? null) === $submissionRunId
+        && ($submittedRunPayload['duplicate'] ?? null) === false
+        && is_array($submittedRunPayload['verifiedResult'] ?? null)
+        && !array_key_exists('achievementSnapshot', $submittedRunPayload),
+    'An accepted submitted-run response includes result context without duplicating achievements.',
 );
 
 $rows = [];
@@ -942,6 +1225,361 @@ $throwsApi(
     'Malformed finish requests are capped before proof parsing and re-login cannot reset that session limit.',
 );
 $rateSession->logout();
+
+$appReflection = new ReflectionClass(App::class);
+$dispatch = static function (App $app, HttpRequest $request): array {
+    try {
+        $app->dispatch($request);
+    } catch (CapturedJsonResponse $response) {
+        return [
+            'status' => $response->status,
+            'body' => $response->body,
+            'headers' => $response->headers,
+            'sent' => true,
+        ];
+    } catch (ApiException $error) {
+        return [
+            'status' => $error->status,
+            'body' => ['error' => $error->getMessage()],
+            'headers' => $error->headers,
+            'sent' => false,
+        ];
+    }
+};
+
+foreach ([
+    ['GET', '/api/top-scores'],
+    ['POST', '/api/storekit/transactions'],
+    ['DELETE', '/api/account'],
+    ['DELETE', '/api/mobile/v1/account'],
+    ['POST', '/api/leaderboard'],
+] as [$method, $path]) {
+    $outcome = $dispatch(
+        $appReflection->newInstanceWithoutConstructor(),
+        new HttpRequest($method, $path, [], [], '{}'),
+    );
+    $assert(
+        $outcome === [
+            'status' => 404,
+            'body' => ['error' => 'API route not found.'],
+            'headers' => [],
+            'sent' => false,
+        ],
+        $method . ' ' . $path . ' falls through to the normal unknown-route response.',
+    );
+}
+
+$routeDatabase = new BackendContractSqlitePdo();
+$routeDatabase->exec(
+    'CREATE TABLE players ('
+    . 'id TEXT PRIMARY KEY, google_subject_hash BLOB NULL UNIQUE, nickname TEXT NOT NULL, '
+    . 'nickname_confirmed INTEGER NOT NULL DEFAULT 0, earned_coins INTEGER NOT NULL DEFAULT 0, '
+    . 'purchased_coins INTEGER NOT NULL DEFAULT 0, earned_coin_debt INTEGER NOT NULL DEFAULT 0, '
+    . 'refund_coin_debt INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 0, '
+    . 'coin_debt INTEGER NOT NULL DEFAULT 0, total_play_ms INTEGER NOT NULL DEFAULT 0, '
+    . 'total_coins_collected INTEGER NOT NULL DEFAULT 0, coin_time_remainder_ms INTEGER NOT NULL DEFAULT 0, '
+    . 'economy_generation INTEGER NOT NULL DEFAULT 0, last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+    . 'created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_sessions ('
+    . 'session_auth_hash BLOB PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
+$routeDatabase->exec('CREATE TABLE player_roles (player_id TEXT NOT NULL, role TEXT NOT NULL)');
+$routeDatabase->exec(
+    'CREATE TABLE player_pets (player_id TEXT NOT NULL, pet_id TEXT NOT NULL, acquired_at TEXT NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_pet_selection '
+    . '(player_id TEXT NOT NULL, pet_id TEXT NOT NULL, is_visible INTEGER NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_themes (player_id TEXT NOT NULL, theme_id TEXT NOT NULL, acquired_at TEXT NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_theme_selection (player_id TEXT NOT NULL, theme_id TEXT NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_identities ('
+    . 'provider TEXT NOT NULL, subject_hash BLOB NOT NULL, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'linked_at TEXT NOT NULL, last_authenticated_at TEXT NOT NULL, PRIMARY KEY (provider, subject_hash), '
+    . 'UNIQUE (player_id, provider))'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_game_center_bindings (player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_storekit_bindings ('
+    . 'player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, app_account_token TEXT NOT NULL UNIQUE)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE player_entitlement_sources ('
+    . 'player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, capability TEXT NOT NULL, active INTEGER NOT NULL)'
+);
+$routeDatabase->exec(
+    'CREATE TABLE leaderboard_entries ('
+    . 'id TEXT PRIMARY KEY, season_id TEXT NOT NULL, player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE, '
+    . 'mode TEXT NOT NULL, score INTEGER NOT NULL, duration_ms INTEGER NOT NULL, fastest_reaction_ms INTEGER NULL, '
+    . 'average_reaction_ms INTEGER NULL, correct_taps INTEGER NOT NULL, dodge_count INTEGER NOT NULL DEFAULT 0, '
+    . 'godlike_count INTEGER NOT NULL DEFAULT 0, perfect_count INTEGER NOT NULL DEFAULT 0, '
+    . 'great_count INTEGER NOT NULL DEFAULT 0, good_count INTEGER NOT NULL DEFAULT 0, '
+    . 'ruleset_id TEXT NOT NULL, proof_version INTEGER NOT NULL, verified_at TEXT NULL, '
+    . 'verification_status TEXT NOT NULL, risk_score INTEGER NOT NULL DEFAULT 0, risk_reasons TEXT NULL, '
+    . 'achieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
+);
+$routeWallets = new CoinWalletRepository($routeDatabase);
+$routeAchievements = new AchievementService($routeDatabase, $routeWallets);
+$routeIdentities = new \SpeedyTapper\PlayerIdentityService($routeDatabase);
+$loginSubject = 'existing-google-route-subject';
+$loginResolution = $routeIdentities->loginOrRegister('google', $loginSubject, true);
+$assert(
+    is_string($loginResolution['playerId'] ?? null),
+    'The route fixture has one existing Google profile for explicit-login behavior.',
+);
+$routePlayers = new PlayerRepository(
+    $routeDatabase,
+    new PetShopService($routeDatabase, $routeAchievements, $routeWallets),
+    new ThemeShopService($routeDatabase, $routeWallets),
+);
+session_id('speedytapperroutecontract' . bin2hex(random_bytes(4)));
+$routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
+$routeGoogle = new class implements GoogleIdentityVerifier {
+    public string $subject = 'existing-google-route-subject';
+
+    public function verify(string $credential): GoogleIdentity
+    {
+        return new GoogleIdentity($this->subject);
+    }
+};
+$newRouteApp = static function (SessionStore $session) use (
+    $appReflection,
+    $routeAchievements,
+    $routeDatabase,
+    $routeGoogle,
+    $routeIdentities,
+    $routePlayers,
+): App {
+    $app = $appReflection->newInstanceWithoutConstructor();
+    foreach ([
+        'config' => new Config('', 0, '', '', '', 'native.apps.googleusercontent.com', 'season', 'Season'),
+        'players' => $routePlayers,
+        'leaderboard' => new LeaderboardRepository($routeDatabase, 'season', 'Season'),
+        'achievements' => $routeAchievements,
+        'storeKitAccounts' => new StoreKitAccountRepository($routeDatabase, str_repeat('r', 32)),
+        'session' => $session,
+        'identities' => $routeIdentities,
+        'google' => $routeGoogle,
+        'gameCenterPublication' => null,
+        'multiplayerLeaderboard' => null,
+        'multiplayerV2Leaderboard' => null,
+    ] as $property => $value) {
+        $appReflection->getProperty($property)->setValue($app, $value);
+    }
+    return $app;
+};
+$routeApp = $newRouteApp($routeSession);
+
+$healthOutcome = $dispatch($routeApp, new HttpRequest('GET', '/api/health', [], [], ''));
+$assert(
+    $healthOutcome === [
+        'status' => 200,
+        'body' => [
+            'ok' => true,
+            'season' => ['id' => 'season', 'name' => 'Season'],
+        ],
+        'headers' => [],
+        'sent' => true,
+    ],
+    'App dispatch returns the configured season in the public 200 health response.',
+);
+
+$sessionOutcome = $dispatch($routeApp, new HttpRequest('GET', '/api/session', [], [], ''));
+$assert(
+    $sessionOutcome['status'] === 200
+        && $sessionOutcome['sent'] === true
+        && ($sessionOutcome['body']['googleClientId'] ?? null) === 'native.apps.googleusercontent.com'
+        && !array_key_exists('achievementSnapshot', $sessionOutcome['body']),
+    'The current session payload keeps Google client configuration without duplicating achievements.',
+);
+
+$requestWithCsrf = static function (
+    string $method,
+    string $path,
+    SessionStore $session,
+    array $body,
+    array $server = [],
+): HttpRequest {
+    $csrf = $session->csrfToken();
+    return new HttpRequest(
+        $method,
+        $path,
+        [],
+        ['HTTP_X_SPEEDYTAPPER_CSRF' => $csrf] + $server,
+        json_encode($body, JSON_THROW_ON_ERROR),
+    );
+};
+$googleOutcome = static function (
+    App $app,
+    SessionStore $session,
+    array $body,
+    array $server = [],
+) use ($dispatch, $requestWithCsrf): array {
+    return $dispatch($app, $requestWithCsrf('POST', '/api/auth/google', $session, $body, $server));
+};
+$sameOriginServer = [
+    'HTTP_ORIGIN' => 'http://speedytapper.test',
+    'HTTP_HOST' => 'speedytapper.test',
+];
+$assert(
+    $googleOutcome(
+        $routeApp,
+        $routeSession,
+        ['credential' => 'fixture'],
+        $sameOriginServer,
+    )['status'] === 400,
+    'Google sign-in requires an explicit intent.',
+);
+$assert(
+    $googleOutcome($routeApp, $routeSession, [
+        'credential' => 'fixture',
+        'intent' => 'login_or_register',
+    ], $sameOriginServer)['status'] === 400,
+    'Google sign-in rejects the retired login_or_register intent.',
+);
+$playerCountBeforeUnknownLogin = (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn();
+$routeGoogle->subject = 'unknown-google-login-subject';
+$unknownLogin = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'login'],
+    $sameOriginServer,
+);
+$assert(
+    $unknownLogin['status'] === 409
+        && (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn()
+            === $playerCountBeforeUnknownLogin,
+    'Explicit Google login maps to allowCreate false and cannot create an unknown profile.',
+);
+$routeGoogle->subject = $loginSubject;
+$nativeLoginRequest = $requestWithCsrf(
+    'POST',
+    '/api/auth/google',
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'login'],
+);
+$assert(
+    $nativeLoginRequest->header('Origin') === null,
+    'The native mutation regression request intentionally omits Origin.',
+);
+$loginOutcome = $dispatch($routeApp, $nativeLoginRequest);
+$assert(
+    $loginOutcome['status'] === 200
+        && $loginOutcome['sent'] === true
+        && ($loginOutcome['body']['profile']['id'] ?? null) === $loginResolution['playerId'],
+    'A CSRF-protected native Google login without Origin reaches its handler and succeeds.',
+);
+$routeSession->csrfToken();
+$routeSession->logout();
+
+$routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
+$routeApp = $newRouteApp($routeSession);
+$registrationSubject = 'new-google-registration-subject';
+$routeGoogle->subject = $registrationSubject;
+$playerCountBeforeRegistration = (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn();
+$registerOutcome = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'register'],
+);
+$registeredPlayerId = $registerOutcome['body']['profile']['id'] ?? null;
+$assert(
+    $registerOutcome['status'] === 200
+        && $registerOutcome['sent'] === true
+        && is_string($registeredPlayerId)
+        && (int) $routeDatabase->query('SELECT COUNT(*) FROM players')->fetchColumn()
+            === $playerCountBeforeRegistration + 1,
+    'Explicit Google registration maps to allowCreate true and creates exactly one profile.',
+);
+
+$routeGoogle->subject = $loginSubject;
+$foreignReauth = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'reauth'],
+);
+$assert(
+    $foreignReauth['status'] === 409
+        && $routeSession->playerId() === $registeredPlayerId,
+    'Authenticated Google reauth invokes identity reauthentication and cannot switch profiles.',
+);
+$routeGoogle->subject = $registrationSubject;
+$reauthOutcome = $googleOutcome(
+    $routeApp,
+    $routeSession,
+    ['credential' => 'fixture', 'intent' => 'reauth'],
+);
+$assert(
+    $reauthOutcome['status'] === 200
+        && $reauthOutcome['sent'] === true
+        && ($reauthOutcome['body']['profile']['id'] ?? null) === $registeredPlayerId,
+    'Authenticated Google reauth succeeds only for the current profile identity.',
+);
+$assert(
+    $googleOutcome(
+        $routeApp,
+        $routeSession,
+        ['credential' => 'fixture', 'intent' => 'login'],
+    )['status'] === 409
+        && $googleOutcome(
+            $routeApp,
+            $routeSession,
+            ['credential' => 'fixture', 'intent' => 'register'],
+        )['status'] === 409,
+    'Authenticated Google requests reject login and register in favor of the explicit link route.',
+);
+
+$deleteOutcome = $dispatch($routeApp, $requestWithCsrf(
+    'DELETE',
+    '/api/profile',
+    $routeSession,
+    ['confirmation' => 'WRONG PHRASE', 'unexpected' => true],
+));
+$assert(
+    $deleteOutcome['status'] === 400
+        && ($deleteOutcome['body']['error'] ?? null) === 'Account deletion contains unsupported fields.',
+    'Unsupported account-deletion fields win even when the confirmation phrase is also invalid.',
+);
+
+$routeSession->csrfToken();
+$routeSession->logout();
+$routeSession = new SessionStore(false, new SessionRegistry($routeDatabase));
+$routeApp = $newRouteApp($routeSession);
+$currentStoreKitOutcome = $dispatch($routeApp, $requestWithCsrf(
+    'POST',
+    '/api/mobile/v1/storekit/transactions',
+    $routeSession,
+    [],
+));
+$currentDeleteOutcome = $dispatch($routeApp, $requestWithCsrf(
+    'DELETE',
+    '/api/profile',
+    $routeSession,
+    [],
+));
+$zenLeaderboardOutcome = $dispatch(
+    $routeApp,
+    new HttpRequest('GET', '/api/leaderboard', ['mode' => 'zen'], [], ''),
+);
+$assert(
+    $currentStoreKitOutcome['status'] === 401
+        && ($currentStoreKitOutcome['body']['error'] ?? null) === 'Sign in to continue.'
+        && $currentDeleteOutcome['status'] === 401
+        && ($currentDeleteOutcome['body']['error'] ?? null) === 'Sign in to continue.'
+        && $zenLeaderboardOutcome['status'] === 200
+        && ($zenLeaderboardOutcome['body']['mode'] ?? null) === 'zen',
+    'Current StoreKit, profile deletion, and Zen read routes enter their real retained handlers.',
+);
 
 $schema = '';
 foreach (glob(dirname(__DIR__) . '/server/migrations/*.sql') ?: [] as $migrationPath) {
@@ -1041,7 +1679,7 @@ foreach ([
 }
 
 $app = file_get_contents(dirname(__DIR__) . '/server/src/App.php');
-foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/profile/nickname/availability', '/api/logout', '/api/profile', '/api/leaderboard', '/api/top-scores', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
+foreach (['/api/session', '/api/auth/google', '/api/auth/apple/challenge', '/api/auth/apple', '/api/profile/identities/google', '/api/profile/game-center/challenge', '/api/profile/game-center', '/api/profile/game-center/publication', '/api/profile/nickname/availability', '/api/logout', '/api/profile', '/api/leaderboard', '/api/pets', '/api/pets/select', '/api/pets/selection', '/api/themes', '/api/themes/select', '/api/achievements', '/api/achievements/claim', '/api/runs', '/api/runs/abandon', '/api/runs/finish'] as $route) {
     $assert(is_string($app) && str_contains($app, $route), 'API includes ' . $route . '.');
 }
 $nicknameAvailabilityRouteStart = strpos($app, "path === '/api/profile/nickname/availability'");
@@ -1098,7 +1736,6 @@ $assert(
     'Long-lived authenticated sessions can auto-link Game Center while publication disable stays sensitive.',
 );
 $assert(str_contains($app, 'guardMutation($request)'), 'Every API mutation uses the shared same-origin and CSRF guard.');
-$assert(str_contains($app, 'Aggregate score submission is retired'), 'The aggregate score endpoint is explicitly retired.');
 $assert(
     preg_match('~rankedRunContext\(true\).*?RunProof::fromArray~s', $app) === 1
         && preg_match('~if \(\$countFinishRequest\).*?requireRunFinishCapacity\(\).*?session->close\(\)~s', $app) === 1,
@@ -1149,6 +1786,7 @@ $assert(
         && str_contains($leaderboardRepository, 'ps.is_visible = 1')
         && str_contains($leaderboardRepository, "'petId' =>")
         && str_contains($leaderboardRepository, 'PetCatalog::specialForNickname')
+        && !str_contains($leaderboardRepository, 'function topPayload')
         && !str_contains($leaderboardRepository, 'UPDATE leaderboard_entries'),
     'Only ranked verification states are visible and accepted result rows remain immutable.',
 );
@@ -1557,7 +2195,6 @@ try {
 $leaderboardRepository = file_get_contents(dirname(__DIR__) . '/server/src/LeaderboardRepository.php');
 $assert(
     is_string($leaderboardRepository)
-        && str_contains($leaderboardRepository, 'public function topPayload')
         && str_contains($leaderboardRepository, 'ORDER BY ' . "' . \$order . '" . ' LIMIT ')
         && str_contains($app, "'Cache-Control' => 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'"),
     'Public top-five reads use a bounded ordered query and short shared-cache headers.',
@@ -1639,11 +2276,12 @@ $assert(is_string($gitignore) && str_contains($gitignore, 'server/config.local.p
 $assert(
     is_string($htaccess)
         && str_contains($htaccess, '(?:server|vendor|\.git)')
-        && str_contains($htaccess, 'X-Frame-Options')
-        && str_contains($htaccess, 'Content-Security-Policy')
-        && !str_contains($htaccess, "script-src 'self' 'unsafe-inline'")
+        && str_contains($htaccess, 'RewriteRule ^api(?:/.*)?$ api/index.php')
+        && str_contains($htaccess, 'RewriteRule ^ - [R=404,L]')
+        && !str_contains($htaccess, 'AddType')
+        && !str_contains($htaccess, 'Content-Security-Policy')
         && str_contains($htaccess, 'Strict-Transport-Security'),
-    'The production web server denies internals and emits baseline security headers.',
+    'The production web server exposes only the API and denies static browser content.',
 );
 
 fwrite(STDOUT, 'PHP backend tests passed (' . $assertions . ' assertions).' . PHP_EOL);

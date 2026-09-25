@@ -22,6 +22,7 @@ final class AccountDeletionService
         private readonly PDO $database,
         private readonly string $retentionHmacKey,
         private readonly ?GameCenterPublicationRepository $gameCenterPublication = null,
+        private readonly ?MultiplayerV2ResultService $multiplayerV2Results = null,
     ) {
         if ($this->retentionHmacKey !== '' && strlen($this->retentionHmacKey) < 32) {
             throw new InvalidArgumentException(
@@ -128,6 +129,7 @@ final class AccountDeletionService
             // player's result or ledger.
             $this->anonymizeModerationActorReferences($playerId);
             $this->purgeMultiplayerGameplayHistory($playerId);
+            $this->multiplayerV2Results?->purgePlayerInCurrentTransaction($playerId);
 
             // These history tables intentionally have restrictive or no player
             // foreign keys. Remove them explicitly before the player row so no

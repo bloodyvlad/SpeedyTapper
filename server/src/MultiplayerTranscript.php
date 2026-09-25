@@ -117,8 +117,18 @@ final readonly class MultiplayerTranscript
             'ruleset' => $this->ruleset,
             'protocolVersion' => $this->protocolVersion,
             'proofVersion' => $this->proofVersion,
-            'events' => $this->events,
+            'events' => $this->semanticEvents(),
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), true);
+    }
+
+    private function semanticEvents(): array
+    {
+        return array_map(static function (array $event): array {
+            if (($event[0] ?? null) === self::EVENT_DECOY_ACTIVATE) {
+                unset($event[6]);
+            }
+            return array_values($event);
+        }, $this->events);
     }
 
     public function eventCount(): int
